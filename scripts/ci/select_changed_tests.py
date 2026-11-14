@@ -61,6 +61,11 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/providers/gateway_contract.py": (
+        "tests/unit/providers/test_sandhi_gateway_peer.py",
+        "tests/unit/providers/test_subscription_gateway.py",
+        "tests/unit/config/test_gateway_resolution_boundary.py",
+    ),
     "scripts/benchmark_scip_scope.py": ("tests/unit/scripts/test_benchmark_scip_scope.py",),
     **dict.fromkeys(
         (
@@ -355,6 +360,18 @@ RELATED_TESTS = {
     "victor/config/classification_settings.py": (
         "tests/unit/agent/services/test_classification_backend.py",
         "tests/unit/architecture/test_layering_facades.py",
+    ),
+    # Sandbox settings model: policy field and resolver semantics are pinned
+    # by the sandbox owners (no config-local mirror file).
+    "victor/config/sandbox_settings.py": (
+        "tests/unit/tools/sandbox/test_backends.py",
+        "tests/unit/tools/sandbox/test_executor_integration.py",
+    ),
+    # Graph primitives: Send/edge dataclasses and the typed fan-out budget
+    # error are pinned by the graph execution owners (no primitives mirror).
+    "victor/framework/graph_primitives.py": (
+        "tests/unit/framework/test_graph.py",
+        "tests/unit/framework/test_graph_execution.py",
     ),
     "victor/storage/embeddings/intent_classifier.py": (
         "tests/unit/agent/test_continuation_loop_fix.py",
@@ -984,6 +1001,28 @@ RELATED_TESTS = {
     "victor/integrations/api/routes/chat_routes.py": (
         "tests/unit/integrations/api/test_fastapi_chat_wire_stream.py",
         "tests/unit/integrations/api/test_fastapi_chat_attribution.py",
+    ),
+    # /ws route: connection registration, message-auth gate, bounded auth
+    # handshake and broadcast recipient admission are pinned by the WS auth
+    # gate suite (no per-route mirror file).
+    "victor/integrations/api/routes/websocket_routes.py": (
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+    ),
+    # Tool/team routes: approval/cancel wiring and owner-scoped broadcast
+    # delivery are pinned by the consolidated-routes and WS auth gate suites
+    # (no per-route mirror files).
+    "victor/integrations/api/routes/tool_routes.py": (
+        "tests/unit/api/test_consolidated_routes.py",
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+    ),
+    "victor/integrations/api/routes/team_routes.py": (
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+    ),
+    # /agents route: owner-scoped background-agent event delivery is pinned
+    # by the background agent manager owner (no per-route mirror file).
+    "victor/integrations/api/routes/agent_routes.py": (
+        "tests/unit/agent/test_background_agent.py",
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
     ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",

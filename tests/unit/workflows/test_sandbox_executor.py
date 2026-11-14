@@ -8,6 +8,7 @@ import pytest
 
 from victor.workflows.isolation import IsolationConfig
 from victor.workflows.sandbox_executor import SandboxedExecutor
+from victor.runtime.policy_snapshot import run_policy_context
 
 
 async def test_process_workflow_round_trips_text_through_real_backend():
@@ -64,3 +65,487 @@ async def test_workflow_process_is_reaped_after_communication_failure(failure):
     backend.communicate.assert_awaited_once_with(process, "text")
     backend.terminate.assert_awaited_once_with(process)
     assert caller_env == {"CUSTOM": "value"}
+
+
+# ---------------------------------------------------------------------------
+# Required sandbox policy convergence (VAS-05i follow-up)
+# ---------------------------------------------------------------------------
+
+
+def _install_required(monkeypatch, backend_available: bool) -> None:
+    """Point default settings at a required policy; arm spawn traps."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+    import victor.tools.sandbox.backends as sb_mod
+
+    monkeypatch.setattr(sb_mod.platform, "system", lambda: "Linux")
+    if backend_available:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: "/usr/bin/bwrap")
+    else:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: None)
+
+    import victor.workflows.sandbox_executor as se
+
+    async def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child process spawned despite required sandbox policy")
+
+    monkeypatch.setattr(se.asyncio, "create_subprocess_exec", _no_spawn)
+
+
+async def test_required_policy_unavailable_refuses_inline_with_zero_spawn(monkeypatch):
+    """sandbox_type='none' (inline) must refuse under a required policy whose
+    backend is unavailable — no child process, structured failure."""
+    executor = SandboxedExecutor(docker_available=False)
+    _install_required(monkeypatch, backend_available=False)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('hi')"],
+        IsolationConfig(sandbox_type="none"),
+    )
+    assert not result.success
+    assert "required" in result.error.lower()
+    assert result.exit_code == -1
+
+
+async def test_required_policy_available_still_refuses_unenforced_inline(monkeypatch):
+    """Even with an enforcing backend present, an explicit sandbox_type='none'
+    request is unenforced execution and must refuse under required policy."""
+    executor = SandboxedExecutor(docker_available=False)
+    _install_required(monkeypatch, backend_available=True)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('hi')"],
+        IsolationConfig(sandbox_type="none"),
+    )
+    assert not result.success
+    assert "sandbox policy is 'required'" in result.error.lower()
+
+
+async def test_required_policy_blocks_docker_to_process_fallback(monkeypatch):
+    """Under required policy, docker-unavailable must not silently fall back
+    to the weaker process isolation."""
+    executor = SandboxedExecutor(docker_available=False)
+    _install_required(monkeypatch, backend_available=False)
+    started = []
+
+    class _FakeSandbox:
+        def __init__(self, config):
+            started.append(self)
+
+        async def start(self, **kwargs):
+            started.append("started")
+            raise AssertionError("fallback spawn attempted under required policy")
+
+    import victor.integrations.mcp.sandbox as mcp_sandbox
+
+    monkeypatch.setattr(mcp_sandbox, "SandboxedProcess", _FakeSandbox)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('hi')"],
+        IsolationConfig(sandbox_type="docker"),
+    )
+    assert not result.success
+    assert "sandbox policy is 'required'" in result.error.lower()
+    assert not started
+
+
+async def test_preferred_policy_keeps_existing_behavior(monkeypatch):
+    """preferred (and legacy bool) keeps today's fail-open behavior: inline
+    executes unsandboxed with a degradation warning path, no refusal."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="preferred")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+    executor = SandboxedExecutor(docker_available=False)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('ok')"],
+        IsolationConfig(sandbox_type="none"),
+    )
+    assert result.success, result.error
+    assert "ok" in result.output
+
+
+# ---------------------------------------------------------------------------
+# HB-03: required policy must apply the enforcing backend at actual launch
+# ---------------------------------------------------------------------------
+
+
+def _install_required_settings(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+def _patch_backend_available(monkeypatch, available: bool) -> None:
+    import victor.tools.sandbox.backends as sb_mod
+
+    monkeypatch.setattr(sb_mod.platform, "system", lambda: "Linux")
+    if available:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: "/usr/bin/bwrap")
+    else:
+        monkeypatch.setattr(sb_mod.shutil, "which", lambda name: None)
+
+
+def _patch_popen_trap(monkeypatch, launched: list) -> None:
+    import victor.integrations.mcp.sandbox as mcp_sandbox
+
+    def _trap(argv, *args, **kwargs):
+        launched.append(list(argv))
+        raise RuntimeError("synthetic spawn trap")
+
+    monkeypatch.setattr(mcp_sandbox.subprocess, "Popen", _trap)
+
+
+async def test_required_process_launch_wraps_argv_with_enforcing_backend(monkeypatch):
+    """Under a required policy with an enforcing backend available, the
+    workflow process branch must launch through the backend wrapper: the
+    spawned argv carries the launcher, not the raw command."""
+    _install_required_settings(monkeypatch)
+    _patch_backend_available(monkeypatch, available=True)
+    launched: list = []
+    _patch_popen_trap(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=False)
+    result = await executor.execute(
+        ["synthetic-command", "--flag"],
+        IsolationConfig(sandbox_type="process", network_allowed=True),
+    )
+    assert launched, "expected a spawn attempt to inspect"
+    assert launched[0][0] == "bwrap", f"raw argv launched: {launched[0]}"
+    assert "synthetic-command" in launched[0]
+    assert not result.success
+
+
+async def test_required_resolver_failure_refuses_workflow_process(monkeypatch):
+    """A generic resolver exception under required policy refuses the
+    workflow process branch; no launch is attempted."""
+    import victor.tools.sandbox as vs
+
+    _install_required_settings(monkeypatch)
+    _patch_backend_available(monkeypatch, available=True)
+
+    def _boom(settings):
+        raise RuntimeError("synthetic resolver failure")
+
+    monkeypatch.setattr(vs, "resolve_sandbox_backend", _boom, raising=False)
+    launched: list = []
+    _patch_popen_trap(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=False)
+    result = await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="process", network_allowed=True),
+    )
+    assert launched == [], "no spawn may be attempted on resolver failure"
+    assert not result.success
+    assert "required" in result.error.lower()
+
+
+async def test_required_docker_qualified_on_own_capabilities(monkeypatch):
+    """Docker under required policy is qualified by its own availability and
+    configuration — the platform backend binary is neither necessary nor
+    sufficient, so a missing bwrap must not refuse a docker branch."""
+    _install_required_settings(monkeypatch)
+    _patch_backend_available(monkeypatch, available=False)  # no bwrap
+
+    launched: list = []
+
+    import victor.workflows.sandbox_executor as se
+
+    async def _docker_trap(program, *args, **kwargs):
+        launched.append([program, *list(args)])
+        raise RuntimeError("synthetic docker trap")
+
+    monkeypatch.setattr(se.asyncio, "create_subprocess_exec", _docker_trap)
+    # _execute_docker launches `docker ...` via asyncio.create_subprocess_exec.
+
+    executor = SandboxedExecutor(docker_available=True)
+    result = await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="docker", network_allowed=False),
+    )
+    assert launched, "docker branch should have attempted container execution"
+    assert launched[0] and launched[0][0] == "docker", launched[0]
+    assert "sandbox policy is 'required'" not in result.error.lower()
+
+
+# ---------------------------------------------------------------------------
+# R2-02: global required restrictions compose as a floor across backends
+# ---------------------------------------------------------------------------
+
+
+def _install_global_sandbox(monkeypatch, policy: str, network_isolation: bool) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(
+            sandbox_enabled=True,
+            sandbox_policy=policy,
+            sandbox_network_isolation=network_isolation,
+        )
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+def _trap_docker_launch(monkeypatch, launched: list) -> None:
+    import victor.workflows.sandbox_executor as se
+
+    async def _trap(program, *args, **kwargs):
+        launched.append([str(program), *[str(a) for a in args]])
+        raise RuntimeError("synthetic docker launch trap")
+
+    monkeypatch.setattr(se.asyncio, "create_subprocess_exec", _trap)
+
+
+async def test_required_docker_global_network_floor_beats_node_config(monkeypatch):
+    """Global required network isolation is a floor: a workflow Docker
+    isolation that allows networking must still launch with --network none."""
+    _install_global_sandbox(monkeypatch, policy="required", network_isolation=True)
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="docker", network_allowed=True),
+    )
+    assert launched, "expected a docker launch attempt to inspect"
+    argv = launched[0]
+    assert "--network" in argv and "none" in argv, f"loosened network config: {argv}"
+
+
+async def test_preferred_docker_global_network_floor_applies(monkeypatch):
+    """The floor applies whenever the global sandbox is active, not only
+    under required policy."""
+    _install_global_sandbox(monkeypatch, policy="preferred", network_isolation=True)
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="docker", network_allowed=True),
+    )
+    assert launched
+    argv = launched[0]
+    assert "--network" in argv and "none" in argv, f"loosened network config: {argv}"
+
+
+async def test_disabled_policy_keeps_node_network_config(monkeypatch):
+    """No global sandbox configured: node network config is authoritative
+    (historical behavior)."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_enabled=False))
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    await executor.execute(
+        ["synthetic-command"],
+        IsolationConfig(sandbox_type="docker", network_allowed=True),
+    )
+    assert launched
+    argv = launched[0]
+    assert (
+        "--network" not in argv
+        or "none" not in argv[argv.index("--network") + 1 : argv.index("--network") + 2]
+    )
+
+
+async def test_network_floor_preserves_other_isolation_fields(monkeypatch):
+    """Adversarial (review finding): the floor composition must not drop
+    fields — docker_volumes and deployment survive the tightened config."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.workflows.isolation import DeploymentConfig
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(
+            sandbox_enabled=True,
+            sandbox_policy="required",
+            sandbox_network_isolation=True,
+        )
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+    deployment = DeploymentConfig(target="eks", cluster_name="c1")
+    volumes = ["/data:/data:ro"]
+    import victor.workflows.sandbox_executor as se
+
+    composed = se._compose_global_network_floor(
+        IsolationConfig(
+            sandbox_type="docker",
+            network_allowed=True,
+            docker_volumes=volumes,
+            deployment=deployment,
+        )
+    )
+    assert composed.network_allowed is False
+    assert composed.docker_volumes == volumes
+    assert composed.deployment is deployment
+
+
+async def test_workflow_refuses_when_policy_unreadable(monkeypatch):
+    """NEXT-01: unreadable settings refuse workflow process execution with
+    zero spawns — unknowable policy is not disabled mode."""
+    import victor.config.settings as cs
+    import victor.workflows.sandbox_executor as se
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+
+    async def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned with unreadable policy")
+
+    monkeypatch.setattr(se.asyncio, "create_subprocess_exec", _no_spawn)
+
+    executor = SandboxedExecutor(docker_available=False)
+    result = await executor.execute(
+        [sys.executable, "-c", "print('hi')"],
+        IsolationConfig(sandbox_type="process", network_allowed=True),
+    )
+    assert not result.success
+    assert "policy" in result.error.lower()
+
+
+# ---------------------------------------------------------------------------
+# FEP-0044 Phase 2: workflow launches consume admitted immutable policy
+# ---------------------------------------------------------------------------
+
+
+def _run_policy_snapshot(policy: str, *, network_isolation: bool = False):
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    return RunPolicySnapshot.from_settings(
+        SimpleNamespace(
+            sandbox=SandboxSettings(
+                sandbox_enabled=True,
+                sandbox_policy=policy,
+                sandbox_network_isolation=network_isolation,
+            )
+        )
+    )
+
+
+def _install_reloaded_globals(monkeypatch, policy: str, *, network_isolation=False) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(
+            sandbox_enabled=True,
+            sandbox_policy=policy,
+            sandbox_network_isolation=network_isolation,
+        )
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+class _RecordingBackend:
+    type_name = "fake"
+
+    def __init__(self):
+        self.calls = []
+
+    def wrap_argv(self, argv, cwd=None):
+        self.calls.append((list(argv), cwd))
+        return ["policy-wrapper", *argv]
+
+
+async def test_admitted_required_workflow_process_beats_reloaded_disabled(monkeypatch):
+    """A settings reload cannot weaken an already admitted workflow policy."""
+    _install_reloaded_globals(monkeypatch, "disabled")
+    backend = _RecordingBackend()
+    monkeypatch.setattr(
+        "victor.tools.sandbox.resolve_sandbox_backend",
+        lambda settings: backend,
+    )
+    launched: list = []
+    _patch_popen_trap(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=False)
+    with run_policy_context(_run_policy_snapshot("required")):
+        result = await executor.execute(
+            ["synthetic-command"],
+            IsolationConfig(sandbox_type="process", network_allowed=True),
+        )
+
+    assert backend.calls == [(["synthetic-command"], None)]
+    assert launched == [["policy-wrapper", "synthetic-command"]]
+    assert not result.success  # The synthetic trap stops after proving the launch argv.
+
+
+async def test_admitted_disabled_workflow_is_not_tightened_by_reloaded_required(monkeypatch):
+    _install_reloaded_globals(monkeypatch, "required")
+    _patch_backend_available(monkeypatch, available=False)
+    executor = SandboxedExecutor(docker_available=False)
+    with run_policy_context(_run_policy_snapshot("disabled")):
+        result = await executor.execute(
+            [sys.executable, "-c", "print('admitted-disabled')"],
+            IsolationConfig(sandbox_type="none"),
+        )
+
+    assert result.success, result.error
+    assert "admitted-disabled" in result.output
+
+
+async def test_admitted_required_network_floor_beats_reloaded_disabled(monkeypatch):
+    _install_reloaded_globals(monkeypatch, "disabled")
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    with run_policy_context(_run_policy_snapshot("required", network_isolation=True)):
+        await executor.execute(
+            ["synthetic-command"],
+            IsolationConfig(sandbox_type="docker", network_allowed=True),
+        )
+
+    assert launched
+    argv = launched[0]
+    assert "--network" in argv and "none" in argv, f"admitted floor lost: {argv}"
+
+
+async def test_admitted_disabled_network_floor_is_not_tightened_by_reloaded_preferred(
+    monkeypatch,
+):
+    _install_reloaded_globals(monkeypatch, "preferred", network_isolation=True)
+    launched: list = []
+    _trap_docker_launch(monkeypatch, launched)
+
+    executor = SandboxedExecutor(docker_available=True)
+    with run_policy_context(_run_policy_snapshot("disabled", network_isolation=False)):
+        await executor.execute(
+            ["synthetic-command"],
+            IsolationConfig(sandbox_type="docker", network_allowed=True),
+        )
+
+    assert launched
+    argv = launched[0]
+    assert "--network" not in argv, f"admitted policy tightened: {argv}"

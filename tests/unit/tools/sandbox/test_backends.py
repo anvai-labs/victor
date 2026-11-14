@@ -14,6 +14,8 @@
 
 """Tests for sandbox backend argv/profile construction and resolution."""
 
+import pytest
+
 from pathlib import Path
 
 
@@ -29,6 +31,7 @@ from victor.tools.sandbox import (
 class _Settings:
     def __init__(self, **kw):
         self.sandbox_enabled = kw.get("sandbox_enabled", True)
+        self.sandbox_policy = kw.get("sandbox_policy")
         self.sandbox_filesystem_mode = kw.get("sandbox_filesystem_mode", "workspace-only")
         self.sandbox_namespace_restrictions = kw.get("sandbox_namespace_restrictions", True)
         self.sandbox_network_isolation = kw.get("sandbox_network_isolation", False)
@@ -159,3 +162,88 @@ def test_warn_once_only(monkeypatch, caplog):
         resolve_sandbox_backend(_Settings())
     warnings = [r for r in caplog.records if "UNSANDBOXED" in r.message]
     assert len(warnings) == 1
+
+
+# -- policy model (VAS: required/preferred/disabled) -------------------------
+
+
+def test_sandbox_settings_policy_field_defaults_disabled():
+    from pydantic import ValidationError
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    # None = derive from the legacy sandbox_enabled bool.
+    assert SandboxSettings().sandbox_policy is None
+    assert SandboxSettings(sandbox_policy="required").sandbox_policy == "required"
+    assert SandboxSettings(sandbox_policy="preferred").sandbox_policy == "preferred"
+    assert SandboxSettings(sandbox_policy="disabled").sandbox_policy == "disabled"
+    with pytest.raises(ValidationError):
+        SandboxSettings(sandbox_policy="always")
+
+
+def test_effective_policy_mapping():
+    # Legacy bool: enabled=True without an explicit policy -> preferred
+    # (today's fail-open semantics).
+    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=False)) == "disabled"
+    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=True)) == "preferred"
+    assert sb.effective_sandbox_policy(None) == "disabled"
+    assert (
+        sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy=None))
+        == "preferred"
+    )
+    # Explicit policy wins over the bool in both directions.
+    assert (
+        sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy="required"))
+        == "required"
+    )
+    assert (
+        sb.effective_sandbox_policy(_Settings(sandbox_enabled=False, sandbox_policy="required"))
+        == "required"
+    )
+    assert (
+        sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy="disabled"))
+        == "disabled"
+    )
+
+
+def test_resolve_required_raises_when_binary_missing(monkeypatch):
+    monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sb.shutil, "which", lambda name: None)
+    with pytest.raises(sb.SandboxRequiredUnavailableError) as excinfo:
+        resolve_sandbox_backend(_Settings(sandbox_policy="required"))
+    assert excinfo.value.reason in ("binary_missing", "unsupported_platform")
+
+
+def test_resolve_required_raises_on_unsupported_platform(monkeypatch):
+    monkeypatch.setattr(sb.platform, "system", lambda: "Windows")
+    with pytest.raises(sb.SandboxRequiredUnavailableError) as excinfo:
+        resolve_sandbox_backend(_Settings(sandbox_policy="required"))
+    assert excinfo.value.reason == "unsupported_platform"
+
+
+def test_resolve_required_returns_backend_when_available(monkeypatch):
+    monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sb.shutil, "which", lambda name: "/usr/bin/bwrap")
+    backend = resolve_sandbox_backend(_Settings(sandbox_policy="required"))
+    assert backend.type_name == "bwrap"
+
+
+def test_resolve_required_does_not_emit_fail_open_warning(monkeypatch, caplog):
+    monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sb.shutil, "which", lambda name: None)
+    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    with caplog.at_level("WARNING"):
+        with pytest.raises(sb.SandboxRequiredUnavailableError):
+            resolve_sandbox_backend(_Settings(sandbox_policy="required"))
+    assert not [r for r in caplog.records if "UNSANDBOXED" in r.message]
+
+
+def test_resolve_preferred_still_fails_open_with_degradation(monkeypatch, caplog):
+    monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sb.shutil, "which", lambda name: None)
+    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    with caplog.at_level("WARNING"):
+        backend = resolve_sandbox_backend(_Settings(sandbox_policy="preferred"))
+    assert backend.type_name == "none"
+    degradation = [r for r in caplog.records if "DEGRADED" in r.message]
+    assert degradation, "preferred mode must explicitly record degraded containment"

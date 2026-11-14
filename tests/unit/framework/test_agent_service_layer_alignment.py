@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from victor.config.sandbox_settings import SandboxSettings
 from victor.framework.agent import Agent
 from victor.framework.events import EventType
 from victor.providers.base import CompletionResponse, StreamChunk
@@ -35,6 +36,9 @@ class AgentOrchestratorMock(MagicMock):
 def mock_orchestrator() -> AgentOrchestratorMock:
     """Create a mock AgentOrchestrator for testing."""
     orchestrator = AgentOrchestratorMock()
+    orchestrator.settings = SimpleNamespace(
+        governance=SimpleNamespace(durable=False), sandbox=SandboxSettings()
+    )
     orchestrator.provider = MagicMock()
     orchestrator.provider.name = "test_provider"
     orchestrator.model = "test-model"

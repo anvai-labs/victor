@@ -86,6 +86,9 @@ class RequestCost:
     outcome: Literal["pending", "success", "error", "cancelled", "closed"] = "success"
     usage_status: UsageStatus = "reported"
     transport_attempts: Optional[int] = None
+    pricing_status: str = "estimated"
+    usage_basis: str = "compatibility"
+    observed_units: Optional[Dict[str, Any]] = None
     subject_id: Optional[str] = field(default=None, repr=False)
     group_id: Optional[str] = field(default=None, repr=False)
 
@@ -99,6 +102,9 @@ class RequestCost:
             "provider": self.provider,
             "outcome": self.outcome,
             "usage_status": self.usage_status,
+            "pricing_status": self.pricing_status,
+            "usage_basis": self.usage_basis,
+            "observed_units": self.observed_units,
             "tokens": (
                 {
                     "prompt": self.prompt_tokens,
@@ -118,7 +124,7 @@ class RequestCost:
                     "cache": self.cache_cost,
                     "total": self.total_cost,
                 }
-                if self.usage_status != "unknown"
+                if self.usage_status != "unknown" and self.pricing_status != "unavailable"
                 else None
             ),
             "metadata": {
@@ -252,6 +258,7 @@ class SessionCostTracker:
             group_id=get_auth_group_id() or self.group_id,
             outcome="pending",
             usage_status="unknown",
+            pricing_status="unavailable",
         )
         self.requests.append(request)
         self._pending_requests[request.request_id] = request
@@ -267,6 +274,8 @@ class SessionCostTracker:
         duration_seconds: float = 0.0,
         tool_calls: int = 0,
         transport_attempts: Optional[int] = None,
+        typed_usage: Optional[Mapping[str, Any]] = None,
+        usage_basis: str = "compatibility",
     ) -> None:
         """Settle an owned invocation once; absent usage is never observed zero.
 
@@ -276,8 +285,14 @@ class SessionCostTracker:
         """
         if self._pending_requests.get(request.request_id) is not request:
             raise ValueError("Request is not pending on this tracker")
-        capabilities = self._capabilities
-        if (request.provider, request.model) != (self.provider, self.model):
+        request.usage_basis = usage_basis
+        request.observed_units = dict(typed_usage) if typed_usage is not None else None
+        gateway_projection = usage_basis == "gateway_client_projection"
+        capabilities = None if gateway_projection else self._capabilities
+        if not gateway_projection and (request.provider, request.model) != (
+            self.provider,
+            self.model,
+        ):
             from victor.config.metrics_capabilities import get_metrics_capabilities
 
             capabilities = get_metrics_capabilities(request.provider, request.model)
@@ -290,9 +305,29 @@ class SessionCostTracker:
             request.cache_write_tokens = usage.get("cache_creation_input_tokens", 0)
             request.total_tokens = usage_total_tokens(usage)
             request.usage_status = "reported" if usage_complete else "partial"
+            # Typed input is fresh-only; compatibility prompt totals may include
+            # cache reads. The selected gateway alias supplies no source rates.
+            fresh = request.prompt_tokens
+            if typed_usage is not None and typed_usage.get("completeness") != "unavailable":
+                fresh = int(typed_usage["tokens_in"])
+                request.completion_tokens = int(typed_usage["tokens_out"])
+                request.cache_read_tokens = int(typed_usage.get("cache_read_tokens", 0))
+                request.cache_write_tokens = int(typed_usage.get("cache_creation_tokens", 0))
+                request.total_tokens = (
+                    fresh
+                    + request.cache_read_tokens
+                    + request.cache_write_tokens
+                    + request.billable_completion_tokens
+                )
+            request.pricing_status = (
+                "unavailable"
+                if gateway_projection
+                else ("estimated" if capabilities and capabilities.cost_enabled else "disabled")
+            )
             if capabilities and capabilities.cost_enabled:
+                request.pricing_status = "partial_estimate" if not usage_complete else "estimated"
                 costs = capabilities.calculate_cost(
-                    request.prompt_tokens,
+                    fresh,
                     request.billable_completion_tokens,
                     request.cache_read_tokens,
                     request.cache_write_tokens,
@@ -319,7 +354,11 @@ class SessionCostTracker:
         self.total_cache_cost += request.cache_cost
         self.total_cost += request.total_cost
 
-        if self._sandhi is not None and request.usage_status == "reported":
+        if (
+            self._sandhi is not None
+            and request.usage_status == "reported"
+            and not gateway_projection
+        ):
             try:
                 self._sandhi.record(
                     provider=request.provider,
@@ -343,6 +382,9 @@ class SessionCostTracker:
         """
         elapsed = time.time() - self.start_time
         request_count = len(self.requests)
+        unavailable_prices = sum(
+            request.pricing_status == "unavailable" for request in self.requests
+        )
 
         return {
             "session_id": self.session_id,
@@ -364,17 +406,27 @@ class SessionCostTracker:
                 "cache_write": self.total_cache_write_tokens,
                 "total": self.total_tokens,
             },
+            "pricing_coverage": {
+                status: sum(request.pricing_status == status for request in self.requests)
+                for status in ("estimated", "partial_estimate", "disabled", "unavailable")
+            },
             "cost": {
-                "input": self.total_input_cost,
-                "output": self.total_output_cost,
-                "cache": self.total_cache_cost,
-                "total": self.total_cost,
+                "input": None if unavailable_prices else self.total_input_cost,
+                "output": None if unavailable_prices else self.total_output_cost,
+                "cache": None if unavailable_prices else self.total_cache_cost,
+                "total": None if unavailable_prices else self.total_cost,
+                "known_estimate": self.total_cost,
+                "status": "unavailable" if unavailable_prices else "estimated",
             },
             "averages": {
                 "tokens_per_request": (
                     self.total_tokens / request_count if request_count > 0 else 0
                 ),
-                "cost_per_request": (self.total_cost / request_count if request_count > 0 else 0),
+                "cost_per_request": (
+                    None
+                    if unavailable_prices
+                    else (self.total_cost / request_count if request_count > 0 else 0)
+                ),
             },
             "cost_enabled": (self._capabilities.cost_enabled if self._capabilities else False),
         }
@@ -399,7 +451,9 @@ class SessionCostTracker:
             f"  Total:      {summary['tokens']['total']:,}",
         ]
 
-        if summary["cost_enabled"]:
+        if summary["cost"]["status"] == "unavailable":
+            lines.extend(["", "Cost unavailable: source rates or usage are unknown"])
+        elif summary["cost_enabled"]:
             lines.extend(
                 [
                     "",
@@ -424,6 +478,12 @@ class SessionCostTracker:
         Returns:
             Formatted string like "$0.015" or "cost n/a"
         """
+        if request_cost is not None and request_cost.pricing_status == "unavailable":
+            return "cost n/a"
+        if request_cost is None and any(
+            request.pricing_status == "unavailable" for request in self.requests
+        ):
+            return "cost n/a"
         if not self._capabilities or not self._capabilities.cost_enabled:
             return "cost n/a"
 
@@ -476,6 +536,7 @@ class SessionCostTracker:
             "outcome",
             "usage_status",
             "transport_attempts",
+            "pricing_status",
         ]
 
         with open(path, "w", newline="") as f:
@@ -494,16 +555,33 @@ class SessionCostTracker:
                         req.cache_read_tokens if req.usage_status != "unknown" else None,
                         req.cache_write_tokens if req.usage_status != "unknown" else None,
                         req.total_tokens if req.usage_status != "unknown" else None,
-                        req.input_cost if req.usage_status != "unknown" else None,
-                        req.output_cost if req.usage_status != "unknown" else None,
-                        req.cache_cost if req.usage_status != "unknown" else None,
-                        req.total_cost if req.usage_status != "unknown" else None,
+                        (
+                            req.input_cost
+                            if req.usage_status != "unknown" and req.pricing_status != "unavailable"
+                            else None
+                        ),
+                        (
+                            req.output_cost
+                            if req.usage_status != "unknown" and req.pricing_status != "unavailable"
+                            else None
+                        ),
+                        (
+                            req.cache_cost
+                            if req.usage_status != "unknown" and req.pricing_status != "unavailable"
+                            else None
+                        ),
+                        (
+                            req.total_cost
+                            if req.usage_status != "unknown" and req.pricing_status != "unavailable"
+                            else None
+                        ),
                         req.duration_seconds,
                         req.tool_calls,
                         req.provider,
                         req.outcome,
                         req.usage_status,
                         req.transport_attempts,
+                        req.pricing_status,
                     ]
                 )
 

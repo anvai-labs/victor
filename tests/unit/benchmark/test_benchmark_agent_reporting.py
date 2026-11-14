@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from victor.config.sandbox_settings import SandboxSettings
 from victor.benchmark.agent import BenchmarkAgent, BenchmarkAgentConfig
 from victor.evaluation.protocol import BenchmarkTask, BenchmarkType
 from victor.framework.events import AgentExecutionEvent, EventType
@@ -68,7 +69,12 @@ async def test_run_receipt_identity_survives_eventless_benchmark_and_audit() -> 
     )
     runtime = SimpleNamespace(chat=AsyncMock(return_value=response))
     result = await execute_message(
-        orchestrator=SimpleNamespace(model="test"),
+        orchestrator=SimpleNamespace(
+            model="test",
+            settings=SimpleNamespace(
+                governance=SimpleNamespace(durable=False), sandbox=SandboxSettings()
+            ),
+        ),
         execution_context=SimpleNamespace(services=SimpleNamespace(chat=runtime)),
         user_message="task",
     )

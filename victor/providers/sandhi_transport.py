@@ -16,7 +16,6 @@ import platform
 import re
 import socket
 import ssl
-import uuid
 from contextlib import aclosing
 from json import JSONDecodeError
 from collections.abc import Mapping
@@ -26,6 +25,7 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 from victor.core.errors import ErrorCategory, ProviderPolicyError
+from victor.providers.gateway_contract import client_protocol, gateway_config, gateway_virtual_key
 from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.base import (
     BaseProvider,
@@ -112,7 +112,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.3.0 is required for provider transport",
+            "sandhi-gateway 0.18.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -381,10 +381,11 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
             except ssl.SSLCertVerificationError:
                 return (
                     "the endpoint's TLS certificate is not trusted by this "
-                    "machine's trust store (private/self-signed CA). Import "
-                    f"the issuing CA into the system trust store ({_tls_trust_remediation()}) "
-                    "or serve a publicly-trusted certificate; the sandhi "
-                    "binding does not read SSL_CERT_FILE"
+                    "machine's trust store (private/self-signed CA). Configure "
+                    "SSL_CERT_FILE with a trusted CA bundle for the SDK process "
+                    "(verify support on the installed SDK/platform), import "
+                    f"the issuing CA into the system trust store ({_tls_trust_remediation()}), "
+                    "or serve a publicly-trusted certificate"
                 )
             except OSError:
                 return None
@@ -395,7 +396,9 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
         return None
 
 
-async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> ProviderError:
+async def map_sandhi_error(
+    exc: BaseException, provider_name: str, timeout: float, *, gateway: bool = False
+) -> ProviderError:
     """Map `ProviderErrorV1` from the FFI without changing retry ownership.
 
     Async so the optional TLS diagnosis probe runs off the event loop with a
@@ -403,7 +406,10 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
     """
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
         return ProviderTimeoutError(
-            f"sandhi transport timed out: {exc}", provider=provider_name, timeout=timeout
+            f"sandhi transport timed out: {exc}",
+            provider=provider_name,
+            timeout=timeout,
+            recoverable=False,
         )
     typed = _typed_error_payload(str(exc))
     if typed is None:
@@ -411,9 +417,12 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
             # The typed class is authoritative: this IS a provider error even if
             # the payload failed to parse — never misfile it as a binding failure
             # (retry ownership differs).
-            return ProviderError(str(exc), provider=provider_name, raw_error=exc)
+            return ProviderError(str(exc), provider=provider_name, raw_error=exc, recoverable=False)
         return ProviderConnectionError(
-            f"sandhi binding failure: {exc}", provider=provider_name, raw_error=exc
+            f"sandhi binding failure: {exc}",
+            provider=provider_name,
+            raw_error=exc,
+            recoverable=False,
         )
     candidates = [typed]
     details = typed.get("details")
@@ -496,7 +505,9 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
     if code == "rate_limited":
         return ProviderRateLimitError(detail, provider=provider_name, status_code=429)
     if code == "authentication_error":
-        return ProviderAuthError(detail, provider=provider_name, status_code=int(status or 401))
+        return ProviderAuthError(
+            detail, provider=provider_name, status_code=int(status or 401), recoverable=not gateway
+        )
     if code == "timeout":
         # Sandhi may have hit a stream-idle or upstream deadline shorter than
         # Victor's configured overall timeout. Preserve its diagnosis without
@@ -505,6 +516,9 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
             detail,
             provider=provider_name,
             status_code=status if isinstance(status, int) else None,
+            # The binding supplies no authoritative pre-dispatch proof for a
+            # timeout. Retrying could duplicate an accepted physical request.
+            recoverable=False,
         )
     if code in {"circuit_open", "transport_error"}:
         # "error sending request" wraps both real network failures and TLS
@@ -525,13 +539,21 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
                     diagnosis = None
                 if diagnosis:
                     detail = f"{detail} | TLS diagnosis: {diagnosis}"
-        return ProviderConnectionError(detail, provider=provider_name, raw_error=exc)
+        return ProviderConnectionError(
+            detail,
+            provider=provider_name,
+            raw_error=exc,
+            recoverable=code == "circuit_open" and typed.get("retryable") is True,
+        )
     return ProviderError(
         detail,
         provider=provider_name,
         # A malformed structured response is terminal, even though its HTTP
         # status is 502. Do not turn Sandhi's contract refusal into a retry hint.
-        recoverable=code != "invalid_response",
+        recoverable=(
+            typed.get("retryable") is True
+            and code not in {"invalid_response", "output_projection_error"}
+        ),
         status_code=(
             int(status) if status is not None else (400 if code == "invalid_request" else None)
         ),
@@ -583,94 +605,45 @@ def _gateway_run_id() -> str:
         return ""
 
 
-def _gateway_family_base(root: str, slug: str) -> str:
-    """Derive the transport base_url for a gateway'd family from the proxy ROOT.
-
-    The proxy terminates four ingress dialects at fixed paths, and each sandhi
-    adapter appends its own path prefix — so the base the FFI handle holds is
-    family-specific even though the configured URL is one root:
-
-    =============== =========================== ==============================
-    family          adapter appends             base
-    =============== =========================== ==============================
-    openai-compat   ``/chat/completions``       root + ``/v1``
-    responses       ``/responses``              root + ``/v1``
-    anthropic       ``/v1/messages``            root
-    gemini          ``/models/{m}:{method}``    root + ``/v1beta``
-    =============== =========================== ==============================
-
-    Cohere/ollama have no proxy ingress dialect yet (upstream only, always the
-    translation plane) — they take the openai-compat form; neither their
-    cohere (/v2/chat) nor ollama (/api/chat) path matches any proxy route, so
-    the proxy answers 404 rather than mis-routing either way. Mirrors
-    ``GatewayRoute.openai_kwargs`` for the admin path.
-    """
+def _gateway_family_base(root: str, protocol: str) -> str:
+    """Derive the gateway ingress base from the explicit client dialect."""
     root = root.rstrip("/")
     for suffix in ("/v1", "/v1beta"):
         if root.endswith(suffix):
             root = root[: -len(suffix)]
             break
-    root = root.rstrip("/")
-    if slug in {"gemini", "google"}:
+    if protocol == "gemini_generate_content":
         return root + "/v1beta"
-    if slug in {"anthropic", "claude"}:
+    if protocol == "anthropic_messages":
         return root
     return root + "/v1"
 
 
+def _gateway_wire_headers(headers: Mapping[str, str]) -> Dict[str, str]:
+    """Exclude logical-meter dedup keys from the gateway execution boundary."""
+    blocked = {
+        "idempotency-key",
+        "authorization",
+        "proxy-authorization",
+        "x-api-key",
+        "api-key",
+        "x-goog-api-key",
+        "chatgpt-account-id",
+        "openai-organization",
+        "openai-project",
+        "x-sandhi-usage-convention",
+    }
+    return {name: value for name, value in headers.items() if name.lower() not in blocked}
+
+
 def _wire_call_headers() -> Dict[str, str]:
-    """Per-call gateway wire headers — the step and logical-call dimensions.
+    """Per-call gateway attribution; step changes must not change cache affinity.
 
-    Two values change faster than the transport handle, so they ride the PER-CALL
-    ``wire_headers_json`` argument of ``complete_json``/``stream_json`` (sandhi
-    >= 0.3.0), never the handle-static headers and never neutral ``metadata``:
-
-    - ``x-sandhi-step-id`` (sandhi TD-0022 D1): the agentic-loop turn id, so the
-      proxy's run cost tree is step-aware. Handle-static would rebuild the
-      transport handle (pool, circuit state) every turn — the exact cost the old
-      deferral was avoiding — and ``request["metadata"]`` maps onto
-      catalog-declared vendor affinity headers (InferFlux
-      ``x-inferflux-session-id``), where a per-turn value would change the
-      KV/prefix-cache key every turn and destroy cache reuse.
-    - ``Idempotency-Key`` (sandhi TD-0021 P4, gateway >= 0.5.0): the LOGICAL-call
-      identity, so the gateway's dedup counts one logical call once — the METER
-      counts logical calls, ENFORCEMENT still counts every physical settlement.
-      Preferred source is the ``call_id`` correlation var, bound by the retry
-      owner (``ResilientProvider.chat`` — default on via
-      ``SmartRoutingProvider``): every Python-level retry AND fallback of one
-      logical call re-enters this helper under the same binding and carries the
-      same key. Retries inside the Rust handle (``max_retries`` on the provider
-      factory) likewise see this one header value. STREAMS bind nothing (an
-      async generator cannot ContextVar-bind safely — see
-      ``ResilientProvider.stream``), so each stream invocation mints its own
-      key and stream-setup retries count per attempt: fail-toward-counting,
-      the direction sandhi specifies (ADR-0005 D3). With no retry owner bound
-      — a bare provider used directly — a fresh key is minted per invocation,
-      each invocation being its own logical call. Note the asymmetry with
-      ``x-sandhi-run-id``: a caller-set STATIC ``Idempotency-Key`` in the
-      handle headers is deliberately overridden here, because a static key
-      would dedup every call of the dedup window into one metered event.
-
-    The key is minted even when no turn is bound: dedup is transport-retry
-    protection, orthogonal to turn attribution. The call sites gate on gateway
-    mode and pass ``None`` when appropriate — direct mode evaluates the helper
-    but discards the result (contextvar reads + a cached import + at most one
-    uuid mint, negligible), so its wire bytes are unchanged by construction.
+    Run/session attribution stays on the cached handle and neutral request metadata.
+    The step id rides only the per-call wire headers. Logical call context remains
+    local correlation and never becomes an Idempotency-Key or replay authority.
     """
     headers: Dict[str, str] = {}
-    try:
-        from victor.core.context import get_call_id
-
-        call_id = str(get_call_id() or "")
-    except Exception:  # pragma: no cover - dedup must never block transport
-        call_id = ""
-    if call_id:
-        headers["Idempotency-Key"] = call_id
-    else:
-        try:
-            headers["Idempotency-Key"] = uuid.uuid4().hex
-        except Exception:  # pragma: no cover - os.urandom failure must not block transport
-            pass  # proceed without a key; the gateway meters each attempt separately
     try:
         from victor.core.context import get_turn_id
 
@@ -742,6 +715,7 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
         ("max_completion_tokens", "max_output_tokens"),
         ("response_format", "response_format"),
         ("seed", "seed"),
+        ("cache_intent", "cache_intent"),
     ):
         if source in payload:
             request[target] = payload[source]
@@ -774,6 +748,7 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
         "max_completion_tokens",
         "response_format",
         "seed",
+        "cache_intent",
         "stop",
         "stream",
         "stream_options",
@@ -912,7 +887,14 @@ class SandhiTypedProviderMixin:
     """Shared direct consumer of Sandhi's typed FFI contract."""
 
     _sandhi_runtime: Any = None
-    _sandhi_typed_providers: Optional[Dict[Tuple[str, str, str, str, str, str], Any]] = None
+    _sandhi_typed_providers: Optional[Dict[Tuple[str, ...], Any]] = None
+
+    @staticmethod
+    def _validate_call_options(options: Dict[str, Any]) -> None:
+        for name in ("endpoint_profile", "protocol", "peer_role", "gateway"):
+            if name in options:
+                raise ValueError(f"{name} is a constructor-only provider option")
+
     _SANDHI_WAIT_GRACE_SECS = 5.0
 
     async def close(self) -> None:
@@ -1005,38 +987,76 @@ class SandhiTypedProviderMixin:
         )
 
     def _gateway_overrides(self) -> Optional[Tuple[str, str]]:
-        """Return ``(proxy_url, virtual_key)`` when gateway mode is configured.
+        """Return ``(proxy_url, binding_credential)`` for a configured gateway.
 
         Gateway mode (TD-0003 P3) points the Sandhi FFI handle at the Sandhi proxy:
-        the proxy URL becomes the handle ``base_url`` and the virtual key becomes
-        both the presented credential and a ``bearer`` auth_scheme, so traffic is
-        centrally attributed and budget-enforced. The provider slug is preserved so
-        the proxy still speaks the right dialect and routes to the vault-resolved
-        upstream. Returns ``None`` in direct mode (the default).
+        the proxy URL becomes the handle ``base_url``. Protected modes present
+        their configured token; starter mode uses the public internal marker.
+        Server policy owns identity, attribution and budgets. An explicit client dialect is
+        independent of server backend selection. Returns ``None`` only in
+        direct mode; malformed configured gateway values fail closed.
         """
         raw = getattr(self, "extra_config", None)
         if not isinstance(raw, dict):
             return None
-        gateway = raw.get("gateway")
-        if not isinstance(gateway, dict):
+        gateway = gateway_config(raw.get("gateway"))
+        if gateway is None:
             return None
-        url = str(gateway.get("url") or "").strip()
-        if not url:
-            return None
+        url = str(gateway["url"]).strip()
         virtual_key = (
             getattr(self, "_api_key", None)
             if getattr(self, "_gateway_credential", None) is not None
-            else gateway.get("virtual_key")
+            else gateway_virtual_key(gateway)
         )
         # Duck-type SecretStr without importing pydantic into the transport layer.
         if hasattr(virtual_key, "get_secret_value"):
             virtual_key = virtual_key.get_secret_value()
         return (url, str(virtual_key or ""))
 
+    def _client_protocol(self) -> str:
+        gateway = gateway_config((getattr(self, "extra_config", None) or {}).get("gateway"))
+        declared = str(getattr(self, "_sandhi_protocol", "") or "")
+        return (
+            client_protocol(self._sandhi_slug(), declared, gateway.get("protocol"))
+            if gateway is not None
+            else declared
+        )
+
+    def _usage_slug(self) -> str:
+        if self._gateway_overrides() is not None:
+            return "anthropic" if self._client_protocol() == "anthropic_messages" else "openai"
+        return self._sandhi_slug()
+
+    def _typed_usage_diagnostics(self, usage: Any) -> Dict[str, Any]:
+        if not isinstance(usage, dict):
+            return {}
+        # These are validated typed units. Gateway views are not source receipts.
+        # Preserve optional zero/absence and reasoning inclusion exactly.
+        fields = (
+            "tokens_in",
+            "tokens_out",
+            "cache_creation_tokens",
+            "cache_read_tokens",
+            "reasoning_tokens",
+            "reasoning_included",
+            "completeness",
+            "outcome",
+            "cache_read_observation",
+        )
+        typed = {name: usage[name] for name in fields if name in usage}
+        if self._gateway_overrides() is not None:
+            return {
+                "gateway_client_protocol": self._client_protocol(),
+                "gateway_client_usage": typed,
+                "typed_usage": typed,
+                "usage_basis": "gateway_client_projection",
+            }
+        return {"typed_usage": typed, "usage_basis": "direct_provider"}
+
     def _typed_provider(self, model: str) -> Any:
         if not sandhi_transport_available():
             raise ProviderConnectionError(
-                "sandhi-gateway 0.3.0 typed runtime is unavailable",
+                "sandhi-gateway typed runtime is unavailable",
                 provider=self._sandhi_slug(),
             )
         _verify_wire_contract()
@@ -1046,23 +1066,30 @@ class SandhiTypedProviderMixin:
             self._sandhi_typed_providers = {}
         slug = self._sandhi_slug()
         protocol = str(getattr(self, "_sandhi_protocol", "") or "")
+        config = getattr(self, "extra_config", None)
+        endpoint_profile = str(
+            getattr(self, "_sandhi_endpoint_profile", None)
+            or (config.get("endpoint_profile") if isinstance(config, dict) else "")
+            or ""
+        )
         gateway = self._gateway_overrides()
         # Run cost tree (sandhi PR #149): only gateway mode stamps the run id —
         # direct-provider mode must stay byte-identical on the wire.
         run_id = _gateway_run_id() if gateway is not None else ""
         if gateway is not None:
             # Gateway mode (TD-0003 P3): the FFI handle targets the Sandhi proxy with
-            # the virtual key presented as a bearer token. The slug is preserved so the
-            # proxy still speaks the right dialect; no raw HTTP/SSE transport is used.
+            # the configured credential or starter marker. The explicit client
+            # dialect is independent of the provider identity and server backend.
             proxy_url, virtual_key = gateway
             if not virtual_key:
                 raise ProviderConnectionError(
-                    f"sandhi gateway mode for provider {slug!r} requires a non-empty "
-                    "virtual_key (set providers.<name>.gateway.virtual_key or the "
-                    "SANDHI_GATEWAY_VIRTUAL_KEY env var)",
+                    "configured gateway credential is unavailable",
                     provider=slug,
+                    recoverable=False,
                 )
-            base_url = _gateway_family_base(proxy_url, slug)
+            protocol = self._client_protocol()
+            endpoint_profile = ""
+            base_url = _gateway_family_base(proxy_url, protocol)
             api_key = virtual_key
             # sandhi >= 0.3.0 (victor's floor) accepts "bearer" family-wide as a
             # no-op for the gateway virtual key (TD-0008 rule 5: reject
@@ -1093,18 +1120,34 @@ class SandhiTypedProviderMixin:
             auth_scheme = str(getattr(self, "_sandhi_auth_scheme", "") or "")
         # run_id participates in the cache key so the handle is reused within an
         # agent run but rebuilt (with a fresh x-sandhi-run-id header) per run.
-        cache_key = (slug, model, explicit_base_url, api_key, auth_scheme, protocol, run_id)
+        cache_key = (
+            slug,
+            model,
+            explicit_base_url,
+            api_key,
+            auth_scheme,
+            protocol,
+            endpoint_profile,
+            "sandhi_gateway_v1" if gateway is not None else "provider",
+            run_id,
+        )
         if cache_key not in self._sandhi_typed_providers:
             kwargs: Dict[str, Any] = {
                 "base_url": explicit_base_url or None,
                 "timeout_secs": self._sandhi_timeout(),
                 "stream_setup_timeout_secs": self._sandhi_stream_setup_timeout(),
                 "stream_idle_timeout_secs": self._sandhi_stream_idle_timeout(),
-                "max_retries": (
-                    0 if gateway is not None else max(0, int(getattr(self, "max_retries", 0) or 0))
-                ),
+                # One physical dispatch per binding invocation in direct and
+                # gateway mode. ResilientProvider owns logical-call retries;
+                # an ambiguous FFI/projection failure never triggers a hidden
+                # second inference inside this handle.
+                "max_retries": 0,
             }
             wire_headers = dict(getattr(self, "_wire_headers", None) or {})
+            if gateway is not None:
+                wire_headers = _gateway_wire_headers(wire_headers)
+            if gateway is not None and config["gateway"].get("grant") is not None:
+                wire_headers["x-sandhi-grant"] = config["gateway"]["grant"]
             if run_id:
                 # An explicit caller-set header wins; never clobber it.
                 wire_headers.setdefault("x-sandhi-run-id", run_id)
@@ -1115,25 +1158,45 @@ class SandhiTypedProviderMixin:
                 wire_headers.setdefault("x-sandhi-session", run_id)
             if wire_headers:
                 kwargs["headers_json"] = json.dumps(wire_headers)
+            if gateway is not None:
+                kwargs["peer_role"] = "sandhi_gateway_v1"
             if auth_scheme:
                 kwargs["auth_scheme"] = auth_scheme
             if protocol:
                 kwargs["protocol"] = protocol
+            if endpoint_profile:
+                kwargs["endpoint_profile"] = endpoint_profile
             self._sandhi_typed_providers[cache_key] = self._sandhi_runtime.provider(
                 slug, model, api_key, **kwargs
             )
         return self._sandhi_typed_providers[cache_key]
 
+    def _validate_gateway_request(self, request: Dict[str, Any]) -> None:
+        if self._gateway_overrides() is None:
+            return
+        expected = {
+            "chat_completions": "openai",
+            "anthropic_messages": "anthropic",
+            "responses": "openai_responses",
+            "gemini_generate_content": "gemini",
+        }[self._client_protocol()]
+        extensions = request.get("extensions") or {}
+        if any(value and key != expected for key, value in extensions.items()):
+            raise ValueError(
+                "native call options do not match the configured gateway client dialect; use canonical typed options"
+            )
+
     async def _sandhi_complete(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        self._validate_gateway_request(request)
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
         # Per-call step headers (gateway mode only — direct mode stays byte-identical).
-        call_headers = _wire_call_headers()
-        wire_headers = (
-            json.dumps(call_headers)
-            if self._gateway_overrides() is not None and call_headers
-            else None
+        call_headers = (
+            _gateway_wire_headers(_wire_call_headers())
+            if self._gateway_overrides() is not None
+            else {}
         )
+        wire_headers = json.dumps(call_headers) if call_headers else None
         try:
             value = await asyncio.wait_for(
                 provider.complete_json(json.dumps(request), wire_headers),
@@ -1143,7 +1206,9 @@ class SandhiTypedProviderMixin:
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except BaseException as exc:  # pyo3 panics may subclass BaseException
-            mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            mapped = await map_sandhi_error(
+                exc, self._sandhi_slug(), timeout, gateway=self._gateway_overrides() is not None
+            )
             if (
                 isinstance(mapped, ProviderPolicyError)
                 or mapped.category == ErrorCategory.CONFIG_MISSING
@@ -1154,8 +1219,16 @@ class SandhiTypedProviderMixin:
     def _completion_from_typed(self, response: Dict[str, Any], model: str) -> CompletionResponse:
         output = response.get("output") or {}
         extensions = response.get("extensions") or {}
-        native = extensions.get(self._sandhi_slug())
-        if native is None and getattr(self, "_sandhi_protocol", None) in {
+        native_key = self._sandhi_slug()
+        if self._gateway_overrides() is not None:
+            native_key = {
+                "chat_completions": "openai",
+                "anthropic_messages": "anthropic",
+                "responses": "openai_responses",
+                "gemini_generate_content": "gemini",
+            }[self._client_protocol()]
+        native = extensions.get(native_key)
+        if native is None and self._client_protocol() in {
             "responses",
             "chatgpt_responses",
         }:
@@ -1186,13 +1259,14 @@ class SandhiTypedProviderMixin:
         usage = usage_dict_from_neutral(
             response.get("usage"),
             native.get("usage") if isinstance(native, dict) else None,
-            slug="anthropic" if self._sandhi_slug() == "anthropic" else self._sandhi_slug(),
+            slug=self._usage_slug(),
         )
         metadata: Dict[str, Any] = {}
         if reasoning or typed_reasoning_present:
             metadata["reasoning_content"] = reasoning
         diagnostics = dict(_usage_diagnostics(response.get("usage")) or {})
         diagnostics.update(_latency_fields(response.get("usage")))
+        diagnostics.update(self._typed_usage_diagnostics(response.get("usage")))
         diagnostics.update(
             _native_only_usage(native.get("usage") if isinstance(native, dict) else None)
         )
@@ -1244,15 +1318,16 @@ class SandhiTypedProviderMixin:
                 break
 
     async def _sandhi_stream(self, request: Dict[str, Any]) -> AsyncIterator[StreamChunk]:
+        self._validate_gateway_request(request)
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
         idle_timeout = self._sandhi_stream_idle_timeout()
-        call_headers = _wire_call_headers()
-        wire_headers = (
-            json.dumps(call_headers)
-            if self._gateway_overrides() is not None and call_headers
-            else None
+        call_headers = (
+            _gateway_wire_headers(_wire_call_headers())
+            if self._gateway_overrides() is not None
+            else {}
         )
+        wire_headers = json.dumps(call_headers) if call_headers else None
         calls: Dict[int, Dict[str, Any]] = {}
         finish_reason: Optional[str] = None
         reported_model: Optional[str] = None
@@ -1289,6 +1364,7 @@ class SandhiTypedProviderMixin:
                     neutral = event.get("usage")
                     incoming = dict(_usage_diagnostics(neutral) or {})
                     incoming.update(_latency_fields(neutral))
+                    incoming.update(self._typed_usage_diagnostics(neutral))
                     if isinstance(neutral, dict) and neutral.get("completeness") == "unavailable":
                         # Minor 9 emits metadata-only cache corrections. These are
                         # neither measured zeros nor a replacement numeric verdict.
@@ -1299,8 +1375,16 @@ class SandhiTypedProviderMixin:
                                 **(usage_diagnostics or {}),
                                 "cache_read_observation": incoming["cache_read_observation"],
                             }
+                            for key in ("typed_usage", "gateway_client_usage"):
+                                if key in usage_diagnostics:
+                                    usage_diagnostics[key] = {
+                                        **usage_diagnostics[key],
+                                        "cache_read_observation": incoming[
+                                            "cache_read_observation"
+                                        ],
+                                    }
                     else:
-                        usage = usage_dict_from_neutral(neutral, None, slug=self._sandhi_slug())
+                        usage = usage_dict_from_neutral(neutral, None, slug=self._usage_slug())
                         usage_diagnostics = incoming or None
                 elif kind == "response_start":
                     # Preserve the typed provider claim separately from the
@@ -1332,10 +1416,16 @@ class SandhiTypedProviderMixin:
                         "— contract drift; add a handler or an explicit ignore",
                         kind,
                     )
+            if finish_reason is None:
+                raise ProviderError(
+                    "Sandhi stream ended without a validated finish event",
+                    provider=self._sandhi_slug(),
+                    recoverable=False,
+                )
             yield StreamChunk(
                 content="",
                 tool_calls=_tool_calls([calls[index] for index in sorted(calls)]),
-                stop_reason=finish_reason or "stop",
+                stop_reason=finish_reason,
                 is_final=True,
                 usage=usage,
                 metadata={
@@ -1352,7 +1442,9 @@ class SandhiTypedProviderMixin:
         except ProviderError:
             raise
         except BaseException as exc:
-            mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            mapped = await map_sandhi_error(
+                exc, self._sandhi_slug(), timeout, gateway=self._gateway_overrides() is not None
+            )
             if (
                 isinstance(mapped, ProviderPolicyError)
                 or mapped.category == ErrorCategory.CONFIG_MISSING
@@ -1366,12 +1458,16 @@ class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):
 
     @staticmethod
     def _validate_call_options(options: Dict[str, Any]) -> None:
+        SandhiTypedProviderMixin._validate_call_options(options)
         if "text_response_mode" in options:
             raise ValueError("text_response_mode is a constructor-only provider option")
 
     async def _refresh_host_credentials(self) -> None:
         refresh = getattr(self, "_ensure_valid_token", None)
-        if callable(refresh):
+        if callable(refresh) and (
+            self._gateway_overrides() is None
+            or getattr(self, "_gateway_credential", None) is not None
+        ):
             await refresh()
 
     async def chat(
@@ -1387,10 +1483,22 @@ class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):
         self._validate_call_options(kwargs)
         await self._refresh_host_credentials()
         cleaner = getattr(self, "_clean_model_name", None)
-        model = cleaner(model) if callable(cleaner) else model
-        payload = self._build_request_payload(
-            messages, model, temperature, max_tokens, tools, False, **kwargs
-        )
+        model = cleaner(model) if callable(cleaner) and self._gateway_overrides() is None else model
+        if self._gateway_overrides() is not None:
+            payload = {
+                "model": model,
+                "messages": build_openai_messages(messages),
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                **kwargs,
+            }
+            if tools:
+                payload["tools"] = convert_tools_to_openai_format(tools)
+                payload.setdefault("tool_choice", "auto")
+        else:
+            payload = self._build_request_payload(
+                messages, model, temperature, max_tokens, tools, False, **kwargs
+            )
         response = await self._sandhi_complete(_typed_request_from_openai_payload(payload))
         return self._completion_from_typed(response, model)
 
@@ -1407,10 +1515,22 @@ class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):
         self._validate_call_options(kwargs)
         await self._refresh_host_credentials()
         cleaner = getattr(self, "_clean_model_name", None)
-        model = cleaner(model) if callable(cleaner) else model
-        payload = self._build_request_payload(
-            messages, model, temperature, max_tokens, tools, True, **kwargs
-        )
+        model = cleaner(model) if callable(cleaner) and self._gateway_overrides() is None else model
+        if self._gateway_overrides() is not None:
+            payload = {
+                "model": model,
+                "messages": build_openai_messages(messages),
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                **kwargs,
+            }
+            if tools:
+                payload["tools"] = convert_tools_to_openai_format(tools)
+                payload.setdefault("tool_choice", "auto")
+        else:
+            payload = self._build_request_payload(
+                messages, model, temperature, max_tokens, tools, True, **kwargs
+            )
         async with aclosing(
             self._sandhi_stream(_typed_request_from_openai_payload(payload))
         ) as upstream:
@@ -1423,7 +1543,10 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
 
     async def _refresh_host_credentials(self) -> None:
         refresh = getattr(self, "_ensure_valid_token", None)
-        if callable(refresh):
+        if callable(refresh) and (
+            self._gateway_overrides() is None
+            or getattr(self, "_gateway_credential", None) is not None
+        ):
             await refresh()
 
     def _neutral_request(
@@ -1447,6 +1570,14 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
             payload.setdefault("tool_choice", "auto")
         request = _typed_request_from_openai_payload(payload)
         slug = self._sandhi_slug()
+        if self._gateway_overrides() is not None:
+            native = request.get("extensions", {}).get("openai")
+            protocol = self._client_protocol()
+            if native and protocol != "chat_completions":
+                raise ValueError(
+                    "OpenAI-native call options require the Chat Completions gateway dialect; use canonical typed options for portable calls"
+                )
+            return request
         if slug != "openai":
             extensions = request.pop("extensions", {})
             native = extensions.get("openai") if isinstance(extensions, dict) else None
@@ -1479,6 +1610,7 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
+        self._validate_call_options(kwargs)
         await self._refresh_host_credentials()
         request = self._neutral_request(messages, model, temperature, max_tokens, tools, **kwargs)
         return self._completion_from_typed(await self._sandhi_complete(request), model)
@@ -1493,6 +1625,7 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
+        self._validate_call_options(kwargs)
         await self._refresh_host_credentials()
         request = self._neutral_request(messages, model, temperature, max_tokens, tools, **kwargs)
         async for chunk in self._sandhi_stream(request):
@@ -1511,6 +1644,37 @@ class SandhiAnthropicProvider(SandhiTypedProviderMixin, AnthropicProvider):
         tools: Optional[List[ToolDefinition]],
         **kwargs: Any,
     ) -> Dict[str, Any]:
+        if self._gateway_overrides() is not None:
+            unsupported = (
+                set(kwargs)
+                - _INTERNAL_KWARG_KEYS
+                - {
+                    "cache_intent",
+                    "thinking",
+                    "reasoning_effort",
+                    "stop",
+                    "seed",
+                    "response_format",
+                }
+            )
+            if unsupported:
+                raise ValueError(
+                    "Anthropic-native call options require direct mode: "
+                    + ", ".join(sorted(unsupported))
+                )
+            payload = {
+                "model": model,
+                "messages": build_openai_messages(messages),
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                **kwargs,
+            }
+            if tools:
+                payload["tools"] = convert_tools_to_openai_format(tools)
+                payload["tool_choice"] = "auto"
+            # Cache placement belongs to the selected server policy. An explicit
+            # intent is forwarded; absent intent leaves the server default intact.
+            return _typed_request_from_openai_payload(payload)
         native = self._build_request_params(
             messages,
             model=model,
@@ -1565,7 +1729,9 @@ class SandhiAnthropicProvider(SandhiTypedProviderMixin, AnthropicProvider):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> CompletionResponse:
-        await self._ensure_valid_token()
+        self._validate_call_options(kwargs)
+        if self._gateway_overrides() is None:
+            await self._ensure_valid_token()
         request = self._anthropic_request(messages, model, temperature, max_tokens, tools, **kwargs)
         return self._completion_from_typed(await self._sandhi_complete(request), model)
 
@@ -1579,7 +1745,9 @@ class SandhiAnthropicProvider(SandhiTypedProviderMixin, AnthropicProvider):
         tools: Optional[List[ToolDefinition]] = None,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
-        await self._ensure_valid_token()
+        self._validate_call_options(kwargs)
+        if self._gateway_overrides() is None:
+            await self._ensure_valid_token()
         request = self._anthropic_request(messages, model, temperature, max_tokens, tools, **kwargs)
         async for chunk in self._sandhi_stream(request):
             yield chunk
@@ -1600,9 +1768,9 @@ class SandhiOpenAIProvider(SandhiNeutralProviderMixin, OpenAIProvider):
         request = super()._neutral_request(
             messages, model, temperature, max_tokens, tools, **kwargs
         )
-        if self._is_o_series_model(model):
+        if self._gateway_overrides() is None and self._is_o_series_model(model):
             request.pop("temperature", None)
-        if getattr(self, "_sandhi_protocol", None) in {"responses", "chatgpt_responses"}:
+        if self._client_protocol() in {"responses", "chatgpt_responses"}:
             extensions = request.setdefault("extensions", {})
             native = extensions.pop("openai", {})
             if not isinstance(native, dict):
@@ -1618,19 +1786,32 @@ class SandhiGoogleProvider(SandhiNeutralProviderMixin, GoogleProvider):
     pass
 
 
-class SandhiOllamaProvider(SandhiNeutralProviderMixin, OllamaProvider):
+class SandhiLocalProviderMixin(SandhiNeutralProviderMixin):
+    """Preserve direct discovery; gateway authentication needs no upstream probe."""
+
+    @classmethod
+    async def create(cls, *args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("gateway") is not None:
+            # Validate before native factories can probe or read endpoint config.
+            gateway_virtual_key(kwargs["gateway"])
+            return cls(*args, **kwargs)
+        # The concrete local provider supplies this cooperative factory in the MRO.
+        return await super().create(*args, **kwargs)  # type: ignore[misc]
+
+
+class SandhiOllamaProvider(SandhiLocalProviderMixin, OllamaProvider):
     pass
 
 
-class SandhiLMStudioProvider(SandhiNeutralProviderMixin, LMStudioProvider):
+class SandhiLMStudioProvider(SandhiLocalProviderMixin, LMStudioProvider):
     pass
 
 
-class SandhiVLLMProvider(SandhiNeutralProviderMixin, VLLMProvider):
+class SandhiVLLMProvider(SandhiLocalProviderMixin, VLLMProvider):
     pass
 
 
-class SandhiLlamaCppProvider(SandhiNeutralProviderMixin, LlamaCppProvider):
+class SandhiLlamaCppProvider(SandhiLocalProviderMixin, LlamaCppProvider):
     pass
 
 

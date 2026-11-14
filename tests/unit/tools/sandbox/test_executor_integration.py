@@ -26,7 +26,11 @@ import pytest
 
 from victor.tools.sandbox import NoneSandbox
 from victor.tools.sandbox.backends import SandboxBackend
-from victor.tools.subprocess_executor import run_command, run_command_async
+from victor.tools.subprocess_executor import (
+    CommandErrorType,
+    run_command,
+    run_command_async,
+)
 
 
 class _RecordingBackend(SandboxBackend):
@@ -119,3 +123,397 @@ async def test_e2e_real_platform_sandbox(tmp_path):
     result = await run_command_async("echo hello", sandbox=backend, working_dir=str(tmp_path))
     assert result.success, result.stderr
     assert "hello" in result.stdout
+
+
+# -- required-policy enforcement (fail closed, zero execution) ---------------
+
+
+def _install_required_unavailable(monkeypatch):
+    """Point default settings at a required policy whose backend is missing,
+    and arm execution traps that fail the test if any child is spawned."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    import subprocess
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+    import victor.tools.sandbox.backends as sb_mod
+
+    monkeypatch.setattr(sb_mod.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sb_mod.shutil, "which", lambda name: None)
+
+    def _no_execution(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child process spawned despite required sandbox policy")
+
+    monkeypatch.setattr(subprocess, "run", _no_execution)
+
+    async def _no_execution_async(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child process spawned despite required sandbox policy")
+
+    import victor.tools.subprocess_executor as se
+
+    monkeypatch.setattr(se, "run_managed_process", _no_execution_async)
+
+
+def test_run_command_required_policy_blocks_execution(monkeypatch):
+    _install_required_unavailable(monkeypatch)
+    result = run_command("echo hi", shell=True)
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+    assert result.stdout == "" and result.stderr == ""
+    assert "required" in (result.error_message or "").lower()
+
+
+async def test_run_command_async_required_policy_blocks_execution(monkeypatch):
+    _install_required_unavailable(monkeypatch)
+    result = await run_command_async("echo hi")
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+    assert result.stdout == "" and result.stderr == ""
+
+
+def test_run_command_disabled_policy_still_executes(monkeypatch):
+    # Legacy default: sandbox off, no policy — behavior unchanged.
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_enabled=False))
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+    result = run_command("echo hi", shell=True)
+    assert result.success
+    assert result.stdout.strip() == "hi"
+
+
+def test_run_command_explicit_backend_bypasses_policy_resolution():
+    # An explicit backend is the caller's explicit choice; resolution policy
+    # applies only to the settings-driven default path.
+    fake = _RecordingBackend()
+    result = run_command("echo hi", shell=True, sandbox=fake)
+    assert result.success
+
+
+async def test_production_shell_tool_required_policy_blocks_execution(monkeypatch, tmp_path):
+    """The production shell tool (victor.tools.bash.shell) resolves the same
+    default sandbox; a required-unavailable policy must refuse it with zero
+    process spawns and a structured failure."""
+    _install_required_unavailable(monkeypatch)
+    from victor.tools.bash import shell
+
+    result = await shell("echo hi", cwd=str(tmp_path), action="exec")
+    assert result["success"] is False
+    assert "required" in result["error"].lower()
+    assert result["stdout"] == "" and result["stderr"] == ""
+
+
+# ---------------------------------------------------------------------------
+# HB-02: required-policy resolver failures must refuse, never degrade
+# ---------------------------------------------------------------------------
+
+
+def _install_required_settings(monkeypatch) -> None:
+    """Load a required policy without availability patching (bwrap presence
+    on the host must not matter for resolver-failure tests)."""
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+def test_resolver_exception_under_required_raises(monkeypatch):
+    """A generic resolver exception under a required policy must surface as a
+    typed refusal, never silently degrade to NoneSandbox."""
+    import victor.tools.sandbox.backends as sb_mod
+
+    _install_required_settings(monkeypatch)
+    monkeypatch.setattr(sb_mod, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
+    from victor.tools.subprocess_executor import _resolve_default_sandbox
+
+    with pytest.raises(sb_mod.SandboxRequiredUnavailableError) as excinfo:
+        _resolve_default_sandbox()
+    assert excinfo.value.reason == "resolver_error"
+
+
+def _raise_runtime_error(settings):  # pragma: no cover - helper
+    raise RuntimeError("synthetic resolver failure")
+
+
+def test_run_command_required_resolver_failure_refuses_execution(monkeypatch):
+    """run_command under required policy with a broken resolver returns the
+    structured refusal and never spawns (sync, shell path)."""
+    import subprocess
+
+    import victor.tools.sandbox.backends as sb_mod
+
+    _install_required_settings(monkeypatch)
+    monkeypatch.setattr(sb_mod, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
+
+    def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned despite required-policy resolver failure")
+
+    monkeypatch.setattr(subprocess, "run", _no_spawn)
+    result = run_command("echo hi", shell=True)
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+    assert "resolver" in result.error_message.lower()
+
+
+async def test_run_command_async_required_resolver_failure_refuses_execution(
+    monkeypatch,
+):
+    import victor.tools.sandbox.backends as sb_mod
+
+    _install_required_settings(monkeypatch)
+    monkeypatch.setattr(sb_mod, "resolve_sandbox_backend", _raise_runtime_error, raising=False)
+
+    import victor.tools.subprocess_executor as se
+
+    async def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned despite required-policy resolver failure")
+
+    monkeypatch.setattr(se, "run_managed_process", _no_spawn)
+    result = await run_command_async("echo hi")
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+
+
+def test_explicit_none_sandbox_cannot_weaken_required_policy(monkeypatch):
+    """A caller-supplied NoneSandbox must not bypass a required policy: the
+    execution is refused instead of running unwrapped."""
+    import subprocess
+
+    _install_required_settings(monkeypatch)
+    import victor.tools.sandbox.backends as sb_mod
+
+    monkeypatch.setattr(sb_mod.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(sb_mod.shutil, "which", lambda name: "/usr/bin/bwrap")
+
+    def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("unwrapped child spawned under required policy")
+
+    monkeypatch.setattr(subprocess, "run", _no_spawn)
+    result = run_command("echo hi", shell=True, sandbox=NoneSandbox())
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+
+
+def test_policy_unreadable_raises_policy_unavailable(monkeypatch):
+    """NEXT-01: inability to establish policy is not affirmative disabled
+    mode — the resolver raises a typed PolicyUnavailable refusal."""
+    import victor.config.settings as cs
+    import victor.tools.sandbox as vs
+    import victor.tools.subprocess_executor as se
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+    with pytest.raises(vs.PolicyUnavailable) as excinfo:
+        se._resolve_default_sandbox()
+    assert excinfo.value.reason == "settings_read_failed"
+
+
+def test_run_command_policy_unreadable_refuses_execution(monkeypatch):
+    """run_command with unreadable settings refuses with a structured
+    result and zero spawns (NEXT-01 fail-closed)."""
+    import subprocess
+
+    import victor.config.settings as cs
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+
+    def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned with unreadable policy")
+
+    monkeypatch.setattr(subprocess, "run", _no_spawn)
+    result = run_command("echo hi", shell=True)
+    assert result.success is False
+    assert result.error_type == CommandErrorType.POLICY_UNAVAILABLE
+    assert "policy" in result.error_message.lower()
+
+
+async def test_run_command_async_policy_unreadable_refuses_execution(monkeypatch):
+    import victor.config.settings as cs
+    import victor.tools.subprocess_executor as se
+
+    def _boom():
+        raise RuntimeError("settings unavailable")
+
+    monkeypatch.setattr(cs, "get_settings", _boom)
+
+    async def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+        raise AssertionError("child spawned with unreadable policy")
+
+    monkeypatch.setattr(se, "run_managed_process", _no_spawn)
+    result = await run_command_async("echo hi")
+    assert result.success is False
+    assert result.error_type == CommandErrorType.POLICY_UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# FEP-0044 Phase 2: launches consume the admitted immutable snapshot
+# ---------------------------------------------------------------------------
+
+
+def _admitted_required_snapshot():
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    return RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+    )
+
+
+def _install_reloaded_disabled_settings(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    monkeypatch.setattr(
+        "victor.config.settings.get_settings",
+        lambda: SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="disabled")),
+    )
+
+
+def test_run_command_uses_admitted_snapshot_over_reloaded_disabled(monkeypatch):
+    """Canonical sync dispatch must not reread mutable settings after admission."""
+    from victor.tools.sandbox.backends import RequiredLaunchDecision
+
+    _install_reloaded_disabled_settings(monkeypatch)
+    backend = _RecordingBackend()
+    monkeypatch.setattr(
+        "victor.tools.sandbox.resolve_required_launch",
+        lambda settings: RequiredLaunchDecision(required_active=True, backend=backend),
+    )
+    result = run_command(
+        "echo hi",
+        shell=True,
+        run_policy_snapshot=_admitted_required_snapshot(),
+    )
+
+    assert result.success
+    assert result.stdout.strip() == "WRAPPED"
+    assert backend.calls == [(["/bin/sh", "-c", "echo hi"], None)]
+
+
+async def test_run_command_async_uses_admitted_snapshot_over_reloaded_disabled(
+    monkeypatch,
+):
+    from victor.tools.sandbox.backends import RequiredLaunchDecision
+
+    _install_reloaded_disabled_settings(monkeypatch)
+    backend = _RecordingBackend()
+    monkeypatch.setattr(
+        "victor.tools.sandbox.resolve_required_launch",
+        lambda settings: RequiredLaunchDecision(required_active=True, backend=backend),
+    )
+
+    result = await run_command_async(
+        "echo hi",
+        run_policy_snapshot=_admitted_required_snapshot(),
+    )
+
+    assert result.success
+    assert result.stdout.strip() == "WRAPPED"
+    assert backend.calls == [(["/bin/sh", "-c", "echo hi"], None)]
+
+
+def test_admitted_disabled_snapshot_is_not_tightened_by_reloaded_required(monkeypatch):
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    monkeypatch.setattr(
+        "victor.config.settings.get_settings",
+        lambda: SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required")),
+    )
+    admitted = RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="disabled"))
+    )
+
+    result = run_command("echo hi", shell=True, run_policy_snapshot=admitted)
+
+    assert result.success
+    assert result.stdout.strip() == "hi"
+
+
+def test_explicit_none_sandbox_cannot_weaken_admitted_required(monkeypatch):
+    _install_reloaded_disabled_settings(monkeypatch)
+    result = run_command(
+        "echo hi",
+        shell=True,
+        sandbox=NoneSandbox(),
+        run_policy_snapshot=_admitted_required_snapshot(),
+    )
+
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+
+
+async def test_real_shell_tool_uses_snapshot_from_execution_context(monkeypatch):
+    """The real shell tool consumes its framework context rather than settings."""
+    from victor.tools.bash import shell
+    from victor.tools.sandbox.backends import RequiredLaunchDecision
+    import victor.tools.subprocess_executor as subprocess_executor
+
+    _install_reloaded_disabled_settings(monkeypatch)
+    backend = _RecordingBackend()
+    monkeypatch.setattr(
+        "victor.tools.sandbox.resolve_required_launch",
+        lambda settings: RequiredLaunchDecision(required_active=True, backend=backend),
+    )
+    captured = {}
+
+    async def _managed_process(**kwargs):
+        captured.update(kwargs)
+        return b"ok\n", b"", 0, False, False
+
+    monkeypatch.setattr(subprocess_executor, "run_managed_process", _managed_process)
+
+    result = await shell(
+        cmd="echo hi",
+        cwd=".",
+        action="exec",
+        _exec_ctx={"run_policy_snapshot": _admitted_required_snapshot()},
+    )
+
+    assert result["success"] is True
+    assert backend.calls == [(["/bin/sh", "-c", "echo hi"], Path("."))]
+    assert captured["argv"] == ["echo", "WRAPPED"]
+
+
+def test_tool_context_exposes_current_admitted_snapshot():
+    from types import SimpleNamespace
+
+    from victor.agent.orchestrator import AgentOrchestrator
+    from victor.runtime.policy_snapshot import run_policy_context
+
+    snapshot = _admitted_required_snapshot()
+    owner = SimpleNamespace(
+        _tool_context_cache=None,
+        code_manager=object(),
+        provider=object(),
+        model="test",
+        tools=object(),
+        workflow_registry=object(),
+        settings=object(),
+    )
+
+    with run_policy_context(snapshot):
+        context = AgentOrchestrator._get_tool_context(owner)
+
+    assert context["run_policy_snapshot"] is snapshot

@@ -67,22 +67,516 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
-- **PATCH-0281 — PROMOTION_REFRESHED** (2026-11-12), owner: release co-design
-  session; branch `release/promote-v0.28.1`, develop baseline `f9a3ecd5a`,
-  main baseline `1fa07af3b`. Fetched origin and confirmed no competing promotion.
-  Source repairs #1765/#1766 and compatibility repair #1768 merged with
-  independent exact-head review and all PR checks complete. The develop tree
-  matches reviewed compatibility checkpoint `8e850e048`.
-  AI/native metadata is 0.28.1, contracts 0.17.0 and Sandhi binding 0.16.2.
-  Local clean wheel/fallback/native and six hosted candidate checks passed.
-  The prior `057c2121e` promotion head was held for the name-identity finding;
-  its review was superseded before merge. Next: fresh exact-head review and full
-  main-target CI, merge preserving
-  ancestry, tag the exact main merge, verify published artifact digests, upgrade
-  backed-up active/project installs, and repeat installed hosted/Codex acceptance.
-  Official 0.28.1 publication and live deployment are pending. InferFlux deferred.
+- **PROMOTION-026 — RETRYING** (2026-11-14), owner: framework-review delivery
+  session. The historical blocked battery and exact failure inventory are
+  preserved at promotion-head `faeb18ff3`. Published Sandhi 0.18.0 adoption
+  (#1793), Apple-Silicon-only native release support (#1795), strict
+  promotion-gate alignment (#1802), and background-policy test isolation
+  (#1805) address the known blockers and the Python 3.12/3.13 shard leak.
+  This promotion branch carries develop `750d575`, including the LOOP-04
+  repeated-rejected-tool bound; a fresh complete main-target battery is
+  required before merge. No Victor publication or live deployment is claimed
+  here.
 
-- **RUN-OUTCOME-01-COMPAT — MERGED_DEVELOP** (2026-11-12), owner: release
+- **VAS-05w — IN REVIEW** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1803](https://github.com/anvai-labs/victor/pull/1803)
+  (`feat/delegation-policy-snapshot`), head `4a6eede19`, baseline `dfacb748c`.
+  RED (four intended failures): serialized `DelegationRequest` had no policy field;
+  tampered policy metadata was not rejected; `DelegateTool` dropped its parent
+  context; and fire-and-forget delegation had no explicit restored-policy binding.
+  GREEN: requests carry digest-validated `run_policy` metadata through JSON
+  round-trips; malformed/tampered metadata refuses construction/deserialization;
+  both `DelegateTool` and direct handler calls copy the parent snapshot into the
+  request; synchronous and detached delegate execution bind the restored snapshot
+  around `sub_agents.spawn`. Legacy no-snapshot requests remain unchanged. Scope is
+  the serialized protocol and current in-process handler; no external process
+  transport is claimed. Evidence: delegation owner 54 passed (5 policy cases);
+  repository selector 11 modules/256 passed; 40,591 tests collect clean;
+  Black/Ruff/mypy/diff clean. Next: full CI green, exact-head review, squash merge, then exact SHA
+  reconciliation.
+
+- **VAS-05v — MERGED** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1800](https://github.com/anvai-labs/victor/pull/1800)
+  (`feat/background-policy-snapshot`), baseline `dfacb748c`; merged as squash
+  `9f8609b5a` with every applicable CI check green.
+  RED (three intended failures): `start_agent` rejected an explicit snapshot,
+  had no stored snapshot field, and the real `/agents/start` route created a
+  detached stream with `current_run_policy_snapshot() is None`. GREEN: API start
+  copies `server._settings` into one immutable snapshot before manager dispatch;
+  manager start accepts a typed snapshot or copies the parent context once;
+  `BackgroundAgent` stores it and `_run_agent` binds it around the complete
+  detached chat/tool stream. Programmatic no-snapshot starts retain legacy
+  behavior. Evidence: focused manager/route RED cases now GREEN; affected
+  background/API owners 58 passed; selector mapped three owner modules;
+  40,586 tests collect clean; Black/Ruff/mypy/diff clean. Exact-head review confirmed the server-owned snapshot is copied before manager dispatch and bound around the complete detached stream. Serialized cross-process delegation remains separate.
+
+- **VAS-05t — MERGED** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1794](https://github.com/anvai-labs/victor/pull/1794)
+  (`feat/workflow-policy-snapshot`), baseline `12fc116dc`; merged as squash
+  `c396fcd15` with every applicable CI check green after rebasing on #1793.
+  RED (four intended failures): admitted-required process execution lost its
+  wrapper after globals reloaded disabled; admitted-disabled inline execution
+  was refused after globals reloaded required-unavailable; admitted-required
+  Docker network isolation lost `--network none`; and admitted-disabled Docker
+  gained a preferred global network floor. GREEN: `SandboxedExecutor.execute`
+  reads `current_run_policy_snapshot()` once, passes it to the required-policy
+  decision and Docker floor composition, and reconstructs typed sandbox
+  settings from that immutable snapshot. No-snapshot callers retain the
+  existing global-settings path. Scope is the exported workflow sandbox owner;
+  there are no active internal `get_sandboxed_executor()` callers, so this is
+  not a claim that every compiled workflow node family is migrated. Evidence:
+  owner 21 passed (4 RED-first); full workflows 1,396 passed; full collection
+  clean at 40,464; Black/Ruff/mypy/diff clean. Terminal/git direct
+  routes and delegation remain separate.
+
+- **VAS-05u — MERGED** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1797](https://github.com/anvai-labs/victor/pull/1797)
+  (`feat/direct-route-policy-snapshot`), baseline `55968fab0` after the final
+  rebase; merged as squash `1e3ceb2fd` with every applicable CI check green.
+  RED (four intended failures): real
+  `/terminal/execute` and `/git/commit` launches reread mutable globals despite
+  an admitted required/disabled snapshot; required wrapping was lost and
+  disabled admission was tightened. GREEN: terminal resolves one request policy
+  before launch; every git handler admits one policy and binds it around the
+  complete request, so add → AI turn → commit cannot observe a reload between
+  children. A direct multi-spawn probe mutates global settings to disabled
+  after admission and still wraps both git children. Existing no-snapshot
+  global behavior and unreadable-policy refusals remain pinned. Evidence:
+  terminal/git owners 19 passed; changed-file selector mapped and passed both
+  owners; 40,583 tests collect clean; Black/Ruff/mypy/diff clean. Exact-head review confirmed one request-scoped
+  policy covers terminal launch and every git child/AI turn.
+  Delegation/background propagation remains separate.
+
+- **VAS-05s — MERGED** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1791](https://github.com/anvai-labs/victor/pull/1791)
+  (`feat/subprocess-policy-snapshot`), baseline `f430b2e00`; merged as squash
+  `00d26f9ed` with every applicable CI check green (including the 29-module
+  changed-file selector, Vertical Py3.12 and full collection). FEP-0044 Phase 2
+  slice 1. RED (four intended failures): sync
+  and async canonical subprocess entrypoints rejected `run_policy_snapshot`,
+  the real shell tool rejected framework `_exec_ctx`, and runtime policy had no
+  current-run context binding. With admitted-required policy plus reloaded
+  disabled globals, the shell path would therefore reread mutable settings.
+  GREEN: message admission binds the immutable snapshot for buffered/streaming
+  execution; `_get_tool_context` copies it per call without contaminating the
+  cached base; the real shell tool forwards it to `_resolve_default_sandbox`;
+  sync/async subprocess resolve the snapshot before global settings; approved
+  resume dispatch and continuation turns rebind the persisted snapshot. Evidence:
+  focused policy/subprocess/resume owners 143 passed/1 opt-in skip; broader
+  affected owners 1,042 passed/1 skip; repository selector 29 modules/1,363
+  passed/1 skip, followed by the two final tightening/bypass negatives in a
+  focused 5/5 run; 40,460 tests collect clean; Black/Ruff/mypy and selector
+  clean.
+  Worker-thread/process suites ran outside the restricted sandbox. Exact-head review confirmed admitted policy
+  overrides mutable reloads in both directions while explicit NoneSandbox still
+  cannot weaken admitted-required dispatch. Workflow/git/terminal
+  snapshot consumption and delegation/background propagation remain open.
+
+- **VAS-05r — MERGED** (2026-11-13), owner: Codex framework-review
+  continuation; PR [#1789](https://github.com/anvai-labs/victor/pull/1789)
+  (`feat/run-policy-snapshot`), baseline `fc83a1bcd`; merged as squash
+  `e671e56e7` with every applicable CI check green (including Vertical Py3.12,
+  changed-file tests, full collection and both FEP validators). Draft
+  [FEP-0044](../feps/fep-0044-immutable-run-policy-snapshot.md). RED
+  (six intended failures after adding only the missing typed owner): buffered
+  and streaming durable pauses had no `run_policy` metadata; unreadable
+  settings reached chat-runtime resolution; and an approved paused write
+  dispatched after admitted-required policy changed to either disabled or
+  preferred, while tampered snapshot metadata also failed to block. GREEN:
+  `RunPolicySnapshot` copies and digests every non-secret sandbox policy field,
+  rejects missing/malformed/tampered settings or metadata, and survives source
+  mutation; both shared message boundaries establish it before chat resolution
+  and derive a per-run `RuntimeExecutionContext`; new pauses persist it; resume
+  verifies exact equality before binding/dispatch; legacy no-snapshot pauses
+  remain on the existing current-policy path. Evidence: policy/message owners
+  12 passed; durable-resume 105 passed; pause/runtime 147 passed; direct
+  consumers 58 passed; repository changed-file selector 9 modules/210 passed;
+  full collection clean at 40,450 tests; Black/Ruff/mypy clean and FEP
+  validation passes. Local worker-thread suites
+  were run outside the restricted sandbox because bare `asyncio.to_thread` hangs
+  there. Exact-head review confirmed the refusal occurs before approval binding
+  or dispatch and the persisted digest/metadata round-trip is stable. Next:
+  migrate launch owners to consume `run_policy_snapshot`, then propagate it
+  through delegation/background agents; both remain separately owned FEP-0044
+  phases.
+
+- **VAS-05q — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1787](https://github.com/anvai-labs/victor/pull/1787)
+  (`feat/policy-unavailable-refusal`), baseline `787a26eb3`; merged as squash
+  `d3da8e3868` with all checks green (black-format fix in-PR).
+  NEXT-01 first slice (existing-contract fail-closed fix; snapshot
+  propagation/reload/delegation semantics are FEP-scoped follow-ups per
+  review). RED at every launch boundary: with `get_settings` raising, the
+  canonical executor returned NoneSandbox and executed, and the git,
+  terminal and workflow launch owners spawned children — inability to
+  determine policy was treated as affirmative disabled mode. Now a typed
+  `PolicyUnavailable` (`settings_read_failed`) refuses at every owner:
+  the canonical executor returns structured `POLICY_UNAVAILABLE` results
+  (distinct from `SANDBOX_REQUIRED`) with zero spawns sync and async;
+  git/terminal/workflow owners refuse with structured responses before
+  any launch; explicit disabled/preferred remains available only after a
+  successful settings read (the successful-read `sandbox=None` case is
+  unchanged and pinned).Owners: 49 sandbox/git/terminal/workflow tests
+  GREEN (6 RED-first); affected suites 5,462 passed; ratchet at baseline;
+  lint/mypy clean; collect clean. Explicitly open (FEP + follow-ups):
+  immutable run-policy snapshot establishment at the runtime admission
+  boundary, propagation through delegation/resume, reload/revocation
+  semantics, and the unreadable-settings single-user local default. Next:
+  green CI, then merge.
+
+- **VAS-05p — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1783](https://github.com/anvai-labs/victor/pull/1783)
+  (`feat/docker-policy-composition`), baseline `69719f04d`; merged as
+  squash with all checks green (SHA recorded below).
+  Global-restriction composition (R2-02): under an active global sandbox
+  policy (preferred or required) with `sandbox_network_isolation=True`, a
+  workflow Docker isolation allowing networking launched `docker run`
+  WITHOUT `--network none` — node config silently loosened the global
+  restriction (RED: probe asserted the actual argv, which had no network
+  flags). `_execute_docker` now composes a global network floor before
+  flag assembly (`_compose_global_network_floor`): node config may tighten,
+  never loosen; disabled policy keeps node config authoritative (pinned).
+  Scoped deliberately: the eval-container path reuses `build_docker_run_flags`
+  directly and keeps its own semantics (composition there is a separate
+  decision); the process branch already enforces via backend flags; the
+  inline branch cannot enforce and remains subject to the required-policy
+  refusal; mount/readonly floor composition is a recorded follow-up
+  (requires mount-model design, not a flag tweak). Owners: 15 workflow
+  sandbox tests GREEN (2 RED-first, actual-argv asserted); workflows +
+  evaluation suites 2,144 passed; ratchet at baseline; lint/type clean.
+  Queued: R2-03 worker failure ownership, R2-04 count validation.
+
+  PR (branch `feat/bounded-fanout-admission`), baseline `64778c5a0`.
+- **VAS-16c — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1784](https://github.com/anvai-labs/victor/pull/1784)
+  (`feat/worker-ownership-budgets`), baseline `64778c5a0` (rebased onto
+  develop including #1782); merged as squash `2619c13954` with all checks
+  green. Scheduler follow-up (R2-03 +
+  R2-04, coherent per review). R2-03: `asyncio.gather` does not cancel
+  siblings when one child raises, so an unexpected branch error
+  (deepcopy/serialization) let surviving workers drain queued branches
+  after the caller saw the failure (handback probe: seven simulated
+  executions post-failure). Workers are now owned tasks with an explicit
+  lifecycle: on any failure (including caller cancellation) new admission
+  stops via a flag, all workers are cancelled and joined inside
+  `_execute_parallel` before the exception propagates, and already
+  observed results are preserved; ordinary failed-branch (collect-all)
+  semantics and deterministic merge order are unchanged. R2-04: count
+  budgets are runtime-validated as actual positive finite integers —
+  bool, fractional, NaN and inf are rejected (NaN defeats the cap
+  comparison) for both `max_parallel_branches` and `max_fanout_branches`,
+  through direct config, `from_legacy` and `compile(**kwargs)`; `None`
+  remains intentional only for the fan-out budget. Owners: graph
+  framework tests GREEN (3 RED-first); ratchet at baseline; lint/type
+  clean. Note: the unreadable-settings policy gap (startup policy
+  snapshot) remains explicitly open per review; public scheduler settings
+  were introduced in #1781 without an FEP — further scheduler-contract
+  additions go through FEP review.
+
+- **VAS-05o — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1782](https://github.com/anvai-labs/victor/pull/1782)
+  (`feat/git-mutation-gate`), baseline `69719f04d`; merged as squash
+  `10bbbcd6c` with all checks green. Git route
+  spawn gate (R2-01, correcting this batch's own inventory: the blanket
+  "fixed-argv read-only" classification of git helpers was incomplete —
+  `/git/commit` mutates via user-supplied files/message, and `git diff`
+  can execute repo-configured textconv drivers, so a fixed executable is
+  not proof of containment). RED reproduced the handback probe: required +
+  unavailable backend reached trapped `subprocess.run(['git','add'...])`
+  with HTTP 200. Now every git-route spawn (status/log/diff and the
+  commit flow's add/diff/commit) runs through the canonical
+  `resolve_required_launch` decision via `_git_spawn`: unenforceable
+  required raises `GitPolicyRefusal` before any spawn and each route
+  returns a structured refusal (commit keeps its success/error shape;
+  no protected event exists on these routes); required + enforcing
+  backend wraps the launched argv; disabled/preferred keep raw exec
+  (pinned). Read helpers are gated uniformly per the audit caution;
+  authorization remains a separate gate. Patch routes write files through
+  `change_tracker_ops` (no subprocess) — write-policy surface, recorded
+  separately. Owners: new `tests/unit/integrations/api/test_git_routes.py`
+  4 GREEN (3 RED-first, OS-boundary traps); API suite 226 passed; ratchet
+  at baseline; lint/type clean; collect clean. Follow-ups queued: R2-02
+  Docker global-restriction composition, R2-03 worker failure ownership,
+  R2-04 count validation. Next: green CI, then merge.
+
+- **VAS-16b — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1781](https://github.com/anvai-labs/victor/pull/1781)
+  (`feat/bounded-fanout-admission`), baseline `64778c5a0`; merged as squash
+  `69719f04d8` with all checks green.
+  Bounded task/state admission for Send fan-out (HB-04, order 4; TD-03
+  first slice). RED with an event-ordering probe (bound=1, 32 branches):
+  all 32 branch states were copied before the first branch executed, and
+  one coroutine task existed per branch. `_execute_parallel` now runs at
+  most `min(max_parallel_branches, len(sends))` bounded worker tasks
+  pulling branch indices from a shared iterator; state is deep-copied
+  only after the worker holds its slot (copies interleave with
+  executions, never ahead of them); results are stored by index so merge
+  order, conflict semantics, collect-all failure handling and all
+  accepted work are unchanged; cancellation stops new admission by
+  construction (unstarted indices are never launched). Explicit input
+  budget: `ExecutionConfig.max_fanout_branches` (default None =
+  unlimited, preserving current behavior) rejects oversized expansion
+  with typed `FanoutBudgetExceeded` before any branch effect, surfaced
+  through the runtime's failed-result path naming the budget. Result-byte
+  retention budgets are NOT added here — retaining all results is current
+  public behavior and a byte cap is a reviewed contract change (recorded
+  for VAS-16/22). Ratchet at baseline; owners 172 GREEN (2 RED-first);
+  collect 40,418 clean; lint/type clean. Next: green CI, then merge.
+
+- **VAS-05m — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1779](https://github.com/anvai-labs/victor/pull/1779)
+  (`feat/resource-owner-auth`), baseline `bcab05d71`; merged as squash
+  `64778c5a0` with all checks green (one compiled-client contract-smoke
+  failure caught the ownerless-fixture quarantine gap and was fixed in the
+  same PR). Resource
+  ownership authorized before read or mutation (HB-01, aligning with the
+  proposed ADR-L01 semantics; existing API-key principals, no Kanidm
+  prerequisite). RED reproduced the handback probe: with Alice's approval
+  stored, Bob listed it and approved it through the real routes (HTTP 200,
+  entry removed). Now: tool approvals list server-side filters by the
+  stored owner, approve/cancel authorize before mutation and return the
+  identical not-found shape without confirming another owner's existence
+  (denied calls leave state unchanged and emit no protected event — the
+  approval broadcast now addresses the STORED owner, not the requester);
+  workflow executions authorize list/read/status/cancel against the owner
+  recorded at start; background agents authorize list/get/cancel against
+  the owner recorded at start. Ownerless/legacy entries are quarantined on
+  keyed servers (invisible and unmanageable — unknown ownership is not a
+  shared-resource grant); spoofed body owner fields grant nothing; keyless
+  single-user mode keeps full access (explicit opt-in, pinned by test).
+  Ownership is stamped through the new typed `register_pending_approval`
+  creation helper (the pending-approval store had no in-repo producer;
+  real approvals flow through the FEP-0029 paused-run store, which remains
+  the authoritative durable path). Duplication ratchet kept green by
+  consolidating the ownership checks into `_owner_authorized` /
+  `_owned_entry` / `_authorized_agent_request` (ratchet at baseline).
+  Owners 60 tests GREEN (6 RED-first cross-owner cases incl. spoofed-body
+  and ownerless-quarantine); affected API/agent suites 318 passed/5
+  skipped; lint/type clean; collect 40,404 clean. Not claimed:
+  paused-run/subscription ownership scoping (VAS-06), shared
+  VictorClient/session scoping, tenant isolation. Next: green CI, then
+  merge.
+
+- **VAS-05l — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1778](https://github.com/anvai-labs/victor/pull/1778)
+  (`feat/required-policy-enforcement`), baseline `bcab05d71`; merged as squash
+  `0ed5536a7` with all checks green. Required
+- **VAS-05n — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1780](https://github.com/anvai-labs/victor/pull/1780)
+  (`feat/direct-spawn-gate`), baseline `0ed5536a7`; merged as squash
+  `ee1d306c61` with all checks green. Direct-spawn
+  convergence, first slice (delivery order 3): the terminal route's
+  arbitrary-command launch now follows the canonical required-policy
+  decision through a shared `resolve_required_launch` in the sandbox owner
+  (required + enforcing backend wraps the actual argv; unenforceable
+  required refuses before spawn with a structured failed response;
+  disabled/preferred keep raw exec). `_resolve_default_sandbox` is
+  re-expressed through the same decision (single fail-closed rule, no
+  duplicated exception policy — the exact consolidation TD-01 asks for).
+  Classified inventory of remaining direct-spawn sites (to be converged or
+  explicitly classified in follow-ups, not claimed here): git/search route
+  helpers spawn FIXED argv read-only queries (trusted control reads —
+  document, no caller-controlled argv); MCP stdio transport spawns
+  CONFIGURED servers (control plane, own admission/cancellation ownership);
+  filesystem/security-scanner/temporal-analyzer/scaffold/merge-manager
+  spawn fixed binaries with partially caller-influenced arguments (each
+  needs a per-site decision: wrap, refuse under required, or classify
+  trusted with rationale). RED at the real spawn boundary: required +
+  available backend launched raw argv from the terminal route before the
+  fix (trap-asserted), and unenforceable required spawned at all. Owners:
+  8 terminal-route + 16 executor-integration + 12 workflow + core mirror
+  tests GREEN (2 RED-first terminal cases); suites clean; lint/type clean;
+  collect 40,409 clean; ratchet at baseline. Next: green CI, then merge;
+  remaining inventory sites are separate bounded increments.
+
+- **VAS-05k — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1777](https://github.com/anvai-labs/victor/pull/1777)
+  (`feat/required-policy-convergence`), baseline `fbd9765aa`; merged as squash
+  `bcab05d71` with all checks green (one transient VS Code network
+  ENETUNREACH, re-run of failed jobs only).
+  Required-policy and owner-scope convergence residuals from VAS-05i/VAS-05j:
+  (1) `SandboxedExecutor.execute` (workflow compute execution) now consults
+  the canonical sandbox policy decision: under a required policy with no
+  enforcing backend every branch refuses before any spawn (including the
+  docker-unavailable -> process fallback, which required policy no longer
+  allows), and with a backend present an explicit sandbox_type='none' request
+  refuses as unenforced execution; preferred/legacy-bool behavior is
+  unchanged. RED: the inline branch spawned the child under
+  required-unavailable before the fix (execution-trap proven). Note:
+  `IsolationMapper.apply_settings` has zero callers (dormant) — the real
+  workflow enforcement point was `sandbox_executor`, now converged.
+  (2) Background agents are owner-scoped: `start_agent(owner_client_id=...)`
+  records the resolved principal on the agent, every lifecycle event carries
+  `owner_client_id`, and `POST /agents/start` binds it from the request
+  principal so `_broadcast_agent_event` delivers owner-scoped (removes the
+  last unbound broadcast caller with request context). Direct-spawn audit
+  recorded below; VAS-11c backend choice remains an explicit owner decision
+  (docker-by-name vs proximaDB same-key upsert; generic SQL excluded by
+  spec). Owners 9 sandbox-executor + 33 background-agent tests pass;
+  affected workflows/API/agent suites 1,692 passed/5 skipped; lint/type
+  clean; collect clean.
+
+- **VAS-16a — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1776](https://github.com/anvai-labs/victor/pull/1776)
+  (`feat/bound-send-fanout`), baseline `927b568ff`; merged as squash
+  `fbd9765aa` with all checks green. Bounded Send
+  fan-out admission (SCALE-03 first slice): `ExecutionConfig` gains
+  `max_parallel_branches` (default 16, validated >= 1, threaded through
+  `from_legacy` and `compile(**kwargs)`); `CompiledGraph._execute_parallel`
+  executes branch bodies under an `asyncio.Semaphore` so in-flight branch
+  work never exceeds the bound while every admitted branch is queued and
+  completes — the bound caps concurrency, never truncates work.
+  RED-first in `tests/unit/framework/test_graph.py`: an 8-branch fan-out
+  observed 8 concurrent executions before the fix; after it, max in-flight
+  == the bound with all 8 (and a separate 64-branch, bound-4) branches
+  completing and merging. Baseline measured on this machine (WSL2, conda
+  Py3.12, trivial async branches, best of 5): 8 branches 0.09ms,
+  64 branches 0.49ms at bound 16 vs 0.55ms at bound 4, 256 branches
+  2.13ms at bound 16 vs 2.23ms at bound 4 — queueing overhead ~5% at the
+  tightest bound, no wall-time regression from admission. Framework
+  owners, config owner and collect check (40,389) clean; black/ruff/mypy
+  clean. Remaining SCALE-03 surfaces (team members, queued jobs,
+  subprocesses, DB workers, subscriber queues) and slow-client bounded
+  queues (SCALE-04) stay open under VAS-16/10.
+
+- **VAS-05j — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1775](https://github.com/anvai-labs/victor/pull/1775)
+  (`feat/owner-scoped-broadcast`), baseline `927b568ff`; merged as squash
+  `5017f3511` with all checks green after RELATED_TESTS mappings for
+  `tool_routes.py`/`team_routes.py` in the same PR. Owner-scoped
+  broadcast delivery: bind protected-event delivery to the triggering
+  principal (delivery-time ownership check, first slice of SEC-02 on top of
+  VAS-05h). RED: with two authenticated principals, a tool approval resolved
+  by bob was delivered to alice's authenticated `/ws` socket. Repair in the
+  existing auth dependency and broadcast owner: `_enforce_api_auth` records
+  the resolved principal on `request.state.client_id`; `_broadcast_ws` /
+  `_broadcast_agent_event` accept an explicit `owner_client_id` and, on keyed
+  servers, deliver owner-bound events only to sockets authenticated as that
+  principal (same principal via multiple keys still receives; keyless
+  servers unchanged); tool/workflow/team routes bind it from the request
+  principal, workflow/team execution state records the owner at start and
+  lifecycle events deliver to that owner. Unbound internal broadcasts (e.g.
+  BackgroundAgentManager) keep all-authenticated delivery, pinned by a guard
+  test; binding them requires threading principal through the manager and is
+  recorded as a follow-up. Owner `tests/unit/integrations/api/` +
+  `tests/unit/api/`: 275 passed/5 skipped including cross-owner denial,
+  same-principal multi-socket and unbound-broadcast cases; black/ruff/mypy
+  clean; collect check clean. Cross-owner READ authorization (GET routes)
+  and scoped subscription records remain VAS-05c/VAS-06.
+
+- **VAS-05i — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1774](https://github.com/anvai-labs/victor/pull/1774)
+  (`feat/sandbox-required-policy`), baseline `adcc6e1ff`; merged as squash
+  `927b568ff` with all checks green. Enforce a
+  required sandbox policy at canonical tool dispatch (fail-closed containment
+  ahead of VAS-05c per-resource authorization). RED reproduced the gap: with
+  `sandbox_enabled=True` and a missing backend binary the child process was
+  still spawned (fail-open). Repair in the existing sandbox resolver and
+  subprocess executor owners, no parallel engine: `SandboxSettings` gains
+  `sandbox_policy` (`disabled`/`preferred`/`required`; `None` derives from the
+  legacy `sandbox_enabled` bool, which keeps its historical preferred
+  fail-open semantics; explicit policy wins); `resolve_sandbox_backend`
+  raises `SandboxRequiredUnavailableError` (typed reason: `binary_missing` /
+  `unsupported_platform`) under `required`, while `preferred` keeps fail-open
+  with an explicit DEGRADED record; `run_command`, `run_command_async` and
+  the production shell tool (`victor.tools.bash.shell`, which resolves the
+  same default) refuse dispatch with a structured `SANDBOX_REQUIRED` result
+  and zero child process spawns, proven by execution traps.
+  `tests/unit/tools/sandbox/` 31 passed/1 opt-in skip; affected
+  `tests/unit/tools/` 3,702 passed, `tests/unit/workflows/` 1,380 passed,
+  core mirror 39 passed; black/ruff/mypy clean; collect check 40,386 clean;
+  selector mapping for `victor/config/sandbox_settings.py` added in the same
+  PR. Follow-ups recorded, not claimed here: direct-spawn sites outside
+  `subprocess_executor` (terminal/git/search routes, MCP, filesystem tools)
+  still need convergence to the same decision, and
+  `workflows/isolation.py` `apply_settings` does not yet honor `required`.
+
+- **VAS-05h — MERGED** (2026-11-13), owner: framework-review delivery session;
+  PR [#1773](https://github.com/anvai-labs/victor/pull/1773)
+  (`fix/ws-broadcast-auth`), baseline `17a8b197f`. Stop outbound protected-event
+  delivery before `/ws` message authentication. RED reproduced through the real
+  route: on a keyed server an unauthenticated `/ws` socket received the
+  `tool_approval_resolved` broadcast triggered by `POST /tools/approve` as its
+  first message while the authenticated socket received it correctly.
+  Repair in the existing WS recipient admission/delivery owner, no parallel
+  engine: `_broadcast_ws` now excludes sockets that have not completed the
+  `auth` handshake on keyed servers (keyless explicit-opt-in servers
+  unchanged), and `/ws` enforces a bounded handshake — a total window from
+  accept (`_ws_auth_deadline`, default 30s) so frame dripping cannot keep a
+  pending socket in the recipient set; expired sockets close with code 1008.
+  Owner `tests/unit/integrations/api/test_ws_auth_gate.py`: 13/13 GREEN
+  (3× repeat stable), including authorized-delivery, keyless-compat,
+  survives-past-deadline and drip-bypass negative cases; affected
+  `tests/unit/integrations/api/` + `tests/unit/api/` 272 passed/5 skipped;
+  black/ruff/mypy clean; collect check 40,374 clean. Compatibility verified in
+  `vscode-victor/src/victorClient.ts` (auth sent as first frame). Scoped
+  subscription/ownership records remain VAS-05c/VAS-06; this repair does not
+  claim per-resource authorization. Merged to develop as squash `adcc6e1ff`
+  (#1773) with all checks green after a related-tests selector mapping fix
+  (`websocket_routes.py` → `test_ws_auth_gate.py`) in the same PR.
+
+- **PATCH-0281 — ACCEPTED** (2026-11-12), owner: release co-design session;
+  final handoff branch `docs/release-0281-handoff`, baseline
+  `e9a93e0abad0c6e418bfcf01099de70bc6430c44`. Source fixes #1765/#1766/#1768
+  are released and installed. Corrected promotion #1767 received CLEAN independent
+  review at `2063d331db24644325d9c9851fad9deed73e307d`; all 101 checks completed
+  without failure, including both required aggregates. It merged preserving
+  ancestry as `3d50823425ad85b404da8361f9df439ab97e11de`. The superseded
+  `057c2121e` head was held before merge for the repaired tool-name finding.
+  Annotated `v0.28.1` peels to that main merge. Release run
+  [43171496686](https://github.com/anvai-labs/victor/actions/runs/43171496686)
+  completed successfully, including all ten native platform/Python targets,
+  bare-install checks, security scan, PyPI, Docker, binaries, VSIX and SBOM.
+  [Victor 0.28.1](https://github.com/anvai-labs/victor/releases/tag/v0.28.1)
+  is public. Main→develop #1769 received CLEAN exact-head review; all 182 reported
+  contexts completed without failure before merge `e9a93e0ab`. The root checkout
+  is back on synchronized develop; the merged promotion worktree was removed.
+
+  Official compatible wheels were verified against both PyPI SHA256 metadata
+  and GitHub release asset digests; seven repaired Python modules matched the
+  exact tagged source. AI wheel SHA256:
+  `4949bbf4fe700bcc0f11f7c3a5f48ee43009032773e7f6db53289ca4f9ff4e9a`.
+  CPython 3.12 manylinux2014 x86-64 native wheel SHA256:
+  `eb052a0a2482c9e6db5fd3049c669b8f074c63c8985f8b40265dc4cb0a011f3e`.
+  Only those official wheels were installed into the active Conda and project
+  environments on aiserver1 after verifying rollback backups. Both now report
+  AI/native 0.28.1, Typer 0.27.3, contracts 0.17.0 and Sandhi binding 0.16.2;
+  CLI/native checks passed. Project `pip check` is clean; Conda retains its 17
+  pre-existing conflicts, with none introduced by this upgrade.
+
+  Installed hosted acceptance passed all six OpenAI/ZAI cases: completion,
+  streaming with explicit successful terminal outcome, and one isolated file
+  write per route. Each write's exact file content, single successful public
+  receipt (`name` and `tool`) and modified path agreed. Enabled usage loggers
+  persisted user/assistant events, tool results and stream completion as
+  applicable, and closed with empty buffers. Four hosted profiles resolved to
+  the configured DS3 HTTPS gateway; two routes received these live model tests.
+  DS3 remains the authoritative Sandhi 0.16.2 gateway, verified over trusted HTTPS
+  with wire version 1 and chat minor 10. The retired aiserver1 system gateway
+  stays inactive; unrelated manual services were preserved. Sandhi co-design
+  docs #423 are merged and version-neutral; no gateway upgrade was needed.
+
+  Installed CLI acceptance imported the preserved 51 MB Claude source into an
+  isolated database, rejected the oversized direct Codex install, and installed
+  the explicit 24,012-byte historical handoff. Codex 0.167.1 rendered native
+  history and completed a real configured `gpt-6.1-sol` recall reply with 20,661
+  input tokens, no errors and zero observed tool items. Stored hashes confirmed
+  the original source/export stayed unchanged. This verifies the bounded handoff;
+  the original full export still exceeds model context and is not a usable
+  continuation. The final verified resume command and receipts remain private in
+  `.victor/analysis/claude-to-codex-d18314b1-20261112/`; release/install/hosted
+  receipts and rollback archives are under
+  `.victor/analysis/release-codesign-20261111/`.
+
+  This acceptance covers the patch release and specified live smoke gates,
+  not FEP-0039 acceptance or broader C5 delivery. The original TUI freeze was not
+  reproduced and no thread dump survived; its root cause remains unconfirmed.
+  InferFlux remains explicitly deferred. Next: finish this docs-only handoff PR,
+  remove its merged worktree/branch, and preserve unrelated dirty worktrees,
+  original stashes and untracked analysis. No further patch release is required
+  for this evidence-only update.
+
+- **RUN-OUTCOME-01-COMPAT — ACCEPTED** (2026-11-12), owner: release
   co-design session; branch `fix/run-receipt-tool-names`, baseline `2b22ba1e3`.
   Consumer review held main promotion #1767: eventless benchmark traces preserve
   public receipts verbatim, while the audit consumer reads `name`; receipts
@@ -95,10 +589,10 @@ edit. A mock test is not live provider or C5 evidence.
   Independent review CLEAN at `8e850e0488b4a41c3c50b9a78dcb5fd4870403f3`;
   all 56 PR checks completed without failure. [#1768](https://github.com/anvai-labs/victor/pull/1768)
   squash-merged as `f9a3ecd5ae4ce8f86605d07fce3a38ecf94ba505`; task worktree
-  and local branch removed. Next: qualify the refreshed promotion head. The
-  superseded head remains ineligible for merge; publication/deployment pending.
+  and local branch removed. Released and installed acceptance is recorded in
+  PATCH-0281 above; main promotion used corrected head `2063d331`.
 
-- **INTEROP-02 — MERGED_DEVELOP** (2026-11-12), owner: release co-design session;
+- **INTEROP-02 — ACCEPTED** (2026-11-12), owner: release co-design session;
   branch `fix/codex-context-bound`, baseline `a12e387e5`. Fetched origin and
   reconciled #1761/#1762/#1764: fixes promoted, Victor 0.28.0 published and
   installed. The actual 51 MB Claude export loaded in Codex but failed its first
@@ -117,10 +611,10 @@ edit. A mock test is not live provider or C5 evidence.
   issues passed. Independent review CLEAN at `b7b1028ef`; all 56 PR checks
   completed without failure. [#1765](https://github.com/anvai-labs/victor/pull/1765)
   squash-merged as `4ad21f829e2c53a162029fade0a7c397394a19af`; completed worktree
-  and local branch removed. Release of this source fix remains separate from
-  existing Victor 0.28.0 publication.
+  and local branch removed. Released and installed acceptance is recorded in
+  PATCH-0281 above, separately from the earlier 0.28.0 publication.
 
-- **RUN-OUTCOME-01 — MERGED_DEVELOP** (2026-11-12), owner: release co-design
+- **RUN-OUTCOME-01 — ACCEPTED** (2026-11-12), owner: release co-design
   session; branch `fix/run-outcome-projection`, baseline `a12e387e5`, advanced onto merged `4ad21f829`. Origin
   fetched; Victor 0.28.0 publication, install and main/develop back-sync are
   complete. Interop admission repair merged in #1765.
@@ -146,8 +640,8 @@ edit. A mock test is not live provider or C5 evidence.
   `b0c17ddf59c94090deee2f709480cbc518a8d827`; all 68 PR checks completed without
   failure. [#1766](https://github.com/anvai-labs/victor/pull/1766) squash-merged
   as `2b22ba1e33e8ca525f5698719e9784ca088912dd`; completed task worktree/local
-  branch removed. Next: protected patch promotion, publication and installed
-  hosted acceptance. Victor 0.28.1 is not yet published/deployed.
+  branch removed. Released and installed hosted acceptance is recorded in
+  PATCH-0281 above.
   No whole-session reconstruction, tool replay or weaker repetition stops.
   InferFlux deferred.
 
@@ -3094,6 +3588,9 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-05e | Victor/Sandhi identity propagation and delegation contract | VAS-05a | TODO | Co-design separate initiator/actor/provider identity; verify Kanidm exchange capability, scoped delegation, audience and revocation; shared workload attribution is intermediate only |
 | VAS-05f | Implement immutable per-run gateway credential binding and delegation | VAS-05c, VAS-05e, VAS-06 | TODO | Two-user concurrency, no shared credential mutation, grant/model denial, rotation/revocation and actual identity/accounting joins |
 | VAS-05g | Repair existing EventBridge credential and connection ownership | VAS-04a | ✅ MERGED | [#1267](https://github.com/anvai-labs/victor/pull/1267), `07b076726`; clean exact-commit review and all 39 applicable CI checks including Vertical Py3.12; 113 Vitest, 1,012 actual host, 41 API/auth/HTTP tests, 34,030 collected. Header-only key, owned rotation/cleanup and no redirect/anonymous downgrade; server-side live revocation remains G81 |
+| VAS-05h | Stop outbound protected-event delivery before /ws authentication | VAS-05g | ✅ MERGED | [#1773](https://github.com/anvai-labs/victor/pull/1773) squash `adcc6e1ff`, branch `fix/ws-broadcast-auth`, baseline `17a8b197f`. Real-route RED: unauthenticated /ws socket received tool-approval broadcasts on a keyed server. `_broadcast_ws` recipient admission (auth-handshake required on keyed servers; keyless unchanged) + bounded total handshake window closing pending sockets (1008). Owner 13/13 GREEN incl. authorized delivery, keyless compat, drip-bypass negative; affected API suites 272 passed; lint/type/collect clean. Scoped subscription ownership remains VAS-05c/VAS-06 |
+| VAS-05i | Enforce required sandbox policy at canonical tool dispatch | VAS-05h | ✅ MERGED | [#1774](https://github.com/anvai-labs/victor/pull/1774), `927b568ff`; Branch `feat/sandbox-required-policy`, baseline `adcc6e1ff`. RED: enabled-but-unavailable sandbox still spawned the child (fail-open). `SandboxPolicy` disabled/preferred/required in `SandboxSettings` (legacy bool → preferred); `resolve_sandbox_backend` raises typed `SandboxRequiredUnavailableError` under required; `run_command`/`run_command_async`/`bash.shell` refuse with structured `SANDBOX_REQUIRED` result, zero spawns. Owner 31 passed; tools 3,702 + workflows 1,380 + core mirror 39 passed; lint/type/collect clean. Direct-spawn convergence and `workflows/isolation.py` policy awareness recorded as follow-ups |
+| VAS-05j | Owner-scoped broadcast delivery (cross-owner denial) | VAS-05i | ✅ MERGED | [#1775](https://github.com/anvai-labs/victor/pull/1775), `5017f3511`. Branch `feat/owner-scoped-broadcast`, baseline `927b568ff`. RED: bob's tool-approval event delivered to alice's authenticated socket. Auth dep records `request.state.client_id`; `_broadcast_ws`/`_broadcast_agent_event` take explicit `owner_client_id`; tool/workflow/team routes bind it; execution state records owner at start; unbound internal broadcasts keep all-authenticated (guard test). API surface 275 passed; lint/type/collect clean. BackgroundAgentManager principal threading, cross-owner READ and scoped subscriptions remain open |
 | VAS-06 | Canonical session ownership and bounded admission | VAS-05b | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
 | VAS-07 | Durable run admission, identity and status | VAS-06 | TODO | Reuse existing durable owners; same-key dedup/content conflict, reliable dispatch and honest recorded outcomes |
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
@@ -3119,6 +3616,22 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-15 | GraphQL/MCP/legacy adapter convergence and deprecation | VAS-08, VAS-13, VAS-14 | TODO | Inventory external consumers, policy/attribution parity; one owner, compatibility window; retire only evidenced duplicates |
 | VAS-15a | Preserve outcomes through the retained Python HTTP adapter | VAS-00 | ✅ MERGED | G80; [#1268](https://github.com/anvai-labs/victor/pull/1268), `e9004a5d8`; exact-candidate independent review and all applicable CI green. 144 focused/696 affected/81 docs/44 selector/199 selected tests, 34,082 collected, 95% changed-line coverage; no POST replay, adapter removal or durability claim; direct adapter remains G82/VAS-15 |
 | VAS-16 | Measured performance and broader lifecycle acceptance | VAS-12, VAS-13, VAS-14, VAS-15 | TODO | Same-workload baseline/comparison; cold/warm, 1/8/32 concurrency, memory/backpressure, deadlines and crash/recovery |
+| VAS-16a | Bounded Send fan-out admission (SCALE-03 slice) | VAS-16 | ✅ MERGED | [#1776](https://github.com/anvai-labs/victor/pull/1776) squash `fbd9765aa`, branch `feat/bound-send-fanout`, baseline `927b568ff`. RED: `ExecutionConfig.max_parallel_branches` (default 16) bounds in-flight Send branches via semaphore in `_execute_parallel`; all admitted branches queue and complete (64-branch/bound-4 preservation test). RED: 8 branches ran 8-wide before the fix. Baseline: 256 branches 2.13ms (bound 16) vs 2.23ms (bound 4); no wall-time regression. Owners + collect (40,389) clean. Remaining SCALE-03/04 surfaces open under VAS-16/10 |
+| VAS-05k | Required-policy + owner-scope convergence residuals | VAS-05j | ✅ MERGED | [#1777](https://github.com/anvai-labs/victor/pull/1777) squash `bcab05d71`, branch `feat/required-policy-convergence`, baseline `fbd9765aa`. `SandboxedExecutor` consults the canonical policy: required-unavailable refuses all branches pre-spawn (no docker->process fallback); required+backend refuses unenforced inline; preferred unchanged (RED trap-proven). Background agents owner-scoped end-to-end (`start_agent(owner_client_id=...)`, events tagged, route binds principal). `IsolationMapper.apply_settings` confirmed dormant (zero callers). Owners 9+33 pass; suites 1,692 passed; lint/type/collect clean. Direct-spawn sites (terminal/git/search routes, MCP stdio, filesystem/shell-cached helpers) still outside the gate — recorded for future bounded convergence |
+| VAS-05l | Required enforcement follows the actual launch (HB-02/HB-03) | VAS-05k | ✅ MERGED | [#1778](https://github.com/anvai-labs/victor/pull/1778) squash `0ed5536a7`, branch `feat/required-policy-enforcement`, baseline `bcab05d71`. RED: required-policy resolver exception returned NoneSandbox (sync/async/shell); workflow process branch launched raw argv with bwrap available. `_resolve_default_sandbox` + workflow decision convert resolver errors to typed `resolver_error` refusals; caller NoneSandbox cannot weaken required; `_execute_process` wraps launch argv with the resolved backend (Popen-trap asserted); docker qualified on own capabilities, not bwrap. Owners 16+12 GREEN (7 RED-first); suites 5,132 passed; lint/type/collect clean. HB-01 authorization, direct-spawn routes, HB-04 bounded admission remain open in delivery order |
+| VAS-05p | Docker global network floor composition (R2-02) | VAS-05o | ✅ MERGED | [#1783](https://github.com/anvai-labs/victor/pull/1783), branch `feat/docker-policy-composition`, baseline `69719f04d`. RED: docker run argv had no network flags under required + global network isolation + node network_allowed=True. `_compose_global_network_floor` tightens workflow Docker isolation before flag assembly (preferred or required; node tightens only; disabled keeps node config); eval-container path and mount/readonly composition recorded as follow-ups. Owners 15 GREEN (2 RED-first, actual argv); suites 2,144 passed; ratchet at baseline; lint/type clean. Queued: R2-03 worker ownership, R2-04 count validation |
+| VAS-05q | Policy-unreadable launches refuse (NEXT-01 slice 1) | VAS-05p | ✅ MERGED | [#1787](https://github.com/anvai-labs/victor/pull/1787) squash `d3da8e3868`, branch `feat/policy-unavailable-refusal`, baseline `787a26eb3`. RED: get_settings raising produced NoneSandbox + raw spawns in canonical/git/terminal/workflow owners. Typed `PolicyUnavailable` (`settings_read_failed`) refuses at every owner: `POLICY_UNAVAILABLE` structured results (distinct from SANDBOX_REQUIRED), zero spawns; explicit disabled/preferred only after successful read (pinned). Owners 49 GREEN (6 RED-first); suites 5,462 passed; ratchet at baseline; lint/mypy clean. FEP-scoped follow-ups: snapshot establishment/propagation, reload/revocation, delegation/resume semantics |
+| VAS-05r | Immutable run-policy snapshot and pause/resume invariant (NEXT-01 slice 2) | VAS-05q | ✅ MERGED | [#1789](https://github.com/anvai-labs/victor/pull/1789) squash `e671e56e7`, baseline `fc83a1bcd`; draft FEP-0044. RED proved missing pause evidence, unreadable-policy admission reaching chat resolution, and approved dispatch after required→disabled/preferred reload or metadata tampering. Snapshot binds all non-secret sandbox fields with a SHA-256 digest at both message boundaries, propagates through `RuntimeExecutionContext`, persists with pauses, and exact-match-verifies before resume dispatch; legacy pauses remain on current checks. Owners 12/105/147/58 plus selector 210 pass; 40,450 tests collect clean; all applicable CI green including Vertical Py3.12 and FEP validation. Launch-owner consumption and delegation propagation remain separately owned follow-ups |
+| VAS-05s | Canonical subprocess/shell consumes admitted run-policy snapshot (FEP-0044 Phase 2 slice 1) | VAS-05r | ✅ MERGED | [#1791](https://github.com/anvai-labs/victor/pull/1791) squash `00d26f9ed`, baseline `f430b2e00`. RED proved sync/async subprocess and real shell launches lacked snapshot admission/context. Message/stream execution now binds policy, tool context exposes it per call, shell/subprocess resolve it before mutable globals, and resume dispatch/continuation rebind persisted policy. Owners 143 and 1,042 affected pass; CI changed-file selector and Vertical Py3.12 green; 40,460 collect clean; lint/type clean. Workflow/git/terminal snapshot consumption and delegation propagation remain open |
+| VAS-05t | Workflow executor consumes admitted run-policy snapshot (FEP-0044 Phase 2 slice 2) | VAS-05s | ✅ MERGED | [#1794](https://github.com/anvai-labs/victor/pull/1794) squash `c396fcd15`, baseline `12fc116dc`. RED proved four mutable-settings reload races. `_resolve_policy_decision` and the Docker network floor now consume the admitted snapshot; no-snapshot callers retain globals. Owner 21 and workflows 1,396 pass; 40,464 tests collect clean; lint/type clean. All applicable CI green; terminal/git routes and delegation remain separate |
+| VAS-05u | Terminal/git direct routes consume request-scoped policy snapshots (FEP-0044 Phase 2 slice 3) | VAS-05t | ✅ MERGED | [#1797](https://github.com/anvai-labs/victor/pull/1797) squash `1e3ceb2fd`, final baseline `55968fab0`. RED proved real terminal/git launches reread mutable globals despite admitted policy. Terminal now resolves one request policy; git binds one request policy across every child and AI turn. Owners 19 pass, selector passes, 40,583 tests collect clean, lint/type clean. All applicable CI green; delegation/background propagation remains separate |
+| VAS-05v | Background agents inherit admitted policy snapshots (FEP-0044 Phase 2 slice 4) | VAS-05u | ✅ MERGED | [#1800](https://github.com/anvai-labs/victor/pull/1800) squash `9f8609b5a`, baseline `dfacb748c`. RED proved detached `/agents/start` work lacked admitted policy. API start now copies server settings once, manager stores the immutable snapshot, and the detached run binds it end-to-end. Owners 58 pass; 40,586 tests collect clean; lint/type clean. All applicable CI green; serialized cross-process delegation remains separate |
+| VAS-05w | Serialized delegation requests carry admitted policy snapshots (FEP-0044 Phase 2 slice 5) | VAS-05v | IN REVIEW | PR [#1803](https://github.com/anvai-labs/victor/pull/1803), head `4a6eede19`, baseline `dfacb748c`. Owner Codex framework-review continuation; branch `feat/delegation-policy-snapshot`, baseline `dfacb748c`. RED proved protocol/tool/detached-task policy loss. Requests now round-trip digest-validated metadata, reject tampering, capture parent policy at tool/direct-handler boundaries, and bind restored policy around spawn. Owner 54 and selector 256 pass; 40,591 tests collect clean; lint/type clean. PR/CI/merge evidence pending; external process transport remains separate |
+| VAS-05m | Resource-owner authorization before read/mutation (HB-01) | VAS-05l | ✅ MERGED | [#1779](https://github.com/anvai-labs/victor/pull/1779) squash `64778c5a0`, branch `feat/resource-owner-auth`, baseline `bcab05d71`. RED: RED: Bob listed and approved Alice's approval via real routes (200, entry removed). Tool approvals list/approve/cancel + workflow list/read/status/cancel + agent list/get/cancel authorize against the STORED owner; denied calls keep state and emit nothing; not-found shape without existence confirmation; ownerless entries quarantined on keyed servers; spoofed body owner grants nothing; keyless unchanged. Ownership stamped via new `register_pending_approval` (store had no producer; FEP-0029 paused-run store is the durable approval path). Ratchet consolidated to baseline. Owners 60 GREEN (6 RED-first); suites 318 passed; lint/type/collect clean. Paused-run/subscription scoping (VAS-06) and shared session scoping remain open |
+| VAS-05n | Direct-spawn convergence: terminal route gate (order 3 slice) | VAS-05l | ✅ MERGED | [#1780](https://github.com/anvai-labs/victor/pull/1780) squash `ee1d306c61`, branch `feat/direct-spawn-gate`, baseline `0ed5536a7`. RED: terminal route launched raw argv under required+available backend; spawned under unenforceable required. Shared `resolve_required_launch` in the sandbox owner; terminal launch wraps argv or refuses; `_resolve_default_sandbox` re-expressed on the same decision. Classified inventory recorded: git/search = trusted fixed-argv control reads; MCP stdio = control plane; per-site decisions pending for the remaining fixed-binary tools. Owners 94 GREEN (2 RED-first); lint/type/collect clean; ratchet at baseline. Remaining inventory sites are follow-up increments |
+| VAS-16b | Bounded fan-out task/state admission (HB-04, order 4) | VAS-16a | ✅ MERGED | [#1781](https://github.com/anvai-labs/victor/pull/1781) squash `69719f04d8`, branch `feat/bounded-fanout-admission`, baseline `64778c5a0`. RED event-ordering probe: 32 states copied before the first execution under bound=1. `_execute_parallel` runs min(bound, fanout) worker tasks pulling from a shared iterator; deepcopy after admission; results by index (merge order/failure semantics unchanged); cancellation stops new admission; `ExecutionConfig.max_fanout_branches` (None default) rejects oversized expansion pre-effect with typed `FanoutBudgetExceeded`. Result-byte budgets recorded as contract-review follow-up (VAS-16/22). Owners 172 GREEN (2 RED-first); collect 40,418 clean; ratchet at baseline |
+| VAS-05o | Git route spawn gate (R2-01) | VAS-05n | ✅ MERGED | [#1782](https://github.com/anvai-labs/victor/pull/1782) squash `10bbbcd6c`, branch `feat/git-mutation-gate`, baseline `69719f04d`. RED: RED: required-unavailable reached trapped `git add`/`commit` with HTTP 200. All git-route spawns (status/log/diff + commit flow) gated via `_git_spawn` -> `resolve_required_launch`: refusal before spawn (typed `GitPolicyRefusal`, structured per-route responses), argv wrapped when enforceable; reads gated uniformly (diff textconv drivers). New owner `test_git_routes.py` 4 GREEN (3 RED-first); API suite 226 passed; ratchet at baseline; lint/type/collect clean. Queued: R2-02 Docker composition, R2-03 worker ownership, R2-04 count validation |
+| VAS-16c | Worker failure ownership + strict count validation (R2-03/04) | VAS-16b | ✅ MERGED | [#1784](https://github.com/anvai-labs/victor/pull/1784) squash `2619c13954`, branch `feat/worker-ownership-budgets`, baseline `64778c5a0` rebased on #1782. RED: sibling drained queued branches after caller failure; True/1.5/NaN accepted as count budgets. Workers are owned tasks: failure stops admission, cancels/joins siblings before propagation, preserves observed results; collect-all and merge semantics unchanged. `_validate_count` rejects bool/float/NaN/inf for both count fields through config/legacy/compile; None only for fanout. Unreadable-settings gap explicitly open; further scheduler-contract additions via FEP. Owners GREEN (3 RED-first); ratchet at baseline; lint/type clean |
 | VAS-17 | Released foundation deployment and lifecycle acceptance for C5 | VAS-02, VAS-11, VAS-12 | ACTIVE (partial foundation accepted) | InferFlux v0.5.0 released/deployed; 16 synthetic wire checks pass through direct HTTP/TLS and Sandhi 0.11.0; gateway reconciliation 4 calls/48 in/2 out. Sandhi #336 admission and #337 usage qualification merged; #338 tracked buffered HTTP/recovery merged after 13 applicable green CI checks; released in Sandhi 0.12.0 and deployed on both hosts; tracked-mode lifecycle qualification pending. Two tracked crash/restart cases merged in #339 after all six applicable CI gates passed. Terminal-publication contention/death cases qualified in Sandhi #340 with 46 affected tests, 12 metrics tests and two negative controls. Synthetic buffered TLS/OIDC source acceptance merged in Sandhi #350 with 149 unique local tests and 7 applicable CI checks. OIDC crash/restart composition and isolated released 0.12.0/deployed-policy qualification pass in #351 (64 affected tests, 3 live provider calls / 51 charged tokens); managed gateway unchanged. Strict OpenAI Chat stream-usage core qualification merged in #352 after 862 Rust tests, 18 SDK regressions and 13 applicable green CI checks; no transport activation. Bounded complete-event framing/immutable observation merged in #353 after 867 Rust tests, 18 SDK regressions and 13 applicable green CI checks. Sandhi #354 merged opt-in raw response ownership with Final usage retained through drop/timeout after clean exact-commit review, 871 Rust tests, 18 SDK regressions and all 13 applicable CI checks. Sandhi #355 merged bounded transparent streaming HTTP ownership, durable terminal/settlement, shutdown headroom and retained recovery. Sandhi #356 merges standalone streaming process/TLS/OIDC acceptance (40 affected process tests; clean exact-commit review). Sandhi 0.13.0 published through #357/#358 with all artifact targets verified; 1,712 official-wheel consumer tests and local Homebrew binary smoke pass. Consumer/formula gates completed in Victor #1285 and Tap #101; remote 0.13.0 default-mode deployment passes TLS/auth/provider/accounting checks with 248 prior usage rows preserved. Mac OIDC/default-mode 0.13.0 cutover and public HTTPS provider probes also pass with 1,071 prior rows preserved. Both Qwen tracked streams pass; ZAI tracked streaming fails NonFinalUsage (G83). Next: Sandhi #362 merge/release and provider tracked qualification, preserved-state managed tracked deployment and broader lifecycle acceptance. G84 tracks DeepSeek catalog/harness follow-up; its default-path Mac OIDC deployment passes. Browser deployment, cancellation, executed reuse/session behavior, remote cloud credential availability and full C5 remain open |
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
@@ -4303,7 +4816,7 @@ are terminal recorded outcomes. Internal feedback retains internal provenance.
 | LOOP-01 / G97 | ✅ MERGED #1336 | One count-retention owner and provenance predicate; producer repairs, live retention audit, independent review and all 41 CI checks passed; context-limit slices remain follow-up |
 | LOOP-02 / G97 | PARTIAL: terminal event/client verdict ✅ #1337 | CLI exit/status ✅ #1338; concurrent/repeated tool names must reconcile by ID; no false success |
 | LOOP-03 / G98 | PARTIAL: reset/recorded evaluation ✅ #1336; terminal delivery ✅ #1337 | RESPONSE governance and terminal status qualified; shared controller stop dispatch ✅ #1339; cooperative guard/deadline dispatch ✅ #1340; typed disposition/recovery governance ✅ #1341; intent-aware nudge dispatch ✅ #1342; buffered publication governance ✅ #1343; streaming candidate publication ✅ #1344; terminal post-loop recovery admission ✅ #1345; executor configuration ✅ #1346; team/forced adapter routing and StateGraph parity remain open |
-| LOOP-04 / G98 | AUDITED, implementation pending | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges |
+| LOOP-04 / G98 | PARTIAL: shared rejected-batch rule (branch `fix/loop04-recovery-attempt-ledger`, baseline `dbe5c7eb0`) | Intent-aware recovery and one attempt ledger; repeated invalid/denied tools do not produce unbounded nudges. Slice 1: streaming now feeds the shared SpinDetector the same "every call rejected" flag as buffered (`tool_progress.batch_all_rejected`, incl. dropped id-less skips), so both stop at `max_consecutive_all_blocked`; nudge no longer claims a duplicate cause or invites working around a denial. Open: cycles of informative dedup/redirect skips (bounded only by the iteration cap), `duplicate_in_batch` copies of rejected calls, streaming tracker `tool_blocked` ledger still separate, blocked count not reset by no-tool turns, per-kind nudge text |
 | LOOP-05 / G98 | AUDITED, design pending | Structured terminal evidence replaces prose as control authority; ordinary read tasks do not need judges or minimum tool counts |
 | LOOP-06 | TODO, depends on LOOP-01–05 | Fixed baseline versus optional planner/judge/learning, reporting verified success, model calls, tokens, elapsed time, CPU/memory and cancellation reliability; retain only measured improvements |
 

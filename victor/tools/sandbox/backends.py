@@ -23,10 +23,12 @@ wraps a command's argv with a platform launcher:
 * :class:`NoneSandbox` — passthrough (no isolation).
 
 :func:`resolve_sandbox_backend` selects a backend from :class:`SandboxSettings`.
-It is **fail-open**: if the requested backend's binary is missing or the
-platform is unsupported, it logs a one-time warning and returns
-:class:`NoneSandbox` so tools keep working (the feature is opt-in and off by
-default).
+With the ``preferred`` policy it is **fail-open**: if the requested backend's
+binary is missing or the platform is unsupported, it logs a one-time warning
+and returns :class:`NoneSandbox` so tools keep working (the feature is opt-in
+and off by default). With the ``required`` policy it is **fail-closed**: an
+unavailable backend raises :class:`SandboxRequiredUnavailableError` and the
+caller must refuse dispatch (zero execution).
 
 Cross-learning from Omnigent (``../omnigent/omnigent/inner/bwrap_sandbox.py``
 and ``seatbelt_sandbox.py``). This is an MVP: the seatbelt profile uses an
@@ -40,6 +42,7 @@ import logging
 import platform
 import shutil
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -193,6 +196,21 @@ class SeatbeltSandbox(SandboxBackend):
         return ["sandbox-exec", "-p", profile] + list(argv)
 
 
+class PolicyUnavailable(RuntimeError):
+    """The sandbox policy could not be established (settings read failure,
+    malformed configuration).
+
+    Unknowable policy is NOT affirmative disabled mode (NEXT-01): launch
+    owners must refuse governed execution instead of degrading open. An
+    explicit disabled/preferred decision remains available only after a
+    successful settings read.
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 def _warn_once(message: str) -> None:
     """Emit the fail-open warning at most once per process."""
     global _warned_unavailable
@@ -201,18 +219,64 @@ def _warn_once(message: str) -> None:
         _warned_unavailable = True
 
 
+class SandboxRequiredUnavailableError(RuntimeError):
+    """No backend can enforce a ``required`` containment policy.
+
+    Raised by :func:`resolve_sandbox_backend` when the policy is mandatory
+    but the platform is unsupported or the backend binary is missing.
+    Callers must treat this as a dispatch refusal (zero execution), never
+    as permission to run unsandboxed.
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        """Record a stable reason code alongside the human message."""
+        super().__init__(message)
+        self.reason = reason
+
+
+def effective_sandbox_policy(sandbox_settings: Any) -> str:
+    """Resolve the effective policy from settings.
+
+    An explicit (non-``None``) ``sandbox_policy`` wins; ``None``/absent
+    derives from the legacy ``sandbox_enabled`` bool, which maps to
+    ``preferred`` when true (its historical fail-open semantics). Missing
+    settings mean disabled.
+    """
+    if sandbox_settings is None:
+        return "disabled"
+    policy = getattr(sandbox_settings, "sandbox_policy", None)
+    if policy in ("disabled", "preferred", "required"):
+        return policy
+    if bool(getattr(sandbox_settings, "sandbox_enabled", False)):
+        return "preferred"
+    return "disabled"
+
+
 def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
-    """Select a sandbox backend from settings (fail-open to :class:`NoneSandbox`).
+    """Select a sandbox backend from settings.
+
+    Policy semantics:
+
+    * ``disabled`` — :class:`NoneSandbox`, silently (historical default).
+    * ``preferred`` — fail-open: unavailable backend/platform degrades to
+      :class:`NoneSandbox` with a one-time DEGRADED warning.
+    * ``required`` — fail-closed: raises
+      :class:`SandboxRequiredUnavailableError`; dispatch must refuse to
+      execute rather than run unsandboxed.
 
     Args:
         sandbox_settings: A ``SandboxSettings``-like object (or None).
 
     Returns:
-        A platform-appropriate backend when enabled and available; otherwise
-        :class:`NoneSandbox` (with a one-time warning if a sandbox was requested
-        but is unavailable).
+        A platform-appropriate backend when isolation is requested and
+        enforceable; otherwise :class:`NoneSandbox`.
+
+    Raises:
+        SandboxRequiredUnavailableError: policy is ``required`` and no
+            backend can enforce it.
     """
-    if sandbox_settings is None or not getattr(sandbox_settings, "sandbox_enabled", False):
+    policy = effective_sandbox_policy(sandbox_settings)
+    if policy == "disabled":
         return NoneSandbox()
 
     workspace_only = getattr(sandbox_settings, "sandbox_filesystem_mode", "workspace-only") == (
@@ -236,21 +300,80 @@ def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
             network_isolation=network_isolation,
         )
     else:
+        if policy == "required":
+            raise SandboxRequiredUnavailableError(
+                "unsupported_platform",
+                f"Sandbox policy is 'required' but platform '{system}' has no "
+                "enforcing backend; refusing execution (fail-closed).",
+            )
         _warn_once(
             f"Sandbox enabled but unsupported platform '{system}'; "
-            "running tools UNSANDBOXED (fail-open)."
+            "running tools UNSANDBOXED (fail-open). [DEGRADED]"
         )
         return NoneSandbox()
 
     if not backend.available():
+        if policy == "required":
+            raise SandboxRequiredUnavailableError(
+                "binary_missing",
+                f"Sandbox policy is 'required' but the '{backend.type_name}' backend is "
+                f"unavailable (binary missing on {system}); refusing execution "
+                "(fail-closed). Install the sandbox binary to enable isolation.",
+            )
         _warn_once(
             f"Sandbox enabled but the '{backend.type_name}' backend is unavailable "
             f"(binary missing on {system}); running tools UNSANDBOXED (fail-open). "
-            "Install the sandbox binary to enable isolation."
+            "Install the sandbox binary to enable isolation. [DEGRADED]"
         )
         return NoneSandbox()
 
     return backend
+
+
+@dataclass(frozen=True)
+class RequiredLaunchDecision:
+    """Resolved decision for a required-policy launch (HB-02/03, ADR-L02).
+
+    ``required_active`` is False unless the effective policy is required.
+    ``refuse`` marks a required policy that cannot be enforced (typed
+    resolver failures and generic resolver/configuration errors alike) —
+    callers must refuse before any spawn and never degrade to no sandbox.
+    """
+
+    required_active: bool = False
+    backend: Optional["SandboxBackend"] = None
+    refuse: bool = False
+    reason: str = ""
+
+
+def resolve_required_launch(sandbox_settings: Any) -> RequiredLaunchDecision:
+    """Resolve whether a required policy can reach an enforcing launch.
+
+    Consolidates the fail-closed rule shared by the canonical subprocess
+    executor, the workflow sandbox executor and direct-spawn routes: under a
+    KNOWN required policy, any resolver or configuration failure refuses
+    (never degrades); other policies return a non-active decision and keep
+    their historical semantics.
+    """
+    try:
+        policy = effective_sandbox_policy(sandbox_settings)
+    except Exception:
+        return RequiredLaunchDecision()
+    if policy != "required":
+        return RequiredLaunchDecision()
+    try:
+        backend: SandboxBackend = resolve_sandbox_backend(sandbox_settings)
+    except SandboxRequiredUnavailableError as exc:
+        return RequiredLaunchDecision(refuse=True, reason=str(exc))
+    except Exception as exc:
+        return RequiredLaunchDecision(
+            refuse=True,
+            reason=(
+                "Sandbox policy is 'required' but backend resolution failed "
+                f"({exc}); refusing execution (fail-closed)."
+            ),
+        )
+    return RequiredLaunchDecision(required_active=True, backend=backend)
 
 
 __all__ = [
@@ -258,5 +381,10 @@ __all__ = [
     "NoneSandbox",
     "BubblewrapSandbox",
     "SeatbeltSandbox",
+    "SandboxRequiredUnavailableError",
+    "PolicyUnavailable",
+    "RequiredLaunchDecision",
+    "effective_sandbox_policy",
+    "resolve_required_launch",
     "resolve_sandbox_backend",
 ]

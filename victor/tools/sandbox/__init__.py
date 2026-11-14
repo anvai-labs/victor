@@ -15,14 +15,20 @@
 """OS-level sandboxing for subprocess-spawning tools.
 
 See :mod:`victor.tools.sandbox.backends`. Activated via ``settings.sandbox``
-(``sandbox_enabled``, off by default); resolution is fail-open.
+(``sandbox_policy``: ``disabled`` (default) / ``preferred`` / ``required``);
+``preferred`` resolution is fail-open, ``required`` is fail-closed.
 """
 
 from victor.tools.sandbox.backends import (
     BubblewrapSandbox,
     NoneSandbox,
+    RequiredLaunchDecision,
     SandboxBackend,
+    PolicyUnavailable,
+    SandboxRequiredUnavailableError,
     SeatbeltSandbox,
+    effective_sandbox_policy,
+    resolve_required_launch,
     resolve_sandbox_backend,
 )
 
@@ -31,5 +37,10 @@ __all__ = [
     "NoneSandbox",
     "BubblewrapSandbox",
     "SeatbeltSandbox",
+    "PolicyUnavailable",
+    "SandboxRequiredUnavailableError",
+    "RequiredLaunchDecision",
+    "effective_sandbox_policy",
+    "resolve_required_launch",
     "resolve_sandbox_backend",
 ]

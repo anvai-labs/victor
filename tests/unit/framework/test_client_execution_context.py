@@ -16,7 +16,9 @@ async def test_victor_client_ensure_initialized_captures_execution_context() -> 
     config = SessionConfig()
     client = VictorClient(config, container=object())
     execution_context = SimpleNamespace(services=SimpleNamespace(chat=None))
-    orchestrator = SimpleNamespace(_execution_context=execution_context)
+    orchestrator = SimpleNamespace(
+        _execution_context=execution_context, settings=SimpleNamespace(sandbox=None)
+    )
 
     class _FakeAgent:
         def get_orchestrator(self):
@@ -79,7 +81,9 @@ async def test_victor_client_chat_prefers_execution_context_chat_service() -> No
         )
     )
     execution_context = SimpleNamespace(services=SimpleNamespace(chat=chat_service))
-    orchestrator = SimpleNamespace(_execution_context=execution_context)
+    orchestrator = SimpleNamespace(
+        _execution_context=execution_context, settings=SimpleNamespace(sandbox=None)
+    )
 
     class _FakeAgent:
         async def run(self, _message: str):
@@ -113,7 +117,9 @@ async def test_victor_client_stream_prefers_execution_context_chat_service() -> 
         stream_chat=MagicMock(side_effect=_stream_chat),
     )
     execution_context = SimpleNamespace(services=SimpleNamespace(chat=chat_service, session=None))
-    orchestrator = SimpleNamespace(_execution_context=execution_context)
+    orchestrator = SimpleNamespace(
+        _execution_context=execution_context, settings=SimpleNamespace(sandbox=None)
+    )
 
     class _FakeAgent:
         async def stream(self, _message: str):
@@ -161,6 +167,7 @@ async def test_victor_client_session_prefers_execution_context_services() -> Non
     mock_orchestrator.provider.name = "test-provider"
     mock_orchestrator.model = "test-model"
     mock_orchestrator.messages = []
+    mock_orchestrator.settings = SimpleNamespace(sandbox=None)
     mock_orchestrator.get_stage = MagicMock(return_value=MagicMock(value="INITIAL"))
     mock_orchestrator.get_tool_calls_count = MagicMock(return_value=0)
     mock_orchestrator.get_tool_budget = MagicMock(return_value=50)
@@ -221,6 +228,7 @@ async def test_chat_session_stream_prefers_execution_context_chat_service() -> N
     mock_orchestrator.provider.name = "test-provider"
     mock_orchestrator.model = "test-model"
     mock_orchestrator.messages = []
+    mock_orchestrator.settings = SimpleNamespace(sandbox=None)
     mock_orchestrator.get_stage = MagicMock(return_value=MagicMock(value="INITIAL"))
     mock_orchestrator.get_tool_calls_count = MagicMock(return_value=0)
     mock_orchestrator.get_tool_budget = MagicMock(return_value=50)

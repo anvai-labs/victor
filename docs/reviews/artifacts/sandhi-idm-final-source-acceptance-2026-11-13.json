@@ -1,0 +1,50 @@
+{
+  "qualified_on": "2026-11-13",
+  "victor_tested_source": "fceb2e138c972fb10528f2a9c4e25956a46132f9",
+  "victor_prepared_version": "0.29.0",
+  "sdk": {
+    "version": "0.17.1",
+    "artifact": "official PyPI Linux ABI3 wheel",
+    "wheel_sha256": "58e9efca8a4de62166a51a0c998393f9454cd5e3f22a420a2a4d3ce5e70c0b8d",
+    "native_module_sha256": "55a22940c7acc4920c7f4abc5695b7337f2718a0b383b86783304a64896d9d84"
+  },
+  "sandhi_server": {
+    "version": "0.18.0",
+    "published": false,
+    "source": "f07c98f0eee7c813478515c8c3d65467a29db31d",
+    "binary_sha256": "ab609875c1b0d6207be9b363541643cbb12d8a64d020bf76956ddf89813d7679"
+  },
+  "idm": {
+    "scope": "owned local development candidate aligned to actual remote baseline; not live deployed",
+    "binary_sha256": "191b859a7d3de86ec1229cc664dc8943148b2ddf2e0fd24f6fc188c6cd6de91f",
+    "fixture_sha256": "844281380613e83b07d14ca67ca53079fd97b529a6aa0f12eac79e30f86dd658"
+  },
+  "checks": {
+    "actual_three_component_and_oracle_tests_passed": 3,
+    "duration_seconds": 84.47,
+    "gateway_unit_tests_passed": 24,
+    "complete_tests_collection": 40166,
+    "actual_wire_credential_receipt_joins": 2,
+    "successful_read_tool_transcript": true,
+    "physical_attempts": 2,
+    "charged_neutral_tokens": [
+      14,
+      14
+    ],
+    "source_per_attempt": {
+      "fresh_input": 2,
+      "cache_read": 6,
+      "cache_creation": 2,
+      "output": 4
+    },
+    "refusal_controls": [
+      "userinfo",
+      "id_token",
+      "wrong_resource",
+      "private_file_expiry",
+      "signed_jwt_expiry",
+      "logout"
+    ]
+  },
+  "scope": "Local actual HTTPS/PostgreSQL and real Victor Agent with synthetic loopback model only; no live IDM/provider calls, deployment, Victor publication or released Sandhi0.18 claim."
+}

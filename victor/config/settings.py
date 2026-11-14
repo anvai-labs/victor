@@ -21,13 +21,21 @@ import logging
 import os
 import warnings
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, Optional, TypeVar, Union, List
+from typing import Any, Callable, ClassVar, Dict, Optional, TypeVar, Union, List, Literal
 
 logger = logging.getLogger(__name__)
 
 import yaml
 
-from pydantic import BaseModel, Field, SecretStr, computed_field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from victor.config.agentic_loop_settings import AgenticLoopSettings
 from victor.config.model_capabilities import _load_tool_capable_patterns_from_yaml
@@ -435,20 +443,22 @@ class GatewayOidcConfig(BaseModel):
 class ProviderGatewayConfig(BaseModel):
     """Per-provider Sandhi gateway mode (TD-0003 P3).
 
-    When set, the provider's Sandhi FFI handle is pointed at the Sandhi proxy and
-    presents the virtual key as a bearer token, so traffic is centrally attributed
-    and budget-enforced. The provider slug is preserved so the proxy still speaks the
-    right dialect (openai-compat / anthropic / responses) and routes to the
+    When set, the provider's Sandhi FFI handle points at the Sandhi proxy. URL-only
+    selects its starter realm; a configured key or OIDC identity opts into protected
+    access. Server policy owns attribution and budgets. An optional client protocol selects the wire dialect
+    independently of the provider label; server policy selects the
     vault-resolved upstream. Opt-in and default-off: an unset ``gateway`` leaves the
     provider in direct FFI mode (unchanged behavior).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     url: str = Field(
         default="",
         description=(
             "Sandhi proxy ROOT, e.g. http://localhost:8600 — a trailing /v1 or "
             "/v1beta is accepted and stripped (the transport derives the "
-            "per-family prefix). May be omitted entirely when "
+            "client-dialect prefix). May be omitted entirely when "
             "SANDHI_GATEWAY_URL is set."
         ),
     )
@@ -460,7 +470,36 @@ class ProviderGatewayConfig(BaseModel):
             "or SANDHI_GATEWAY_VIRTUAL_KEY)."
         ),
     )
+    auth_mode: Optional[Literal["none", "tokens", "oidc"]] = Field(
+        default=None,
+        description=(
+            "Gateway authentication: infer none for URL-only, tokens for a virtual key, "
+            "or oidc for renewable credentials. Explicit none rejects credentials."
+        ),
+    )
 
+    @model_validator(mode="before")
+    @classmethod
+    def validate_supplied_gateway_auth(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            from victor.providers.gateway_contract import gateway_auth_mode
+
+            auth = dict(value)
+            if hasattr(auth.get("oidc"), "model_dump"):
+                auth["oidc"] = auth["oidc"].model_dump()
+            if not any(name in auth for name in ("virtual_key", "oidc", "credential")) and auth.get(
+                "auth_mode"
+            ) in ("tokens", "oidc"):
+                # This model precedes environment resolution. Validate supplied
+                # values now; the resolver still requires the declared mode's
+                # matching credentials before any provider/account discovery.
+                auth.pop("auth_mode")
+            gateway_auth_mode(auth)
+        return value
+
+    protocol: Optional[
+        Literal["chat_completions", "anthropic_messages", "responses", "gemini_generate_content"]
+    ] = None
     oidc: Optional[GatewayOidcConfig] = None
     grant: Optional[str] = None
 
@@ -2544,6 +2583,13 @@ class Settings(BaseSettings):
             try:
                 return ProviderConfig(**provider_data)
             except Exception as e:
+                if provider_data.get("gateway") is not None:
+                    # A malformed configured gateway must never disappear into
+                    # direct-provider fallback. Validation details can contain
+                    # credential values, so surface only a bounded diagnosis.
+                    raise ValueError(
+                        f"Invalid gateway provider configuration for {provider}"
+                    ) from None
                 print(f"Warning: Failed to load provider config for {provider}: {e}")
                 return None
 
@@ -2572,8 +2618,9 @@ class Settings(BaseSettings):
         """Get settings for a specific provider.
 
         Uses ProviderConfigRegistry as the single resolution authority.
-        AccountManager (config.yaml) provides credential data only — it never
-        bypasses provider-specific strategy logic (endpoint switching, URL probing).
+        Gateway authentication resolves before AccountManager or direct-provider
+        strategies. In direct mode, AccountManager supplies credentials and the
+        provider strategy retains endpoint switching and discovery behavior.
 
         Merge precedence (lowest to highest):
         1. profiles.yaml providers section
@@ -2603,60 +2650,63 @@ class Settings(BaseSettings):
 
         logger = logging.getLogger(__name__)
 
-        # Extract credential data from AccountManager (if config.yaml exists)
-        account_data = None
-        try:
-            from victor.config.accounts import get_account_manager
+        def resolve_account_data() -> Optional[Dict[str, Any]]:
+            account_data = None
+            try:
+                from victor.config.accounts import get_account_manager
 
-            manager = get_account_manager()
-            config_exists = manager.config_path.exists()
-            if account_name and not config_exists:
-                raise LookupError("Explicit account configuration is absent")
-            if config_exists:
-                # Named credential identities must never select another account.
-                # Only unnamed profiles retain provider-default resolution.
+                manager = get_account_manager()
+                config_exists = manager.config_path.exists()
+                if account_name and not config_exists:
+                    raise LookupError("Explicit account configuration is absent")
+                if config_exists:
+                    # Named credential identities must never select another account.
+                    # Only unnamed profiles retain provider-default resolution.
+                    if account_name:
+                        account = manager.get_account(name=account_name)
+                        if account is None:
+                            raise LookupError("Explicit account was not found")
+                    else:
+                        account = manager.get_account(provider=provider)
+                    if account:
+                        account_data = {}
+                        # Extract auth info
+                        if account.auth.method == "oauth":
+                            account_data["auth_mode"] = "oauth"
+                        elif account.auth.method == "api_key":
+                            # Try resolving API key from account's configured source
+                            resolved = manager.resolve_provider_config(account)
+                            if "api_key" in resolved:
+                                account_data["api_key"] = resolved["api_key"]
+                        # Include endpoint if account specifies one
+                        if account.endpoint:
+                            account_data["base_url"] = account.endpoint
+                        logger.debug(
+                            f"AccountManager credentials for '{provider}': "
+                            f"keys={list(account_data.keys())}"
+                        )
+            except Exception as e:
                 if account_name:
-                    account = manager.get_account(name=account_name)
-                    if account is None:
-                        raise LookupError("Explicit account was not found")
-                else:
-                    account = manager.get_account(provider=provider)
-                if account:
-                    account_data = {}
-                    # Extract auth info
-                    if account.auth.method == "oauth":
-                        account_data["auth_mode"] = "oauth"
-                    elif account.auth.method == "api_key":
-                        # Try resolving API key from account's configured source
-                        resolved = manager.resolve_provider_config(account)
-                        if "api_key" in resolved:
-                            account_data["api_key"] = resolved["api_key"]
-                    # Include endpoint if account specifies one
-                    if account.endpoint:
-                        account_data["base_url"] = account.endpoint
-                    logger.debug(
-                        f"AccountManager credentials for '{provider}': "
-                        f"keys={list(account_data.keys())}"
-                    )
-        except Exception as e:
-            if account_name:
-                from victor.core.errors import ConfigurationError
+                    from victor.core.errors import ConfigurationError
 
-                # Credential backends may put secret values in exception messages.
-                # Report the selected identity, not the underlying exception text.
-                raise ConfigurationError(
-                    f"Cannot resolve configured account '{account_name}' for provider '{provider}'. "
-                    "Check the profile's account name and account configuration.",
-                    config_key="account",
-                    recovery_hint="Run 'victor auth list' to inspect configured accounts.",
-                ) from None
-            logger.debug(f"AccountManager lookup skipped: {e}")
+                    # Credential backends may put secret values in exception messages.
+                    # Report the selected identity, not the underlying exception text.
+                    raise ConfigurationError(
+                        f"Cannot resolve configured account '{account_name}' for provider '{provider}'. "
+                        "Check the profile's account name and account configuration.",
+                        config_key="account",
+                        recovery_hint="Run 'victor auth list' to inspect configured accounts.",
+                    ) from None
+                logger.debug(f"AccountManager lookup skipped: {e}")
+            return account_data
 
         # Always use ProviderConfigRegistry — it handles all provider-specific logic
         from victor.config.provider_config_registry import get_provider_config_registry
 
         registry = get_provider_config_registry()
-        return registry.get_settings(provider, self, profile_overrides, account_data)
+        return registry.get_settings(
+            provider, self, profile_overrides, account_data_factory=resolve_account_data
+        )
 
 
 _settings_snapshot: Optional["Settings"] = None

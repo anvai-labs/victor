@@ -10,6 +10,66 @@ from victor.providers.resilience import ProviderRetryConfig, ResilientProvider
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize("code", ["output_projection_error", "transport_error", "timeout", None])
+async def test_direct_terminal_sandhi_failure_never_retries_or_falls_back(wrapped, code):
+    import json
+    from victor.providers.sandhi_transport import map_sandhi_error
+
+    error = await map_sandhi_error(
+        RuntimeError(
+            json.dumps(
+                {
+                    "code": code,
+                    "message": "503 retry",
+                    "http_status": 502,
+                    "retryable": code != "output_projection_error",
+                }
+            )
+        ),
+        "fixture",
+        30.0,
+    )
+    assert error.recoverable is False
+    if wrapped:
+        outer = RuntimeError("503 retry")
+        outer.__cause__ = error
+        error = outer
+    primary = SimpleNamespace(name="direct", chat=AsyncMock(side_effect=error))
+    fallback = SimpleNamespace(name="fallback", chat=AsyncMock(return_value="replayed"))
+    provider = ResilientProvider(
+        primary,
+        fallback_providers=[fallback],
+        retry_config=ProviderRetryConfig(max_retries=2, base_delay_seconds=0, jitter_factor=0),
+    )
+    with pytest.raises(type(error)) as raised:
+        await provider.chat([], model="fixture")
+    assert raised.value is error
+    primary.chat.assert_awaited_once()
+    fallback.chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_direct_terminal_stream_error_preserves_partial_delivery_without_fallback():
+    error = ProviderError("503 projection refused", recoverable=False, status_code=502)
+
+    async def stream(*args, **kwargs):
+        yield "partial"
+        raise error
+
+    primary = SimpleNamespace(name="direct", stream=stream)
+    fallback = SimpleNamespace(name="fallback", stream=Mock())
+    provider = ResilientProvider(primary, fallback_providers=[fallback])
+    seen = []
+    with pytest.raises(ProviderError) as raised:
+        async for item in provider.stream([], model="fixture"):
+            seen.append(item)
+    assert raised.value is error
+    assert seen == ["partial"]
+    fallback.stream.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", [403, 503])
 async def test_gateway_failure_never_retries_or_falls_back(status):
     primary = SimpleNamespace(

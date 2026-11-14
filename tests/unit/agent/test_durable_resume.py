@@ -205,6 +205,86 @@ async def test_reject_skips_execution_and_appends_error(store):
     state.runtime.execute_tool_calls.assert_not_awaited()
 
 
+@pytest.mark.parametrize("reloaded_policy", ["disabled", "preferred"])
+async def test_changed_run_policy_blocks_approved_dispatch(store, reloaded_policy):
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    state = await paused_runtime(store)
+    admitted = RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+    )
+    state.paused.metadata["run_policy"] = admitted.to_metadata()
+    state.orch.settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_policy=reloaded_policy))
+
+    with pytest.raises(ResumeError, match="(?i)run policy changed"):
+        await resume_paused_run(state.orch, state.paused, ApprovalDecision(True))
+
+    assert state.effects == []
+    state.runtime.execute_tool_calls.assert_not_awaited()
+    state.orch.turn_executor.execute_turn.assert_not_awaited()
+
+
+async def test_tampered_run_policy_snapshot_blocks_dispatch(store):
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    state = await paused_runtime(store)
+    metadata = RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+    ).to_metadata()
+    metadata["effective_policy"] = "disabled"
+    state.paused.metadata["run_policy"] = metadata
+    state.orch.settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="disabled"))
+
+    with pytest.raises(ResumeError, match="(?i)run.policy snapshot is invalid"):
+        await resume_paused_run(state.orch, state.paused, ApprovalDecision(True))
+
+    assert state.effects == []
+    state.runtime.execute_tool_calls.assert_not_awaited()
+
+
+async def test_resume_dispatch_carries_persisted_run_policy(store):
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import (
+        RunPolicySnapshot,
+        current_run_policy_snapshot,
+    )
+
+    state = await paused_runtime(store)
+    admitted = RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+    )
+    state.paused.metadata["run_policy"] = admitted.to_metadata()
+    state.orch.settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+    captured = {}
+
+    async def execute_tool_calls(calls, **kwargs):
+        captured["policy"] = current_run_policy_snapshot()
+        return await state.runtime.execute_tool_calls(calls, **kwargs)
+
+    state.orch._get_tool_execution_runtime = lambda: SimpleNamespace(
+        execute_tool_calls=execute_tool_calls
+    )
+
+    await resume_paused_run(state.orch, state.paused, ApprovalDecision(True))
+
+    assert captured["policy"] == admitted
+
+
+async def test_legacy_pause_without_snapshot_keeps_current_policy_path(store):
+    from victor.config.sandbox_settings import SandboxSettings
+
+    state = await paused_runtime(store)
+    state.orch.settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+    state.paused.metadata.pop("run_policy", None)
+
+    out = await resume_paused_run(state.orch, state.paused, ApprovalDecision(True))
+
+    assert out.approved
+    assert state.effects == ["original"]
+
+
 @pytest.mark.parametrize(
     "change",
     [

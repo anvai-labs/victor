@@ -215,6 +215,20 @@ if TYPE_CHECKING:
     from victor.framework.graph_checkpoint import CheckpointerProtocol
 
 
+def _validate_count(name: str, value: Any, allow_none: bool = False) -> None:
+    """Strict runtime validation for count-budget fields (R2-04).
+
+    Annotations do not enforce this boundary: ``True`` is an ``int``, and
+    ``NaN``/``inf`` floats defeat magnitude comparisons (NaN makes every
+    comparison False, silently disabling a cap). Only actual positive
+    finite integers pass; ``None`` is allowed only where documented.
+    """
+    if allow_none and value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} must be a positive integer, got {value!r}")
+
+
 @dataclass
 class ExecutionConfig:
     """Controls execution limits for graph execution.
@@ -223,6 +237,12 @@ class ExecutionConfig:
         max_iterations: Maximum cycles allowed (default: 125)
         timeout: Overall execution timeout in seconds (None = no limit)
         recursion_limit: Maximum recursion depth (default: 500)
+        max_parallel_branches: Maximum Send fan-out branches executed
+            concurrently (default: 16). Additional admitted branches are
+            queued, never truncated — every admitted branch still completes.
+        max_fanout_branches: Hard cap on the number of Send branches one
+            fan-out may expand to (default: None = unlimited). Oversized
+            expansion is rejected before any branch effect.
 
     Example:
         config = ExecutionConfig(max_iterations=50, timeout=300.0)
@@ -231,6 +251,8 @@ class ExecutionConfig:
     max_iterations: int = 125
     timeout: Optional[float] = None
     recursion_limit: int = 500
+    max_parallel_branches: int = 16
+    max_fanout_branches: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Validate execution configuration limits."""
@@ -240,6 +262,8 @@ class ExecutionConfig:
             raise ValueError(f"timeout must be >= 0.1, got {self.timeout}")
         if self.recursion_limit < 1:
             raise ValueError(f"recursion_limit must be >= 1, got {self.recursion_limit}")
+        _validate_count("max_parallel_branches", self.max_parallel_branches)
+        _validate_count("max_fanout_branches", self.max_fanout_branches, allow_none=True)
 
 
 @dataclass
@@ -444,6 +468,8 @@ class GraphConfig:
                 max_iterations=kwargs.get("max_iterations", 125),
                 timeout=kwargs.get("timeout"),
                 recursion_limit=kwargs.get("recursion_limit", 500),
+                max_parallel_branches=kwargs.get("max_parallel_branches", 16),
+                max_fanout_branches=kwargs.get("max_fanout_branches"),
             ),
             checkpoint=CheckpointConfig(
                 checkpointer=kwargs.get("checkpointer"),

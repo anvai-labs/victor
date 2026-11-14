@@ -114,7 +114,8 @@ async def test_complete_preserves_anthropic_policy_and_consumes_typed_response(r
     )
 
     assert response.content == "answer"
-    assert response.metadata == {"reasoning_content": "considered"}
+    assert response.metadata["reasoning_content"] == "considered"
+    assert response.metadata["sandhi_usage"]["typed_usage"]["cache_creation_tokens"] == 3
     assert response.tool_calls == [{"id": "t1", "name": "lookup", "arguments": {"q": 1}}]
     assert response.usage == {
         "prompt_tokens": 10,

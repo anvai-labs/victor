@@ -145,15 +145,15 @@ class TestGetProviderSettingsThreading:
             patch("victor.config.accounts.get_account_manager", return_value=manager),
             patch.object(manager, "get_account", wraps=manager.get_account) as lookup,
             patch(
-                "victor.config.provider_config_registry.get_provider_config_registry"
-            ) as registry,
+                "victor.config.provider_config_registry.DefaultProviderConfig.get_settings"
+            ) as strategy,
             pytest.raises(ConfigurationError, match="does-not-exist") as error,
         ):
             settings.get_provider_settings("anthropic", {}, account_name="does-not-exist")
         assert error.value.config_key == "account"
         assert not error.value.recoverable
         assert all("provider" not in call.kwargs for call in lookup.call_args_list)
-        registry.assert_not_called()
+        strategy.assert_not_called()
 
     @pytest.mark.parametrize("failure_at", ["manager", "lookup", "credentials"])
     def test_explicit_account_lookup_failure_cannot_fall_back(self, manager, failure_at):
@@ -167,8 +167,8 @@ class TestGetProviderSettingsThreading:
                 manager, "resolve_provider_config", wraps=manager.resolve_provider_config
             ) as credentials,
             patch(
-                "victor.config.provider_config_registry.get_provider_config_registry"
-            ) as registry,
+                "victor.config.provider_config_registry.DefaultProviderConfig.get_settings"
+            ) as strategy,
         ):
             {"manager": factory, "lookup": lookup, "credentials": credentials}[
                 failure_at
@@ -177,7 +177,7 @@ class TestGetProviderSettingsThreading:
                 settings.get_provider_settings("anthropic", {}, account_name="kimi-anthropic")
         assert "private credential material" not in str(error.value)
         assert error.value.__suppress_context__
-        registry.assert_not_called()
+        strategy.assert_not_called()
 
     async def test_missing_profile_account_stops_before_provider_creation(self, manager):
         from victor.agent.orchestrator import AgentOrchestrator
@@ -186,6 +186,7 @@ class TestGetProviderSettingsThreading:
         profile = ProfileConfig(provider="openai", model="test", account="missing-account")
         with (
             patch.object(Settings, "load_profiles", return_value={"named": profile}),
+            patch.object(Settings, "load_provider_config", return_value=None),
             patch("victor.config.accounts.get_account_manager", return_value=manager),
             patch("victor.providers.registry.ProviderRegistry.create") as create,
         ):
@@ -198,15 +199,11 @@ class TestGetProviderSettingsThreading:
         settings = Settings()
         with (
             patch("victor.config.accounts.get_account_manager", side_effect=OSError("unavailable")),
-            patch(
-                "victor.config.provider_config_registry.get_provider_config_registry"
-            ) as registry,
+            patch("victor.config.api_keys.get_api_key", return_value="provider-key") as key,
         ):
-            registry.return_value.get_settings.return_value = {"api_key": "provider-key"}
-            assert settings.get_provider_settings("anthropic") == {"api_key": "provider-key"}
-            registry.return_value.get_settings.assert_called_once_with(
-                "anthropic", settings, None, None
-            )
+            result = settings.get_provider_settings("anthropic")
+            assert result["api_key"] == "provider-key"
+            key.assert_called_once_with("anthropic")
 
 
 class TestProfileConfigAccountField:

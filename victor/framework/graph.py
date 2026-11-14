@@ -128,6 +128,7 @@ from victor.framework.graph_primitives import (
     FrameworkNodeStatus,
     Node,
     NodeFunctionProtocol,
+    FanoutBudgetExceeded,
     ParallelBranchExecutionError,
     Send,
     StateProtocol,
@@ -521,10 +522,33 @@ class CompiledGraph(Generic[StateType]):
         Returns:
             Merged state after all branches complete
         """
+        # Fan-out admission (HB-04 / SCALE-03): at most
+        # max_parallel_branches bounded worker tasks run; each worker pulls
+        # the next branch index and copies state only after it holds the
+        # worker slot, so queued states are never copied ahead of time. An
+        # explicit fan-out budget rejects oversized expansion before any
+        # branch effect. Every admitted branch completes; results are kept
+        # by index so merge order and conflict semantics are unchanged.
+        max_fanout = self._config.execution.max_fanout_branches
+        if max_fanout is not None and len(sends) > max_fanout:
+            raise FanoutBudgetExceeded(
+                f"Fan-out expanded to {len(sends)} branches, exceeding the "
+                f"max_fanout_branches budget of {max_fanout}; rejected "
+                "before any branch effect."
+            )
+        parallel_bound = max(1, min(self._config.execution.max_parallel_branches, len(sends)))
+        results: List[Any] = [None] * len(sends)
+        branch_iter = iter(range(len(sends)))
+        # R2-03: workers are owned tasks with explicit failure lifecycle.
+        # gather() does NOT cancel siblings when one child raises, so an
+        # unexpected error (deepcopy, conversion, observer) previously let
+        # surviving workers drain queued branches after the caller saw the
+        # failure. Admission stops via the flag; cancellation lands at the
+        # workers' next await; already observed results are preserved.
+        admitting = True
 
-        async def _run_branch(
-            send: Send,
-        ) -> tuple[str, bool, Optional[str], Dict[str, Any]]:
+        async def _run_branch(index: int) -> None:
+            send = sends[index]
             branch_state = copy.deepcopy(send.state)
             success, error, result_state = await node_executor.execute(
                 node_id=send.node,
@@ -532,9 +556,26 @@ class CompiledGraph(Generic[StateType]):
                 timeout_manager=timeout_manager,
             )
             state_dict = result_state if isinstance(result_state, dict) else dict(result_state)
-            return send.node, success, error, state_dict
+            results[index] = (send.node, success, error, state_dict)
 
-        branch_results = await asyncio.gather(*[_run_branch(s) for s in sends])
+        async def _worker() -> None:
+            while admitting:
+                try:
+                    index = next(branch_iter)
+                except StopIteration:
+                    return
+                await _run_branch(index)
+
+        workers = [asyncio.create_task(_worker()) for _ in range(parallel_bound)]
+        try:
+            await asyncio.gather(*workers)
+        except BaseException:
+            admitting = False
+            for worker in workers:
+                worker.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
+            raise
+        branch_results = results
 
         failures = [
             f"{node}: {error or 'unknown error'}"
@@ -1348,6 +1389,7 @@ __all__ = [
     # Subgraph composition
     "SubgraphNode",
     # Fan-out / parallel execution
+    "FanoutBudgetExceeded",
     "Send",
     "default_state_merger",
     "strict_state_merger",

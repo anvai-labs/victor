@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from victor.tools.base import BaseTool, CostTier, ToolResult
 from victor.agent.delegation.protocol import DelegationRequest
+from victor.runtime.policy_snapshot import current_run_policy_snapshot
 
 if TYPE_CHECKING:
     from victor.agent.delegation.handler import DelegationHandler
@@ -200,6 +201,10 @@ Returns the result from the delegated agent. By default, waits for completion.""
         task = self.sanitize_task(task)
         logger.info(f"Delegating to {role}: {task[:50]}...")
 
+        # Capture the parent's immutable admitted policy before crossing the
+        # delegation boundary. This is runtime-owned and never caller-supplied.
+        admitted_policy = current_run_policy_snapshot()
+
         # Create delegation request
         request = DelegationRequest(
             task=task,
@@ -209,6 +214,7 @@ Returns the result from the delegated agent. By default, waits for completion.""
             context=context,
             await_result=await_result,
             parent_goal=self.parent_goal,
+            run_policy=admitted_policy.to_metadata() if admitted_policy else None,
         )
 
         try:

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from typing import TYPE_CHECKING, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -26,6 +27,7 @@ from victor.integrations.api.change_tracker_ops import (
     apply_patch_request,
     create_patch_request,
 )
+from victor.runtime.policy_snapshot import run_policy_context
 from victor.integrations.api.fastapi_server import (
     GitCommitRequest,
     PatchApplyRequest,
@@ -36,6 +38,64 @@ if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
 
 logger = logging.getLogger(__name__)
+
+
+class GitPolicyRefusal(RuntimeError):
+    """A required sandbox policy cannot enforce containment for a git launch.
+
+    Callers must return a structured refusal without spawning; this is the
+    fail-closed boundary (R2-01), distinct from ordinary git failures.
+    """
+
+
+def _admit_git_policy():
+    """Return the enclosing admitted policy or copy current settings once."""
+    from victor.runtime.policy_snapshot import (
+        RunPolicySnapshot,
+        current_run_policy_snapshot,
+    )
+
+    admitted_policy = current_run_policy_snapshot()
+    if admitted_policy is not None:
+        return admitted_policy
+    try:
+        from victor.config.settings import get_settings
+
+        return RunPolicySnapshot.from_settings(get_settings())
+    except Exception as exc:
+        raise GitPolicyRefusal(
+            f"Sandbox policy could not be established ({exc}); refusing execution (fail-closed)."
+        ) from exc
+
+
+def _resolve_git_launch():
+    """Resolve the canonical required-launch decision for git spawns."""
+    from victor.tools.sandbox import resolve_required_launch
+
+    sandbox_settings = _admit_git_policy().to_sandbox_settings()
+    return resolve_required_launch(sandbox_settings)
+
+
+def _git_spawn(server: "VictorFastAPIServer", argv: list, **kwargs):
+    """Run a git argv through the canonical required-launch decision.
+
+    Under a required policy with an enforcing backend the argv is wrapped by
+    the backend launcher (the actual launch carries containment); an
+    unenforceable required policy raises :class:`GitPolicyRefusal` before any
+    spawn. Other policies keep the historical raw exec. Read helpers are
+    gated too: a fixed argv is not proof of containment (``git diff`` can
+    execute repo-configured drivers).
+    """
+    from pathlib import Path
+
+    decision = _resolve_git_launch()
+    if decision.refuse:
+        raise GitPolicyRefusal(decision.reason)
+    if decision.required_active and decision.backend is not None:
+        argv = decision.backend.wrap_argv(list(argv), Path(server.workspace_root))
+    import subprocess
+
+    return subprocess.run(argv, **kwargs)
 
 
 def create_router(server: "VictorFastAPIServer") -> APIRouter:
@@ -64,62 +124,64 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def git_status() -> JSONResponse:
         """Get git status for the workspace."""
         try:
-            import subprocess
+            with run_policy_context(_admit_git_policy()):
+                result = _git_spawn(
+                    server,
+                    ["git", "status", "--porcelain", "-b"],
+                    cwd=server.workspace_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
 
-            result = subprocess.run(
-                ["git", "status", "--porcelain", "-b"],
-                cwd=server.workspace_root,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
+                if result.returncode != 0:
+                    return JSONResponse({"is_git_repo": False, "error": result.stderr})
 
-            if result.returncode != 0:
-                return JSONResponse({"is_git_repo": False, "error": result.stderr})
+                lines = result.stdout.strip().split("\n")
+                branch_line = lines[0] if lines else ""
 
-            lines = result.stdout.strip().split("\n")
-            branch_line = lines[0] if lines else ""
+                branch = "unknown"
+                tracking = None
+                if branch_line.startswith("## "):
+                    branch_info = branch_line[3:]
+                    if "..." in branch_info:
+                        parts = branch_info.split("...")
+                        branch = parts[0]
+                        tracking = parts[1].split()[0] if len(parts) > 1 else None
+                    else:
+                        branch = branch_info.split()[0]
 
-            branch = "unknown"
-            tracking = None
-            if branch_line.startswith("## "):
-                branch_info = branch_line[3:]
-                if "..." in branch_info:
-                    parts = branch_info.split("...")
-                    branch = parts[0]
-                    tracking = parts[1].split()[0] if len(parts) > 1 else None
-                else:
-                    branch = branch_info.split()[0]
+                staged = []
+                unstaged = []
+                untracked = []
 
-            staged = []
-            unstaged = []
-            untracked = []
+                for line in lines[1:]:
+                    if not line.strip():
+                        continue
+                    status = line[:2]
+                    filepath = line[3:]
 
-            for line in lines[1:]:
-                if not line.strip():
-                    continue
-                status = line[:2]
-                filepath = line[3:]
+                    if status[0] in "MADRC":
+                        staged.append({"status": status[0], "file": filepath})
+                    if status[1] in "MD":
+                        unstaged.append({"status": status[1], "file": filepath})
+                    if status == "??":
+                        untracked.append(filepath)
 
-                if status[0] in "MADRC":
-                    staged.append({"status": status[0], "file": filepath})
-                if status[1] in "MD":
-                    unstaged.append({"status": status[1], "file": filepath})
-                if status == "??":
-                    untracked.append(filepath)
+                return JSONResponse(
+                    {
+                        "is_git_repo": True,
+                        "branch": branch,
+                        "tracking": tracking,
+                        "staged": staged,
+                        "unstaged": unstaged,
+                        "untracked": untracked,
+                        "is_clean": len(staged) == 0 and len(unstaged) == 0 and len(untracked) == 0,
+                    }
+                )
 
-            return JSONResponse(
-                {
-                    "is_git_repo": True,
-                    "branch": branch,
-                    "tracking": tracking,
-                    "staged": staged,
-                    "unstaged": unstaged,
-                    "untracked": untracked,
-                    "is_clean": len(staged) == 0 and len(unstaged) == 0 and len(untracked) == 0,
-                }
-            )
-
+        except GitPolicyRefusal as exc:
+            return JSONResponse({"error": str(exc)})
         except subprocess.TimeoutExpired:
             return JSONResponse({"error": "Git command timed out"}, status_code=500)
         except FileNotFoundError:
@@ -132,54 +194,61 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def git_commit(request: GitCommitRequest) -> JSONResponse:
         """Create a git commit."""
         try:
-            import subprocess
+            with run_policy_context(_admit_git_policy()):
+                if request.files:
+                    for f in request.files:
+                        _git_spawn(
+                            server,
+                            ["git", "add", f],
+                            cwd=server.workspace_root,
+                            capture_output=True,
+                            timeout=10,
+                        )
 
-            if request.files:
-                for f in request.files:
-                    subprocess.run(
-                        ["git", "add", f],
+                message = request.message
+                if request.use_ai and not message:
+                    diff_result = _git_spawn(
+                        server,
+                        ["git", "diff", "--cached", "--stat"],
                         cwd=server.workspace_root,
                         capture_output=True,
-                        timeout=10,
+                        text=True,
+                        timeout=30,
                     )
 
-            message = request.message
-            if request.use_ai and not message:
-                diff_result = subprocess.run(
-                    ["git", "diff", "--cached", "--stat"],
+                    if diff_result.stdout.strip():
+                        orchestrator = await server._get_orchestrator()
+                        prompt = f"Generate a concise git commit message for these changes:\n{diff_result.stdout[:2000]}"
+                        response = await orchestrator.chat(prompt)
+                        message = response.get("content", "Update files").strip()
+                        message = message.replace("```", "").strip()
+                        if message.startswith('"') and message.endswith('"'):
+                            message = message[1:-1]
+
+                if not message:
+                    raise HTTPException(status_code=400, detail="Commit message required")
+
+                result = _git_spawn(
+                    server,
+                    ["git", "commit", "-m", message],
                     cwd=server.workspace_root,
                     capture_output=True,
                     text=True,
                     timeout=30,
                 )
 
-                if diff_result.stdout.strip():
-                    orchestrator = await server._get_orchestrator()
-                    prompt = f"Generate a concise git commit message for these changes:\n{diff_result.stdout[:2000]}"
-                    response = await orchestrator.chat(prompt)
-                    message = response.get("content", "Update files").strip()
-                    message = message.replace("```", "").strip()
-                    if message.startswith('"') and message.endswith('"'):
-                        message = message[1:-1]
+                if result.returncode != 0:
+                    return JSONResponse(
+                        {"success": False, "error": result.stderr or "Commit failed"}
+                    )
 
-            if not message:
-                raise HTTPException(status_code=400, detail="Commit message required")
-
-            result = subprocess.run(
-                ["git", "commit", "-m", message],
-                cwd=server.workspace_root,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            if result.returncode != 0:
-                return JSONResponse({"success": False, "error": result.stderr or "Commit failed"})
-
-            return JSONResponse({"success": True, "message": message, "output": result.stdout})
+                return JSONResponse({"success": True, "message": message, "output": result.stdout})
 
         except HTTPException:
             raise
+        except GitPolicyRefusal as exc:
+            # Refusal happens before any spawn: no `git add`, no commit.
+            return JSONResponse({"success": False, "error": str(exc)})
         except Exception:
             logger.exception("Git commit error")
             return JSONResponse({"error": "Internal server error"}, status_code=500)
@@ -188,41 +257,43 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def git_log(limit: int = Query(20, ge=1, le=100)) -> JSONResponse:
         """Get git commit log."""
         try:
-            import subprocess
+            with run_policy_context(_admit_git_policy()):
+                result = _git_spawn(
+                    server,
+                    [
+                        "git",
+                        "log",
+                        f"-{limit}",
+                        "--pretty=format:%H|%an|%ae|%ar|%s",
+                    ],
+                    cwd=server.workspace_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
 
-            result = subprocess.run(
-                [
-                    "git",
-                    "log",
-                    f"-{limit}",
-                    "--pretty=format:%H|%an|%ae|%ar|%s",
-                ],
-                cwd=server.workspace_root,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+                if result.returncode != 0:
+                    return JSONResponse({"error": result.stderr}, status_code=500)
 
-            if result.returncode != 0:
-                return JSONResponse({"error": result.stderr}, status_code=500)
+                commits = []
+                for line in result.stdout.strip().split("\n"):
+                    if "|" in line:
+                        parts = line.split("|", 4)
+                        if len(parts) >= 5:
+                            commits.append(
+                                {
+                                    "hash": parts[0],
+                                    "author": parts[1],
+                                    "email": parts[2],
+                                    "relative_date": parts[3],
+                                    "message": parts[4],
+                                }
+                            )
 
-            commits = []
-            for line in result.stdout.strip().split("\n"):
-                if "|" in line:
-                    parts = line.split("|", 4)
-                    if len(parts) >= 5:
-                        commits.append(
-                            {
-                                "hash": parts[0],
-                                "author": parts[1],
-                                "email": parts[2],
-                                "relative_date": parts[3],
-                                "message": parts[4],
-                            }
-                        )
+                return JSONResponse({"commits": commits})
 
-            return JSONResponse({"commits": commits})
-
+        except GitPolicyRefusal as exc:
+            return JSONResponse({"error": str(exc)})
         except Exception:
             logger.exception("Git log error")
             return JSONResponse({"error": "Internal server error"}, status_code=500)
@@ -234,30 +305,32 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     ) -> JSONResponse:
         """Get git diff."""
         try:
-            import subprocess
+            with run_policy_context(_admit_git_policy()):
+                cmd = ["git", "diff"]
+                if staged:
+                    cmd.append("--cached")
+                if file:
+                    cmd.append("--")
+                    cmd.append(file)
 
-            cmd = ["git", "diff"]
-            if staged:
-                cmd.append("--cached")
-            if file:
-                cmd.append("--")
-                cmd.append(file)
+                result = _git_spawn(
+                    server,
+                    cmd,
+                    cwd=server.workspace_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
 
-            result = subprocess.run(
-                cmd,
-                cwd=server.workspace_root,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+                return JSONResponse(
+                    {
+                        "diff": result.stdout[:50000],
+                        "truncated": len(result.stdout) > 50000,
+                    }
+                )
 
-            return JSONResponse(
-                {
-                    "diff": result.stdout[:50000],
-                    "truncated": len(result.stdout) > 50000,
-                }
-            )
-
+        except GitPolicyRefusal as exc:
+            return JSONResponse({"error": str(exc)})
         except Exception:
             logger.exception("Git diff error")
             return JSONResponse({"error": "Internal server error"}, status_code=500)

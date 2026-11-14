@@ -128,6 +128,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     @router.post("/workflows/execute")
     async def execute_workflow(request: Request) -> JSONResponse:
         """Execute a workflow."""
+        owner_client_id = getattr(request.state, "client_id", None)
         try:
             data = await request.json()
             template_id = data.get("template_id")
@@ -150,6 +151,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             server._workflow_executions[execution_id] = {
                 "id": execution_id,
                 "workflow_id": template_id,
+                "owner_client_id": owner_client_id,
                 "workflow_name": workflow_def.name,
                 "status": "running",
                 "parameters": parameters,
@@ -176,7 +178,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                     "event": "workflow_started",
                     "data": server._workflow_executions[execution_id],
                     "timestamp": time.time(),
-                }
+                },
+                owner_client_id=owner_client_id,
             )
 
             async def run_workflow():
@@ -231,7 +234,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                                 ),
                                 "data": exec_state,
                                 "timestamp": time.time(),
-                            }
+                            },
+                            owner_client_id=owner_client_id,
                         )
 
                 except Exception as e:
@@ -248,7 +252,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                                 "event": "workflow_failed",
                                 "data": exec_state,
                                 "timestamp": time.time(),
-                            }
+                            },
+                            owner_client_id=owner_client_id,
                         )
 
             asyncio.create_task(run_workflow())
@@ -269,29 +274,44 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
     @router.get("/workflows/executions")
     async def list_workflow_executions(
+        http_request: Request,
         status: Optional[str] = Query(None, description="Filter by status"),
     ) -> JSONResponse:
-        """List workflow executions."""
+        """List the caller's workflow executions (server-side owner filter)."""
+        principal = getattr(http_request.state, "client_id", None)
         executions = []
         for exec_state in server._workflow_executions.values():
             if status is None or exec_state.get("status") == status:
+                if not server._owner_authorized(exec_state.get("owner_client_id"), principal):
+                    continue
                 executions.append(exec_state)
         return JSONResponse({"executions": executions})
 
     @router.get("/workflows/executions/{execution_id}")
-    async def get_workflow_execution(execution_id: str) -> JSONResponse:
-        """Get workflow execution details."""
-        if execution_id not in server._workflow_executions:
+    async def get_workflow_execution(execution_id: str, http_request: Request) -> JSONResponse:
+        """Get workflow execution details (stored-owner authorized; denied
+        lookups return the not-found shape without confirming existence)."""
+        exec_state = server._owned_entry(
+            server._workflow_executions,
+            execution_id,
+            getattr(http_request.state, "client_id", None),
+        )
+        if exec_state is None:
             return JSONResponse({"error": "Execution not found"}, status_code=404)
-        return JSONResponse(server._workflow_executions[execution_id])
+        return JSONResponse(exec_state)
 
     @router.post("/workflows/executions/{execution_id}/cancel")
-    async def cancel_workflow_execution(execution_id: str) -> JSONResponse:
-        """Cancel a workflow execution."""
-        if execution_id not in server._workflow_executions:
+    async def cancel_workflow_execution(execution_id: str, http_request: Request) -> JSONResponse:
+        """Cancel a workflow execution (stored-owner authorized; denied
+        cancels leave state unchanged and emit nothing)."""
+        exec_state = server._owned_entry(
+            server._workflow_executions,
+            execution_id,
+            getattr(http_request.state, "client_id", None),
+        )
+        if exec_state is None:
             return JSONResponse({"error": "Execution not found"}, status_code=404)
 
-        exec_state = server._workflow_executions[execution_id]
         if exec_state["status"] != "running":
             return JSONResponse(
                 {"error": f"Cannot cancel execution in status: {exec_state['status']}"},
@@ -307,7 +327,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 "event": "workflow_cancelled",
                 "data": exec_state,
                 "timestamp": time.time(),
-            }
+            },
+            owner_client_id=exec_state.get("owner_client_id"),
         )
 
         return JSONResponse(
@@ -340,10 +361,17 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             raise HTTPException(status_code=500, detail=f"Failed to export graph: {str(e)}")
 
     @router.get("/workflows/{workflow_id}/execution")
-    async def get_workflow_execution_status(workflow_id: str) -> JSONResponse:
+    async def get_workflow_execution_status(
+        workflow_id: str, http_request: Request
+    ) -> JSONResponse:
         """Get current workflow execution status."""
         try:
-            if workflow_id not in server._workflow_executions:
+            exec_entry = server._owned_entry(
+                server._workflow_executions,
+                workflow_id,
+                getattr(http_request.state, "client_id", None),
+            )
+            if exec_entry is None:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Workflow execution {workflow_id} not found",

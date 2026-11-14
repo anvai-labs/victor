@@ -69,13 +69,17 @@ class OllamaProvider(BaseProvider):
         # Initialize structured logger
         self._provider_logger = ProviderLogger("ollama", __name__)
 
-        # Resolve candidates (logic from _select_base_url but without network I/O)
-        candidates, _resolved_base_url = resolve_endpoint_candidates(
-            base_url, "OLLAMA_ENDPOINTS", "http://localhost:11434"
-        )
+        if kwargs.get("gateway") is not None:
+            from victor.providers.gateway_contract import gateway_virtual_key
 
-        # Pick first candidate (blindly)
-        chosen_base = candidates[0]
+            gateway_virtual_key(kwargs["gateway"])
+            chosen_base = kwargs["gateway"]["url"]
+        else:
+            # Direct-only endpoint configuration; gateway mode is complete itself.
+            candidates, _resolved_base_url = resolve_endpoint_candidates(
+                base_url, "OLLAMA_ENDPOINTS", "http://localhost:11434"
+            )
+            chosen_base = candidates[0]
 
         # Log provider initialization
         self._provider_logger.log_provider_init(

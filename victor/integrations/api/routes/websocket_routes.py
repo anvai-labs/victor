@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import TYPE_CHECKING
@@ -26,6 +27,10 @@ if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
 
 logger = logging.getLogger(__name__)
+
+# Fallback for the bounded /ws auth handshake when the server does not
+# define ``_ws_auth_deadline`` (VAS-05h).
+DEFAULT_WS_AUTH_DEADLINE_SECONDS = 30.0
 
 
 def create_router(server: "VictorFastAPIServer") -> APIRouter:
@@ -39,12 +44,43 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         server._ws_clients.append(websocket)
         logger.info(f"WebSocket client connected. Total: {len(server._ws_clients)}")
 
+        # Bounded handshake (VAS-05h): on a keyed server an unauthenticated
+        # socket may not occupy the broadcast recipient set indefinitely.
+        # The deadline is a TOTAL window from accept, not a per-message
+        # timeout — an unauthenticated client cannot extend it by dripping
+        # frames. Once the ``auth`` handshake completes the socket receives
+        # without a timeout; keyless servers keep the old unconditional
+        # receive.
+        auth_deadline = (
+            float(getattr(server, "_ws_auth_deadline", DEFAULT_WS_AUTH_DEADLINE_SECONDS))
+            if server.api_keys
+            else None
+        )
+        loop = asyncio.get_running_loop()
+        connected_at = loop.time()
+
         try:
             while True:
-                data = await websocket.receive_json()
+                if auth_deadline is not None and not getattr(
+                    getattr(websocket, "state", None), "authenticated", False
+                ):
+                    remaining = auth_deadline - (loop.time() - connected_at)
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError()
+                    data = await asyncio.wait_for(websocket.receive_json(), timeout=remaining)
+                else:
+                    data = await websocket.receive_json()
                 await server._handle_ws_message(websocket, data)
         except WebSocketDisconnect:
             pass
+        except asyncio.TimeoutError:
+            logger.info(
+                "WebSocket client failed to authenticate within " f"{auth_deadline}s; closing"
+            )
+            try:
+                await websocket.close(code=1008, reason="Authentication deadline exceeded")
+            except Exception:
+                pass
         finally:
             if websocket in server._ws_clients:
                 server._ws_clients.remove(websocket)

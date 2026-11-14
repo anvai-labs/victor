@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from victor.config.sandbox_settings import SandboxSettings
 from victor.framework.agent import Agent
 from victor.framework.client import VictorClient
 from victor.framework.events import AgentExecutionEvent, EventType
@@ -25,6 +26,9 @@ def _make_orchestrator() -> AgentOrchestratorMock:
     orchestrator.provider.name = "test-provider"
     orchestrator.get_stage = MagicMock(return_value=SimpleNamespace(value="INITIAL"))
     orchestrator._container = MagicMock()
+    orchestrator.settings = SimpleNamespace(
+        governance=SimpleNamespace(durable=False), sandbox=SandboxSettings()
+    )
     return orchestrator
 
 
@@ -553,7 +557,7 @@ async def test_stream_message_events_forwards_overrides_and_run_context_when_sup
     events = []
     with patch("victor.framework._internal.stream_with_events", fake_stream_with_events):
         async for event in stream_message_events(
-            orchestrator=MagicMock(),
+            orchestrator=_make_orchestrator(),
             execution_context=execution_context,
             user_message="research",
             context=run_context,
@@ -736,7 +740,7 @@ async def test_stream_message_events_forwards_caller_run_context_object() -> Non
 
     with patch("victor.framework._internal.stream_with_events", fake_stream_with_events):
         async for _ in stream_message_events(
-            orchestrator=MagicMock(),
+            orchestrator=_make_orchestrator(),
             execution_context=execution_context,
             user_message="research",
             runtime_context_overrides={"iteration_budget": 32},
@@ -746,3 +750,37 @@ async def test_stream_message_events_forwards_caller_run_context_object() -> Non
 
     assert captured["kwargs"]["caller_run_context"] is caller_ctx
     assert captured["kwargs"]["runtime_context_overrides"] == {"iteration_budget": 32}
+
+
+def test_gateway_unknown_price_survives_framework_metadata_without_fallback_to_native_cost():
+    from victor.framework.message_execution import _build_task_result_metadata
+
+    report = {"total_cost_usd": None, "metadata": {"pricing_coverage": {"unavailable": 1}}}
+    orchestrator = SimpleNamespace(get_last_task_report=lambda: report)
+    response = CompletionResponse(
+        content="reply",
+        role="assistant",
+        usage={"prompt_tokens": 8, "completion_tokens": 4, "cost_in_usd_ticks": 999},
+    )
+    metadata = _build_task_result_metadata(orchestrator, response)
+    assert metadata["cost_usd_micros"] is None
+    assert metadata["pricing_status"] == "unavailable"
+    assert metadata["task_report"] == report
+
+
+@pytest.mark.parametrize("vendor_cost", [None, 999])
+def test_gateway_response_without_task_report_retains_unavailable_price(vendor_cost):
+    from victor.framework.message_execution import _build_task_result_metadata
+
+    usage = {"prompt_tokens": 2, "completion_tokens": 1}
+    if vendor_cost is not None:
+        usage["cost_in_usd_ticks"] = vendor_cost
+    response = CompletionResponse(
+        content="reply",
+        role="assistant",
+        usage=usage,
+        metadata={"sandhi_usage": {"usage_basis": "gateway_client_projection"}},
+    )
+    metadata = _build_task_result_metadata(SimpleNamespace(), response)
+    assert metadata["cost_usd_micros"] is None
+    assert metadata["pricing_status"] == "unavailable"

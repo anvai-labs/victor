@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -87,35 +87,46 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             return JSONResponse({"tools": [], "total": 0, "error": str(e)})
 
     @router.post("/tools/approve")
-    async def approve_tool(request: ToolApprovalRequest) -> JSONResponse:
-        """Approve or reject a pending tool execution."""
-        if request.approval_id in server._pending_tool_approvals:
-            approval = server._pending_tool_approvals.pop(request.approval_id)
-            approval["approved"] = request.approved
-            approval["resolved"] = True
+    async def approve_tool(request: ToolApprovalRequest, http_request: Request) -> JSONResponse:
+        """Approve or reject a pending tool execution.
 
-            await server._broadcast_ws(
-                {
-                    "type": "tool_approval_resolved",
-                    "approval_id": request.approval_id,
-                    "approved": request.approved,
-                    "tool_name": approval.get("tool_name"),
-                }
-            )
+        Resource authorization (HB-01): the stored owner must match the
+        server-resolved principal before any mutation or event. A denied or
+        absent approval returns the same not-found shape — state is
+        unchanged and nothing is emitted (existence is not confirmed)."""
+        principal = getattr(http_request.state, "client_id", None)
+        entry = server._pending_tool_approvals.get(request.approval_id)
+        if entry is None or not server._owner_authorized(entry.get("owner_client_id"), principal):
+            return JSONResponse({"error": "Approval not found"}, status_code=404)
 
-            return JSONResponse(
-                {
-                    "success": True,
-                    "approval_id": request.approval_id,
-                    "approved": request.approved,
-                }
-            )
-        else:
-            raise HTTPException(status_code=404, detail="Approval not found")
+        approval = server._pending_tool_approvals.pop(request.approval_id)
+        approval["approved"] = request.approved
+        approval["resolved"] = True
+
+        await server._broadcast_ws(
+            {
+                "type": "tool_approval_resolved",
+                "approval_id": request.approval_id,
+                "approved": request.approved,
+                "tool_name": approval.get("tool_name"),
+            },
+            owner_client_id=approval.get("owner_client_id"),
+        )
+
+        return JSONResponse(
+            {
+                "success": True,
+                "approval_id": request.approval_id,
+                "approved": request.approved,
+            }
+        )
 
     @router.get("/tools/pending")
-    async def pending_approvals() -> JSONResponse:
-        """Get list of pending tool approvals."""
+    async def pending_approvals(http_request: Request) -> JSONResponse:
+        """Get the caller's pending tool approvals (server-side owner
+        filter; entries without a stored owner are quarantined on keyed
+        servers, never shared)."""
+        principal = getattr(http_request.state, "client_id", None)
         pending = [
             {
                 "approval_id": aid,
@@ -127,12 +138,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             }
             for aid, info in server._pending_tool_approvals.items()
             if not info.get("resolved")
+            and server._owner_authorized(info.get("owner_client_id"), principal)
         ]
 
         return JSONResponse({"pending": pending, "count": len(pending)})
 
     @router.post("/tools/cancel")
-    async def cancel_tool(request: ToolCancelRequest) -> JSONResponse:
+    async def cancel_tool(request: ToolCancelRequest, http_request: Request) -> JSONResponse:
         """Cancel a pending tool execution by its tool_call_id (or approval_id)."""
         target = request.tool_call_id
         match_id = None
@@ -142,6 +154,15 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 break
 
         if match_id is None:
+            return JSONResponse({"tool_call_id": target, "cancelled": False, "reason": "not_found"})
+
+        if not server._owned_entry(
+            server._pending_tool_approvals,
+            match_id,
+            getattr(http_request.state, "client_id", None),
+        ):
+            # Denied cross-owner cancel: identical not-found shape, entry
+            # untouched, nothing emitted.
             return JSONResponse({"tool_call_id": target, "cancelled": False, "reason": "not_found"})
 
         approval = server._pending_tool_approvals.pop(match_id)
@@ -159,7 +180,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                     "approval_id": match_id,
                     "tool_call_id": target,
                     "tool_name": approval.get("tool_name"),
-                }
+                },
+                owner_client_id=getattr(http_request.state, "client_id", None),
             )
         except Exception:
             logger.debug("broadcast tool_cancelled failed", exc_info=True)

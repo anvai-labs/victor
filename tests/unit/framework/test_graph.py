@@ -18,8 +18,10 @@ These tests verify the LangGraph-compatible StateGraph implementation
 including cyclic workflows, checkpointing, and typed state management.
 """
 
+import asyncio
 import logging
 import pytest
+from types import SimpleNamespace
 from typing import TypedDict, Optional, List
 from unittest.mock import MagicMock, patch
 
@@ -1934,3 +1936,257 @@ class TestStateHistoryReplay:
         second_cp = history[1]
         replay = await app.replay_from(thread_id, second_cp.checkpoint_id)
         assert replay.success
+
+
+# ---------------------------------------------------------------------------
+# Bounded Send fan-out admission (SCALE-03 first slice)
+# ---------------------------------------------------------------------------
+
+
+def _make_fanout_graph(branch_count: int):
+    """Build a graph whose split node fans out `branch_count` Send branches,
+    each recording its concurrency window in a shared counter list."""
+    from victor.framework.graph import Send
+
+    in_flight = {"current": 0, "max": 0}
+    completed = []
+
+    async def split_node(state):
+        return state
+
+    def fan_out(state):
+        return [
+            Send("branch", {"index": i, "history": []}, join_at="merge")
+            for i in range(branch_count)
+        ]
+
+    async def branch(state):
+        in_flight["current"] += 1
+        in_flight["max"] = max(in_flight["max"], in_flight["current"])
+        await asyncio.sleep(0.01)
+        in_flight["current"] -= 1
+        completed.append(state["index"])
+        return {"branch_value": state["index"] * 10, "history": [f"b{state['index']}"]}
+
+    async def merge_node(state):
+        return state
+
+    def merge_states(base, branches):
+        values = [b.get("branch_value", 0) for b in branches]
+        return {"value": sum(values)}
+
+    graph = StateGraph(SimpleState)
+    graph.add_node("split", split_node)
+    graph.add_node("branch", branch)
+    graph.add_node("merge", merge_node)
+    graph.set_entry_point("split")
+    graph.add_conditional_edge("split", fan_out, {"branch": "branch", "join": "merge"})
+    graph.add_edge("merge", END)
+    graph.add_state_merger(merge_states)
+    return graph, in_flight, completed
+
+
+async def test_max_parallel_branches_bounds_in_flight_execution():
+    """A configured fan-out bound queues branches instead of launching every
+    Send concurrently; all admitted branches still complete."""
+    graph, in_flight, completed = _make_fanout_graph(8)
+    app = graph.compile(max_parallel_branches=2)
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-fanout-bound")
+
+    assert in_flight["max"] <= 2, f"observed {in_flight['max']} concurrent branches"
+    assert sorted(completed) == list(range(8)), "branches must not be truncated"
+    assert result.success
+
+
+async def test_fanout_results_preserved_under_tight_bound():
+    """A large fan-out under a tight bound still merges every branch."""
+    graph, _in_flight, completed = _make_fanout_graph(64)
+    app = graph.compile(max_parallel_branches=4)
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-fanout-64")
+
+    assert sorted(completed) == list(range(64))
+    assert result.success
+    assert result.state["value"] == sum(i * 10 for i in range(64))
+
+
+def test_execution_config_max_parallel_branches_default_and_validation():
+    from victor.framework.config import ExecutionConfig
+
+    assert ExecutionConfig().max_parallel_branches == 16
+    with pytest.raises(ValueError):
+        ExecutionConfig(max_parallel_branches=0)
+    with pytest.raises(ValueError):
+        ExecutionConfig(max_parallel_branches=-3)
+
+
+# ---------------------------------------------------------------------------
+# HB-04: bounded task/state admission (copy after admission, fan-out budget)
+
+
+def _make_instrumented_fanout(branch_count: int):
+    """Fan-out whose copies and executions are recorded as ordered events:
+    ("copy", i) when branch i's state is deep-copied, ("exec", i) when
+    branch i's execution begins."""
+    import victor.framework.graph as graph_mod
+
+    events: list = []
+    completed: list = []
+    real_deepcopy = graph_mod.copy.deepcopy
+
+    def _instrumented_deepcopy(value):
+        if isinstance(value, dict) and "index" in value:
+            events.append(("copy", value["index"]))
+        return real_deepcopy(value)
+
+    graph_mod.copy = SimpleNamespace(deepcopy=_instrumented_deepcopy)
+
+    async def split_node(state):
+        return state
+
+    def fan_out(state):
+        return [
+            Send("branch", {"index": i, "history": []}, join_at="merge")
+            for i in range(branch_count)
+        ]
+
+    async def branch(state):
+        events.append(("exec", state["index"]))
+        await asyncio.sleep(0)
+        completed.append(state["index"])
+        return {"branch_value": state["index"] * 10, "history": [f"b{state['index']}"]}
+
+    async def merge_node(state):
+        return state
+
+    def merge_states(base, branches):
+        return {"value": sum(b.get("branch_value", 0) for b in branches)}
+
+    graph = StateGraph(SimpleState)
+    graph.add_node("split", split_node)
+    graph.add_node("branch", branch)
+    graph.add_node("merge", merge_node)
+    graph.set_entry_point("split")
+    graph.add_conditional_edge("split", fan_out, {"branch": "branch", "join": "merge"})
+    graph.add_edge("merge", END)
+    graph.add_state_merger(merge_states)
+    return graph, events, completed
+
+
+async def test_state_copies_admitted_one_at_a_time_under_bound(monkeypatch):
+    """HB-04 probe (bound=1, 32 branches): state copies must happen AFTER
+    admission inside a bounded worker — executions interleave with copies
+    instead of all states being copied before the first branch runs — and
+    every admitted branch still completes and merges."""
+    graph, events, completed = _make_instrumented_fanout(32)
+    app = graph.compile(max_parallel_branches=1)
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-hb04")
+
+    first_exec = events.index(("exec", 0))
+    copies_before_first_exec = sum(1 for e in events[:first_exec] if e[0] == "copy")
+    assert copies_before_first_exec <= 1, (
+        f"{copies_before_first_exec} states copied before the first branch ran; "
+        "copies must follow admission"
+    )
+    assert sorted(completed) == list(range(32)), "no admitted branch may be truncated"
+    assert result.success
+    assert result.state["value"] == sum(i * 10 for i in range(32))
+
+
+async def test_fanout_size_budget_rejects_before_effects(monkeypatch):
+    """An explicit fan-out budget rejects oversized expansion before any
+    branch effect, with a typed error naming the budget."""
+    graph, events, completed = _make_instrumented_fanout(16)
+    app = graph.compile(max_fanout_branches=8)
+
+    # The runtime surfaces scheduler exceptions (typed
+    # FanoutBudgetExceeded) as failed results naming the budget, so callers
+    # can distinguish rejection from branch failure.
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-hb04-budget")
+    assert not result.success
+    assert "max_fanout_branches" in (result.error or "")
+    assert completed == [], "no branch may run when the budget rejects"
+    assert not [e for e in events if e[0] == "exec"]
+
+
+def test_execution_config_fanout_budget_validation():
+    from victor.framework.config import ExecutionConfig
+
+    assert ExecutionConfig().max_fanout_branches is None  # unlimited default
+    assert ExecutionConfig(max_fanout_branches=8).max_fanout_branches == 8
+    with pytest.raises(ValueError):
+        ExecutionConfig(max_fanout_branches=0)
+
+
+# ---------------------------------------------------------------------------
+# R2-03/R2-04: worker failure ownership + strict count validation
+# ---------------------------------------------------------------------------
+
+
+async def test_unexpected_branch_failure_stops_admission_and_joins_workers(
+    monkeypatch,
+):
+    """R2-03: an unexpected error (deepcopy raising) must stop new admission
+    and cancel/join the other workers BEFORE the caller sees the failure —
+    no sibling may drain queued branches afterwards."""
+    import victor.framework.graph as graph_mod
+
+    graph, events, completed = _make_instrumented_fanout(12)
+    real_deepcopy = graph_mod.copy.deepcopy
+    fail_after = {"count": 3}
+
+    def _failing_deepcopy(value):
+        if isinstance(value, dict) and "index" in value:
+            fail_after["count"] -= 1
+            if fail_after["count"] < 0:
+                raise ValueError("synthetic serialization failure")
+        return real_deepcopy(value)
+
+    monkeypatch.setattr(graph_mod, "copy", SimpleNamespace(deepcopy=_failing_deepcopy))
+    app = graph.compile(max_parallel_branches=4)
+
+    # The runtime surfaces the scheduler exception as a failed result; the
+    # owned workers are cancelled and joined INSIDE _execute_parallel, so by
+    # the time invoke returns, no sibling can still be draining.
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-r2-03")
+    assert not result.success
+    assert "serialization" in (result.error or "")
+
+    # Executions stay bounded by what was in flight when the failure hit —
+    # not a drain of all queued branches (12). bound=4 workers: the failure
+    # stops admission, so far fewer than 12 branches may run.
+    executed = len([e for e in events if e[0] == "exec"])
+    assert executed < 12, f"{executed}/12 branches ran — siblings drained queued work after failure"
+    assert sorted(completed) == sorted(set(completed))
+
+
+def test_count_budgets_reject_bool_float_nan_and_inf():
+    """R2-04: count fields are positive finite integers — bool, floats and
+    NaN/inf are rejected (NaN would defeat the cap comparison)."""
+    from math import inf, nan
+
+    from victor.framework.config import ExecutionConfig
+
+    for bad in (True, False, 1.5, 2.0, nan, inf, -inf):
+        with pytest.raises(ValueError):
+            ExecutionConfig(max_parallel_branches=bad)
+        with pytest.raises(ValueError):
+            ExecutionConfig(max_fanout_branches=bad)
+    # None is intentional only for the fan-out budget.
+    assert ExecutionConfig(max_fanout_branches=None).max_fanout_branches is None
+    with pytest.raises(ValueError):
+        ExecutionConfig(max_parallel_branches=None)
+
+
+def test_count_budget_validation_holds_through_legacy_and_compile():
+    """The boundary holds through from_legacy and compile(**kwargs) too."""
+    from victor.framework.config import GraphConfig
+
+    with pytest.raises(ValueError):
+        GraphConfig.from_legacy(max_parallel_branches=True)
+    with pytest.raises(ValueError):
+        GraphConfig.from_legacy(max_fanout_branches=float("nan"))
+    graph = StateGraph(SimpleState)
+    graph.add_node("a", lambda s: s)
+    graph.set_entry_point("a")
+    with pytest.raises(ValueError):
+        graph.compile(max_fanout_branches=1.5)

@@ -31,6 +31,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from victor.runtime.policy_snapshot import RunPolicySnapshot
+
 logger = logging.getLogger(__name__)
 
 
@@ -253,6 +255,7 @@ class RuntimeExecutionContext:
     container: Any  # ServiceContainer
     services: ServiceAccessor
     metadata: Dict[str, Any] = field(default_factory=dict)
+    run_policy_snapshot: Optional[RunPolicySnapshot] = None
     _cleanup_hooks: list = field(default_factory=list, repr=False)
 
     @property
@@ -296,6 +299,7 @@ class RuntimeExecutionContext:
             container=container,
             services=ServiceAccessor(_container=container),
             metadata={},
+            run_policy_snapshot=None,
         )
 
     def with_session(self, session_id: str) -> RuntimeExecutionContext:
@@ -310,6 +314,7 @@ class RuntimeExecutionContext:
             container=self.container,
             services=self.services,
             metadata=dict(self.metadata),
+            run_policy_snapshot=self.run_policy_snapshot,
         )
 
     def with_metadata(self, **kwargs: Any) -> RuntimeExecutionContext:
@@ -323,6 +328,19 @@ class RuntimeExecutionContext:
             container=self.container,
             services=self.services,
             metadata=new_meta,
+            run_policy_snapshot=self.run_policy_snapshot,
+        )
+
+    def with_run_policy(self, run_policy_snapshot: RunPolicySnapshot) -> RuntimeExecutionContext:
+        """Create a per-run context carrying an immutable admitted policy."""
+        return RuntimeExecutionContext(
+            session_id=self.session_id,
+            settings=self.settings,
+            state=self.state,
+            container=self.container,
+            services=self.services,
+            metadata=dict(self.metadata),
+            run_policy_snapshot=run_policy_snapshot,
         )
 
     def with_prompt_orchestrator(self, prompt_orchestrator: Any) -> RuntimeExecutionContext:

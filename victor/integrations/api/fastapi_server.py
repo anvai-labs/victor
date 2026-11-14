@@ -503,6 +503,9 @@ class VictorFastAPIServer:
         self._orchestrator = None
         self._victor_client = None
         self._ws_clients: List[WebSocket] = []
+        # Seconds a /ws socket may sit unauthenticated on a keyed server
+        # before the route closes it (VAS-05h bounded handshake).
+        self._ws_auth_deadline: float = 30.0
         self._pending_tool_approvals: Dict[str, Dict[str, Any]] = {}
         self._hitl_store = None
         self._event_bridge: Optional[EventBridge] = None
@@ -596,12 +599,17 @@ class VictorFastAPIServer:
         async def _enforce_api_auth(request: Request) -> None:
             """Auth gate for HTTP routes: a valid API key is required when
             keys are configured. Keyless servers (local dev, most tests) are
-            unaffected — the gate short-circuits without keys."""
+            unaffected — the gate short-circuits without keys.
+
+            On success the resolved principal (client_id) is recorded on
+            ``request.state`` so broadcast call sites can bind event delivery
+            to the owning principal."""
             if not self.api_keys:
                 return
             if request.url.path in self.AUTH_EXEMPT_PATHS:
                 return
-            await self._verify_api_key(request)
+            client_id = await self._verify_api_key(request)
+            request.state.client_id = client_id
 
         return _enforce_api_auth
 
@@ -1055,16 +1063,91 @@ class VictorFastAPIServer:
             channel = data.get("channel", "")
             await ws.send_json({"type": "subscribed", "channel": channel})
 
-    async def _broadcast_ws(self, message: Dict[str, Any]) -> None:
-        """Broadcast a message to all connected WebSocket clients."""
+    def _owner_authorized(self, resource_owner: Optional[str], principal: Optional[str]) -> bool:
+        """Whether ``principal`` may access a resource stored with
+        ``resource_owner`` (HB-01 / ADR-L01 semantics).
+
+        Keyless servers (explicit single-user opt-in) authorize everything.
+        On keyed servers the stored owner must exist and equal the
+        server-resolved principal: unknown ownership is quarantined, not
+        shared, and caller-supplied identity fields grant nothing.
+        """
+        if not self.api_keys:
+            return True
+        return bool(resource_owner) and resource_owner == principal
+
+    def _owned_entry(
+        self,
+        store: "Dict[str, Dict[str, Any]]",
+        resource_id: str,
+        principal: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Return the stored entry only when it exists and the principal owns
+        it (HB-01); ``None`` otherwise, so callers return an identical
+        not-found shape without confirming another owner's existence."""
+        entry = store.get(resource_id)
+        if entry is None or not self._owner_authorized(entry.get("owner_client_id"), principal):
+            return None
+        return entry
+
+    def register_pending_approval(
+        self,
+        approval_id: str,
+        tool_name: str,
+        owner_client_id: Optional[str] = None,
+        **metadata: Any,
+    ) -> None:
+        """Register a pending tool approval with its owning principal.
+
+        The stored ``owner_client_id`` drives list filtering, mutation
+        authorization and owner-scoped event delivery. Producers must set it
+        from the server-resolved principal at creation time.
+        """
+        self._pending_tool_approvals[approval_id] = {
+            "tool_name": tool_name,
+            "owner_client_id": owner_client_id,
+            "approved": False,
+            "resolved": False,
+            **metadata,
+        }
+
+    async def _broadcast_ws(
+        self, message: Dict[str, Any], owner_client_id: Optional[str] = None
+    ) -> None:
+        """Broadcast a message to WebSocket clients admitted to the event.
+
+        Recipient admission (VAS-05h): ``/ws`` registers sockets before
+        message-level authentication, so on a keyed server a socket that has
+        not completed the ``auth`` handshake is excluded from protected-event
+        delivery. Keyless servers (explicit allow_unauthenticated=True) treat
+        every connected socket as authorized, as before.
+
+        Owner scoping: when ``owner_client_id`` is provided (the resolved
+        principal of the triggering request, recorded by the auth dependency),
+        only sockets authenticated as that principal receive the event —
+        cross-owner delivery is denied. ``None`` keeps the historical
+        all-authenticated behavior for broadcasts with no bound request
+        principal (e.g. internal agent events).
+        """
         for ws in self._ws_clients:
+            state = getattr(ws, "state", None)
+            if self.api_keys:
+                if not getattr(state, "authenticated", False):
+                    continue
+                if (
+                    owner_client_id is not None
+                    and getattr(state, "client_id", None) != owner_client_id
+                ):
+                    continue
             try:
                 await ws.send_json(message)
             except Exception:
                 pass
 
-    async def _broadcast_agent_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast agent events to all connected WebSocket clients.
+    async def _broadcast_agent_event(
+        self, event_type: str, data: Dict[str, Any], owner_client_id: Optional[str] = None
+    ) -> None:
+        """Broadcast agent events to admitted WebSocket clients.
 
         Used by BackgroundAgentManager to send real-time updates.
         """
@@ -1074,7 +1157,7 @@ class VictorFastAPIServer:
             "data": data,
             "timestamp": time.time(),
         }
-        await self._broadcast_ws(message)
+        await self._broadcast_ws(message, owner_client_id=owner_client_id)
 
     def _format_messages_markdown(self, messages: List[Dict[str, Any]]) -> str:
         """Format messages as markdown."""

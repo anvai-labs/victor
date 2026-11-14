@@ -433,11 +433,17 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
     prefix). The virtual key is resolved from the block, else from a per-provider
     env var (``SANDHI_GATEWAY_VIRTUAL_KEY_<PROVIDER>``), else the global
     ``SANDHI_GATEWAY_VIRTUAL_KEY``. An empty block with no URL is dropped; explicit credentials or scope without
-    a URL are rejected; a URL with no resolvable key is kept as an empty
-    string so the transport can fail closed with a clear error. Explicit OIDC
-    configuration suppresses environment virtual-key fallback.
+    a URL are rejected. A URL without credentials selects starter mode; supplied
+    malformed credentials remain errors. Explicit OIDC or none mode suppresses
+    environment virtual-key fallback. The normalized block retains its resolved
+    auth_mode so omission cannot erase configured authentication intent.
     """
     gateway = base_settings.get("gateway")
+    if gateway is not None and not isinstance(gateway, dict):
+        if hasattr(gateway, "model_dump"):
+            gateway = gateway.model_dump(exclude_unset=True)
+        else:
+            raise ValueError("gateway must be a configuration mapping")
     if gateway is None:
         # No block at all: gateway mode is off unless the env supplies a URL.
         # Materialize a block from SANDHI_GATEWAY_URL so env-only configs
@@ -455,45 +461,51 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
         # "take the env".
         url = os.environ.get("SANDHI_GATEWAY_URL", "").strip()
     if not url:
-        credential_fields = (
-            "oidc",
-            "credential",
-            "virtual_key",
-            "virtual_key_value",
-            "grant",
-            "audience",
-        )
-        has_identity = any(
-            (gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None))
-            is not None
-            for name in credential_fields
-        )
-        if has_identity:
-            raise ValueError("Gateway credentials and scope require an explicit gateway URL")
+        # Only an intentionally empty block means direct mode. Presence is
+        # authentication intent even when a supplied value is null/invalid or
+        # an unknown field would otherwise be discarded before validation.
+        if gateway:
+            raise ValueError("Gateway configuration requires an explicit gateway URL")
         base_settings.pop("gateway", None)
         return
+    from victor.providers.gateway_contract import gateway_auth_mode, gateway_config
+
+    # Validate the submitted root before stripping its optional family suffix;
+    # normalization must not disguise an unsupported nested path.
+    gateway_config({**gateway, "url": url})
     url = _normalize_gateway_root(url)
-    if isinstance(gateway, dict):
-        virtual_key = gateway.get("virtual_key")
-    else:
-        virtual_key = getattr(gateway, "virtual_key_value", getattr(gateway, "virtual_key", None))
+    has_virtual_key = "virtual_key" in gateway
+    virtual_key = gateway.get("virtual_key")
     if isinstance(virtual_key, SecretStr):
         virtual_key = virtual_key.get_secret_value()
+    if virtual_key is not None and not isinstance(virtual_key, str):
+        raise ValueError("gateway virtual key must be a string")
     extra = {}
-    for name in ("oidc", "grant", "credential", "audience"):
-        value = gateway.get(name) if isinstance(gateway, dict) else getattr(gateway, name, None)
-        if value is not None:
+    for name in ("oidc", "grant", "credential", "audience", "protocol", "auth_mode"):
+        if name in gateway:
+            value = gateway[name]
             extra[name] = value.model_dump() if hasattr(value, "model_dump") else value
     if provider != "openai" and ("oidc" in extra or "credential" in extra):
         raise ValueError("Renewable gateway credentials currently require the OpenAI provider")
-    virtual_key = str(virtual_key or "").strip()
-    if not virtual_key and "oidc" not in extra and "credential" not in extra:
-        virtual_key = (
-            os.environ.get(f"SANDHI_GATEWAY_VIRTUAL_KEY_{provider.upper()}")
-            or os.environ.get("SANDHI_GATEWAY_VIRTUAL_KEY")
-            or ""
-        ).strip()
-    base_settings["gateway"] = {"url": url, "virtual_key": virtual_key, **extra}
+    if (
+        not has_virtual_key
+        and "oidc" not in extra
+        and "credential" not in extra
+        and extra.get("auth_mode") != "none"
+    ):
+        for name in (
+            f"SANDHI_GATEWAY_VIRTUAL_KEY_{provider.upper()}",
+            "SANDHI_GATEWAY_VIRTUAL_KEY",
+        ):
+            if name in os.environ:
+                virtual_key = os.environ[name]
+                has_virtual_key = True
+                break
+    normalized = {"url": url, **extra}
+    if has_virtual_key:
+        normalized["virtual_key"] = virtual_key
+    normalized["auth_mode"] = gateway_auth_mode(normalized)
+    base_settings["gateway"] = normalized
 
 
 @dataclass
@@ -530,6 +542,8 @@ class ProviderConfigRegistry:
         settings: "Settings",
         profile_overrides: Optional[Dict[str, Any]] = None,
         account_data: Optional[Dict[str, Any]] = None,
+        *,
+        account_data_factory: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
     ) -> Dict[str, Any]:
         """Get settings for a provider.
 
@@ -544,6 +558,7 @@ class ProviderConfigRegistry:
             settings: Settings instance
             profile_overrides: Runtime overrides (e.g., coding_plan, auth_mode from CLI)
             account_data: Credential data from AccountManager (api_key, auth_mode, base_url)
+            account_data_factory: Lazy direct-mode account lookup, skipped for gateways.
 
         Returns:
             Provider settings dictionary
@@ -558,6 +573,25 @@ class ProviderConfigRegistry:
             if provider_config:
                 base_settings.update(unwrap_secrets(provider_config.model_dump(exclude_none=True)))
 
+            # A gateway is complete before any direct account, endpoint strategy,
+            # secret backend or discovery probe. Retain the profile's existing
+            # explicit-base-url gateway suppression rule.
+            gateway_settings = dict(base_settings)
+            if profile_overrides:
+                gateway_settings.update(profile_overrides)
+                if "base_url" in profile_overrides and "gateway" not in profile_overrides:
+                    gateway_settings.pop("gateway", None)
+            resolve_provider_gateway(gateway_settings, resolved)
+            if gateway_settings.get("gateway") is not None:
+                from victor.providers.gateway_contract import validate_gateway_auth
+
+                validate_gateway_auth(gateway_settings["gateway"], resolved)
+                return gateway_settings
+
+            # Settings supplies a lazy resolver so an unrelated named upstream
+            # account cannot block gateway authentication.
+            if account_data is None and account_data_factory is not None:
+                account_data = account_data_factory()
             # 2. Merge account data (credentials from config.yaml)
             if account_data:
                 # API key from AccountManager always wins (it's the credential source)
@@ -578,9 +612,9 @@ class ProviderConfigRegistry:
                 if "base_url" in profile_overrides and "gateway" not in profile_overrides:
                     base_settings.pop("gateway", None)
 
-            # 3.5 Normalize + env-resolve the per-provider Sandhi gateway block so it
-            # flows as a plain dict into the provider kwargs regardless of strategy.
-            resolve_provider_gateway(base_settings, resolved)
+            # Gateway mode was resolved once before direct credentials. Avoid
+            # re-reading environment configuration after the account callback.
+            base_settings.pop("gateway", None)
 
             # Get strategy
             strategy = self._strategies.get(resolved)

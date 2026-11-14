@@ -30,6 +30,11 @@ class FixtureServer:
     status: int = 200
     body: bytes = b"{}"
     content_type: str = "application/json"
+    # Gateway-peer cases use this server as the immediate Sandhi fixture.
+    # Direct-source cases ignore the response convention header.
+    headers: Dict[str, str] = field(
+        default_factory=lambda: {"x-sandhi-usage-convention": "v1-chat-standard"}
+    )
     delay_secs: float = 0.0
     requests: List[Recorded] = field(default_factory=list)
     url: str = ""
@@ -54,6 +59,8 @@ class FixtureServer:
                     time.sleep(server.delay_secs)
                 self.send_response(server.status)
                 self.send_header("Content-Type", server.content_type)
+                for name, value in server.headers.items():
+                    self.send_header(name, value)
                 self.send_header("Content-Length", str(len(server.body)))
                 self.end_headers()
                 self.wfile.write(server.body)

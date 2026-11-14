@@ -313,6 +313,7 @@ async def test_victor_client_create_session_reuses_agent_session_and_closes_serv
     mock_orchestrator.provider.name = "test-provider"
     mock_orchestrator.model = "test-model"
     mock_orchestrator.messages = []
+    mock_orchestrator.settings = SimpleNamespace(sandbox=None)
     mock_orchestrator.get_stage = MagicMock(return_value=MagicMock(value="INITIAL"))
     mock_orchestrator.get_tool_calls_count = MagicMock(return_value=0)
     mock_orchestrator.get_tool_budget = MagicMock(return_value=50)

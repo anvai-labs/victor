@@ -86,31 +86,32 @@ class OpenAIProvider(BaseProvider):
         self._gateway_audience = ""
         gateway = kwargs.get("gateway")
         if gateway is not None:
-            if not isinstance(gateway, dict):
-                raise ValueError("gateway requires a URL and virtual key")
+            from victor.providers.gateway_contract import (
+                GATEWAY_NO_AUTH_PLACEHOLDER,
+                gateway_auth_mode,
+                validate_gateway_auth,
+            )
+
+            validate_gateway_auth(gateway, "openai")
+            if auth_mode == "oauth":
+                self._sandhi_protocol = "responses"
             key = gateway.get("virtual_key")
+            if gateway_auth_mode(gateway) == "none":
+                key = GATEWAY_NO_AUTH_PLACEHOLDER
             if hasattr(key, "get_secret_value"):
                 key = key.get_secret_value()
             oidc = gateway.get("oidc")
             credential = gateway.get("credential")
-            if sum((bool(key), oidc is not None, credential is not None)) != 1:
-                raise ValueError("gateway requires exactly one virtual key or OIDC credential")
             if oidc is not None:
                 from victor.core.identity.gateway import GatewayTokenFileCredential
 
-                if not isinstance(oidc, dict):
-                    raise ValueError("gateway oidc must be an identity configuration")
                 credential = GatewayTokenFileCredential(oidc)
                 self._gateway_audience = oidc["audience"]
             elif credential is not None:
                 self._gateway_audience = gateway.get("audience", "")
             if credential is not None:
-                if not isinstance(credential, TokenCredential) or not self._gateway_audience:
-                    raise ValueError("gateway credential requires TokenCredential and audience")
                 self._gateway_credential = credential
                 key = "gateway-pending"
-            elif not isinstance(key, str) or not key.strip():
-                raise ValueError("gateway requires a non-empty virtual key")
             grant = gateway.get("grant")
             if grant is not None:
                 if not isinstance(grant, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", grant):
@@ -124,7 +125,7 @@ class OpenAIProvider(BaseProvider):
                 or parsed.password is not None
                 or parsed.query
                 or parsed.fragment
-                or parsed.path not in ("", "/v1")
+                or parsed.path not in ("", "/v1", "/v1beta")
                 or not (
                     parsed.scheme == "https"
                     or (
@@ -272,7 +273,9 @@ class OpenAIProvider(BaseProvider):
             except asyncio.CancelledError:
                 raise
             except Exception:
-                raise ProviderError("gateway credential unavailable", provider="openai") from None
+                raise ProviderError(
+                    "gateway credential unavailable", provider="openai", recoverable=False
+                ) from None
             if token.token != self._api_key:
                 self._api_key = token.token
                 self.client.api_key = token.token
