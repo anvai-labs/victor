@@ -27,7 +27,7 @@ class FakeExecutionContext:
         return cloned
 
 
-class ApprovalRequest:
+class ApprovalRequestFixture:
     def __init__(self):
         self.context = {
             "tool_name": "write",
@@ -74,7 +74,7 @@ async def test_buffered_pause_persists_admitted_policy_snapshot(store) -> None:
     from victor.framework.message_execution import execute_message
 
     async def chat(message, **kwargs):
-        raise ApprovalPause(ApprovalRequest())
+        raise ApprovalPause(ApprovalRequestFixture())
 
     context = FakeExecutionContext(SimpleNamespace(chat=chat))
     result = await execute_message(
@@ -95,7 +95,7 @@ async def test_buffered_pause_persists_admitted_policy_snapshot(store) -> None:
 async def test_stream_pause_persists_admitted_policy_snapshot(store) -> None:
     from victor.framework.message_execution import stream_message_events
 
-    request = ApprovalRequest()
+    request = ApprovalRequestFixture()
 
     class StreamChat:
         async def stream_chat(self, message, **kwargs):
@@ -127,7 +127,7 @@ async def test_buffered_execution_context_carries_admitted_policy() -> None:
 
     async def chat(message, **kwargs):
         captured["policy"] = current_run_policy_snapshot()
-        raise ApprovalPause(ApprovalRequest())
+        raise ApprovalPause(ApprovalRequestFixture())
 
     await execute_message(
         orchestrator=_orchestrator(),
@@ -143,7 +143,7 @@ async def test_buffered_execution_context_carries_admitted_policy() -> None:
 async def test_stream_execution_context_carries_admitted_policy(store) -> None:
     from victor.framework.message_execution import stream_message_events
 
-    request = ApprovalRequest()
+    request = ApprovalRequestFixture()
     captured = {}
 
     class StreamChat:
