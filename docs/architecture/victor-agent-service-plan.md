@@ -84,6 +84,26 @@ edit. A mock test is not live provider or C5 evidence.
   package/native smoke and Linux standalone smoke were verified. No live
   deployment is claimed here.
 
+- **VAS-06a — IN REVIEW** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1814](https://github.com/anvai-labs/victor/pull/1814)
+  (`docs/vas-06a-session-scope-design`), baseline `af820b177`. Next
+  action: independent review and full CI. Proposed
+  [ADR-034](adr/034-canonical-session-ownership-and-bounded-admission.md)
+  defines the implementation gate without changing public routes. Local audit:
+  `WebSession` stores
+  only `session_id` and has no principal/workspace scope; the current HMAC
+  covers only `session_id:issued_at`; `/session/token` accepts a known ID and
+  `/chat/stream` accepts `session_id` without a session token; capacity is
+  reserved only after `VictorClient.initialize()`, and the session store has
+  no active-turn or per-principal admission contract. ADR-034 resolves those
+  seams through immutable server-owned principal/workspace/session scope,
+  scoped versioned tokens with store epoch, reservation-before-initialization,
+  exact-scope acquisition, per-principal/global limits, bounded connections,
+  one active turn per session, and restart invalidation. Repo hygiene, diff
+  check, and changed-file selector (no test targets for docs-only changes)
+  pass. Implementation remains gated on VAS-05b/FEP-0039 unless a slice
+  explicitly preserves the current single-principal/keyless contract.
+
 - **VAS-16d — MERGED** (2026-11-14), owner: Codex framework-review
   continuation; PR [#1810](https://github.com/anvai-labs/victor/pull/1810)
   (`docs/vas-16d-result-budget-design`), final baseline `0069377c9`; merged
@@ -3650,6 +3670,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-05i | Enforce required sandbox policy at canonical tool dispatch | VAS-05h | ✅ MERGED | [#1774](https://github.com/anvai-labs/victor/pull/1774), `927b568ff`; Branch `feat/sandbox-required-policy`, baseline `adcc6e1ff`. RED: enabled-but-unavailable sandbox still spawned the child (fail-open). `SandboxPolicy` disabled/preferred/required in `SandboxSettings` (legacy bool → preferred); `resolve_sandbox_backend` raises typed `SandboxRequiredUnavailableError` under required; `run_command`/`run_command_async`/`bash.shell` refuse with structured `SANDBOX_REQUIRED` result, zero spawns. Owner 31 passed; tools 3,702 + workflows 1,380 + core mirror 39 passed; lint/type/collect clean. Direct-spawn convergence and `workflows/isolation.py` policy awareness recorded as follow-ups |
 | VAS-05j | Owner-scoped broadcast delivery (cross-owner denial) | VAS-05i | ✅ MERGED | [#1775](https://github.com/anvai-labs/victor/pull/1775), `5017f3511`. Branch `feat/owner-scoped-broadcast`, baseline `927b568ff`. RED: bob's tool-approval event delivered to alice's authenticated socket. Auth dep records `request.state.client_id`; `_broadcast_ws`/`_broadcast_agent_event` take explicit `owner_client_id`; tool/workflow/team routes bind it; execution state records owner at start; unbound internal broadcasts keep all-authenticated (guard test). API surface 275 passed; lint/type/collect clean. BackgroundAgentManager principal threading, cross-owner READ and scoped subscriptions remain open |
 | VAS-06 | Canonical session ownership and bounded admission | VAS-05b | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
+| VAS-06a | Session ownership and bounded admission design gate | VAS-06 | IN REVIEW | PR [#1814](https://github.com/anvai-labs/victor/pull/1814), branch `docs/vas-06a-session-scope-design`, baseline `af820b177`. Proposed ADR-034 defines immutable server-owned principal/workspace/session scope, scoped versioned tokens and store epoch, exact-scope acquisition, reservation-before-initialization, per-principal/global limits, bounded connections, one active turn, revocation and restart invalidation, plus VAS-06b–06d implementation gates and test matrix. Repo hygiene/diff/selector pass. CI/review evidence pending; no runtime/public-contract change claimed |
 | VAS-07 | Durable run admission, identity and status | VAS-06 | TODO | Reuse existing durable owners; same-key dedup/content conflict, reliable dispatch and honest recorded outcomes |
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
 | VAS-09 | Authoritative schemas and generated shared TS SDK | VAS-08 | TODO | OpenAPI/event schema generation, runtime boundary validation, deterministic generation and compatibility tests |

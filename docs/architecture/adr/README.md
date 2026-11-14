@@ -55,6 +55,7 @@ Status is the governance state of the *decision*. Implementation is the observed
 | [ADR-031](031-vertical-template-bases-promotion.md) | Vertical template bases — extract shared bases into `victor_contracts.verticals.bases` | Accepted | Not started (12 template families × 4 md5-distinct copies; hook-shaped extraction, small verticals only; reconcile with contrib bases family-by-family) | 2026-09-07 |
 | [ADR-032](032-structural-code-intelligence-tiers.md) | Structural code intelligence — scope-graph name binding (tier 2.5) + SCIP/LSP precise-index harvesting (tier 3) with provenance levels | Accepted | Tier 2.5 shipped + matrix complete (#1404/#1406/#1408: seventeen verified languages, 0.12.0); GRADUATED to default-ON 2026-10-20 (rev 1.2 dossier, maintainer-approved; opt-out preserved); tier 3 planned | 2026-10-20 |
 | [ADR-033](033-interactive-uml-visualization.md) | Interactive multi-level code visualization — unified package→class explorer + UML diagram families (sequence/class/use-case/activity/package/deployment), local web app (React/D3) over the graph query layer | Proposed | Pending effort — folded into next plan-mode cycle (owner request 2026-10-24); phase 1 = unified explorer reusing visualize.py | 2026-10-24 |
+| [ADR-034](034-canonical-session-ownership-and-bounded-admission.md) | Canonical session ownership and bounded admission — immutable server-resolved principal/workspace/session scope, scoped tokens, pre-initialization reservations, bounded connections, one active turn, and restart invalidation | Proposed | VAS-06a design gate; runtime slices VAS-06b–06d pending | 2026-11-14 |
 
 ## External ADR series (cross-repo)
 
@@ -95,7 +96,7 @@ When making a significant architectural decision:
 
 1. Copy the [template](000-template.md)
 2. Fill in all sections
-3. Use the next sequential number (next free: **ADR-032**)
+3. Use the next sequential number (next free: **ADR-035**)
 4. Update this index (both tables if cross-repo)
 5. Submit for review
 
