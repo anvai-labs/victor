@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
     from victor.tools.sandbox.backends import SandboxBackend
 
 from victor.workflows.isolation import IsolationConfig, ResourceLimits
@@ -182,7 +183,10 @@ def build_docker_run_flags(
     return flags
 
 
-def _compose_global_network_floor(isolation: IsolationConfig) -> IsolationConfig:
+def _compose_global_network_floor(
+    isolation: IsolationConfig,
+    run_policy_snapshot: Optional["RunPolicySnapshot"] = None,
+) -> IsolationConfig:
     """Tighten workflow Docker isolation by the global sandbox network floor.
 
     When a global sandbox policy is active (preferred or required) with
@@ -192,10 +196,13 @@ def _compose_global_network_floor(isolation: IsolationConfig) -> IsolationConfig
     allow networking. Unreadable settings leave the config untouched.
     """
     try:
-        from victor.config.settings import get_settings
-        from victor.tools.sandbox import effective_sandbox_policy
+        if run_policy_snapshot is not None:
+            sandbox_settings = run_policy_snapshot.to_sandbox_settings()
+        else:
+            from victor.config.settings import get_settings
 
-        sandbox_settings = getattr(get_settings(), "sandbox", None)
+            sandbox_settings = getattr(get_settings(), "sandbox", None)
+        from victor.tools.sandbox import effective_sandbox_policy
     except Exception:
         return isolation
     try:
@@ -248,7 +255,11 @@ class SandboxedExecutor:
         if docker_available is None:
             self._docker_available = self._check_docker()
 
-    def _resolve_policy_decision(self, sandbox_type: str) -> "_PolicyDecision":
+    def _resolve_policy_decision(
+        self,
+        sandbox_type: str,
+        run_policy_snapshot: Optional["RunPolicySnapshot"] = None,
+    ) -> "_PolicyDecision":
         """Resolve the sandbox policy for one workflow execution (HB-02/03).
 
         A required policy must reach its actual launch with an enforcing
@@ -268,11 +279,21 @@ class SandboxedExecutor:
         )
 
         try:
-            from victor.config.settings import get_settings
+            if run_policy_snapshot is not None:
+                sandbox_settings = run_policy_snapshot.to_sandbox_settings()
+            else:
+                from victor.config.settings import get_settings
 
-            sandbox_settings = getattr(get_settings(), "sandbox", None)
-        except Exception:
-            return _PolicyDecision()
+                sandbox_settings = getattr(get_settings(), "sandbox", None)
+        except Exception as exc:
+            # NEXT-01: unknowable policy refuses governed execution.
+            return _PolicyDecision(
+                refuse=True,
+                reason=(
+                    f"Sandbox policy could not be established ({exc}); "
+                    "refusing execution (fail-closed)."
+                ),
+            )
         try:
             policy = effective_sandbox_policy(sandbox_settings)
         except Exception:
@@ -329,8 +350,10 @@ class SandboxedExecutor:
             SandboxExecutionResult with output and status
         """
         import time
+        from victor.runtime.policy_snapshot import current_run_policy_snapshot
 
         start_time = time.time()
+        run_policy_snapshot = current_run_policy_snapshot()
 
         # Required-policy convergence (VAS-05i follow-up): workflow compute
         # execution consults the same sandbox policy decision as the
@@ -339,7 +362,7 @@ class SandboxedExecutor:
         # backend present, an explicit sandbox_type="none" request is still
         # unenforced execution and refuses. preferred/disabled keep the
         # historical behavior (including the docker -> process fallback).
-        policy_decision = self._resolve_policy_decision(isolation.sandbox_type)
+        policy_decision = self._resolve_policy_decision(isolation.sandbox_type, run_policy_snapshot)
         if policy_decision.refuse:
             return _required_refusal_result(policy_decision.reason)
         if policy_decision.required_active and isolation.sandbox_type == "none":
@@ -351,7 +374,7 @@ class SandboxedExecutor:
         if isolation.sandbox_type == "docker":
             if self._docker_available:
                 result = await self._execute_docker(
-                    command, isolation, working_dir, env, input_data
+                    command, isolation, working_dir, env, input_data, run_policy_snapshot
                 )
             elif policy_decision.required_active:
                 return _required_refusal_result(
@@ -530,6 +553,7 @@ class SandboxedExecutor:
         working_dir: Optional[str],
         env: Optional[Dict[str, str]],
         input_data: Optional[str],
+        run_policy_snapshot: Optional["RunPolicySnapshot"] = None,
     ) -> SandboxExecutionResult:
         """Execute command in Docker container.
 
@@ -547,7 +571,7 @@ class SandboxedExecutor:
             SandboxExecutionResult
         """
         # Global sandbox network floor composes before flag assembly (R2-02).
-        isolation = _compose_global_network_floor(isolation)
+        isolation = _compose_global_network_floor(isolation, run_policy_snapshot)
         limits = isolation.resource_limits or ResourceLimits()
         image = isolation.docker_image or self._default_image
 

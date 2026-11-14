@@ -112,7 +112,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.17.0 is required for provider transport",
+            "sandhi-gateway 0.18.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -381,10 +381,11 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
             except ssl.SSLCertVerificationError:
                 return (
                     "the endpoint's TLS certificate is not trusted by this "
-                    "machine's trust store (private/self-signed CA). Import "
-                    f"the issuing CA into the system trust store ({_tls_trust_remediation()}) "
-                    "or serve a publicly-trusted certificate; the sandhi "
-                    "binding does not read SSL_CERT_FILE"
+                    "machine's trust store (private/self-signed CA). Configure "
+                    "SSL_CERT_FILE with a trusted CA bundle for the SDK process "
+                    "(verify support on the installed SDK/platform), import "
+                    f"the issuing CA into the system trust store ({_tls_trust_remediation()}), "
+                    "or serve a publicly-trusted certificate"
                 )
             except OSError:
                 return None
@@ -395,7 +396,9 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
         return None
 
 
-async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: float) -> ProviderError:
+async def map_sandhi_error(
+    exc: BaseException, provider_name: str, timeout: float, *, gateway: bool = False
+) -> ProviderError:
     """Map `ProviderErrorV1` from the FFI without changing retry ownership.
 
     Async so the optional TLS diagnosis probe runs off the event loop with a
@@ -502,7 +505,9 @@ async def map_sandhi_error(exc: BaseException, provider_name: str, timeout: floa
     if code == "rate_limited":
         return ProviderRateLimitError(detail, provider=provider_name, status_code=429)
     if code == "authentication_error":
-        return ProviderAuthError(detail, provider=provider_name, status_code=int(status or 401))
+        return ProviderAuthError(
+            detail, provider=provider_name, status_code=int(status or 401), recoverable=not gateway
+        )
     if code == "timeout":
         # Sandhi may have hit a stream-idle or upstream deadline shorter than
         # Victor's configured overall timeout. Preserve its diagnosis without
@@ -982,12 +987,12 @@ class SandhiTypedProviderMixin:
         )
 
     def _gateway_overrides(self) -> Optional[Tuple[str, str]]:
-        """Return ``(proxy_url, virtual_key)`` when gateway mode is configured.
+        """Return ``(proxy_url, binding_credential)`` for a configured gateway.
 
         Gateway mode (TD-0003 P3) points the Sandhi FFI handle at the Sandhi proxy:
-        the proxy URL becomes the handle ``base_url`` and the virtual key becomes
-        both the presented credential and a ``bearer`` auth_scheme, so traffic is
-        centrally attributed and budget-enforced. An explicit client dialect is
+        the proxy URL becomes the handle ``base_url``. Protected modes present
+        their configured token; starter mode uses the public internal marker.
+        Server policy owns identity, attribution and budgets. An explicit client dialect is
         independent of server backend selection. Returns ``None`` only in
         direct mode; malformed configured gateway values fail closed.
         """
@@ -1001,7 +1006,7 @@ class SandhiTypedProviderMixin:
         virtual_key = (
             getattr(self, "_api_key", None)
             if getattr(self, "_gateway_credential", None) is not None
-            else gateway.get("virtual_key")
+            else gateway_virtual_key(gateway)
         )
         # Duck-type SecretStr without importing pydantic into the transport layer.
         if hasattr(virtual_key, "get_secret_value"):
@@ -1073,15 +1078,14 @@ class SandhiTypedProviderMixin:
         run_id = _gateway_run_id() if gateway is not None else ""
         if gateway is not None:
             # Gateway mode (TD-0003 P3): the FFI handle targets the Sandhi proxy with
-            # the virtual key presented as a bearer token. The explicit client
+            # the configured credential or starter marker. The explicit client
             # dialect is independent of the provider identity and server backend.
             proxy_url, virtual_key = gateway
             if not virtual_key:
                 raise ProviderConnectionError(
-                    f"sandhi gateway mode for provider {slug!r} requires a non-empty "
-                    "virtual_key (set providers.<name>.gateway.virtual_key or the "
-                    "SANDHI_GATEWAY_VIRTUAL_KEY env var)",
+                    "configured gateway credential is unavailable",
                     provider=slug,
+                    recoverable=False,
                 )
             protocol = self._client_protocol()
             endpoint_profile = ""
@@ -1202,7 +1206,9 @@ class SandhiTypedProviderMixin:
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except BaseException as exc:  # pyo3 panics may subclass BaseException
-            mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            mapped = await map_sandhi_error(
+                exc, self._sandhi_slug(), timeout, gateway=self._gateway_overrides() is not None
+            )
             if (
                 isinstance(mapped, ProviderPolicyError)
                 or mapped.category == ErrorCategory.CONFIG_MISSING
@@ -1436,7 +1442,9 @@ class SandhiTypedProviderMixin:
         except ProviderError:
             raise
         except BaseException as exc:
-            mapped = await map_sandhi_error(exc, self._sandhi_slug(), timeout)
+            mapped = await map_sandhi_error(
+                exc, self._sandhi_slug(), timeout, gateway=self._gateway_overrides() is not None
+            )
             if (
                 isinstance(mapped, ProviderPolicyError)
                 or mapped.category == ErrorCategory.CONFIG_MISSING

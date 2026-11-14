@@ -5,6 +5,40 @@ from typing import Any, Optional
 from urllib.parse import urlsplit
 
 PROTOCOLS = {"chat_completions", "anthropic_messages", "responses", "gemini_generate_content"}
+GATEWAY_NO_AUTH_PLACEHOLDER = "not-needed"
+
+
+def gateway_auth_mode(config: dict) -> str:
+    """Infer auth only from supplied gateway credentials, never upstream accounts.
+
+    Missing credentials deliberately select the starter gateway. Present invalid
+    credentials are errors, including null/empty values that normalization must
+    not erase. The URL is validated separately by ``gateway_config``.
+    """
+    mode = config.get("auth_mode")
+    if "auth_mode" in config and mode not in ("none", "tokens", "oidc"):
+        raise ValueError("gateway auth_mode must be none, tokens or oidc")
+    supplied = [name for name in ("virtual_key", "oidc", "credential") if name in config]
+    if len(supplied) > 1:
+        raise ValueError("gateway requires exactly one credential when authentication is selected")
+    if mode == "none" and supplied:
+        raise ValueError("gateway auth_mode none cannot include credentials")
+    if "virtual_key" in config:
+        key = config["virtual_key"]
+        if hasattr(key, "get_secret_value"):
+            key = key.get_secret_value()
+        if not isinstance(key, str) or not key or any(not 33 <= ord(c) <= 126 for c in key):
+            raise ValueError("gateway requires a non-empty valid virtual key")
+    if "oidc" in config and not isinstance(config["oidc"], dict):
+        raise ValueError("gateway oidc must be an identity configuration")
+    if "credential" in config and config["credential"] is None:
+        raise ValueError("gateway credential must be a TokenCredential")
+    if "audience" in config and "credential" not in config:
+        raise ValueError("gateway audience requires a TokenCredential")
+    inferred = "tokens" if "virtual_key" in supplied else "oidc" if supplied else "none"
+    if mode is not None and mode != inferred:
+        raise ValueError("gateway auth_mode requires its matching credentials")
+    return inferred
 
 
 def gateway_config(value: Any) -> Optional[dict]:
@@ -12,6 +46,17 @@ def gateway_config(value: Any) -> Optional[dict]:
         return None
     if not isinstance(value, dict):
         raise ValueError("gateway must be a configuration object")
+    if set(value) - {
+        "url",
+        "virtual_key",
+        "auth_mode",
+        "oidc",
+        "credential",
+        "audience",
+        "grant",
+        "protocol",
+    }:
+        raise ValueError("gateway contains unsupported configuration fields")
     url = value.get("url")
     if not isinstance(url, str) or not url.strip():
         raise ValueError("gateway requires a URL")
@@ -49,6 +94,11 @@ def gateway_virtual_key(value: Any) -> Optional[str]:
     config = gateway_config(value)
     if config is None:
         return None
+    mode = gateway_auth_mode(config)
+    if mode == "none":
+        # The current FFI requires a non-empty bearer even for an unauthenticated
+        # gateway. This public marker carries no identity or server authority.
+        return GATEWAY_NO_AUTH_PLACEHOLDER
     if config.get("oidc") is not None or config.get("credential") is not None:
         raise ValueError("renewable gateway credentials currently require the OpenAI provider")
     key = config.get("virtual_key")
@@ -64,6 +114,9 @@ def validate_gateway_auth(value: Any, provider: str) -> None:
     config = gateway_config(value)
     if config is None:
         return
+    mode = gateway_auth_mode(config)
+    if mode == "none":
+        return
     if provider != "openai":
         gateway_virtual_key(config)
         return
@@ -72,8 +125,6 @@ def validate_gateway_auth(value: Any, provider: str) -> None:
         key = key.get_secret_value()
     oidc = config.get("oidc")
     credential = config.get("credential")
-    if sum((bool(key), oidc is not None, credential is not None)) != 1:
-        raise ValueError("gateway requires exactly one virtual key or OIDC credential")
     if oidc is not None:
         from victor.core.identity.gateway import GatewayTokenFileCredential
 

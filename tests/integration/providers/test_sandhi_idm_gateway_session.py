@@ -242,6 +242,8 @@ def _sandhi(binary: Path, identity: Any, root: Path):
         "--env=SANDHI_DEMO_IDM_SECRET",
         "--env=SANDHI_AUTH_MODE=oidc",
         f"--env=SANDHI_BIND=127.0.0.1:{port}",
+        # Only the owned literal-loopback Docker fixture uses this plaintext exception.
+        "--env=SANDHI_ALLOW_LOOPBACK_HTTP=1",
         "--env=SANDHI_LOG=warn",
         "--env=SANDHI_OIDC_CONFIG=/state/oidc.json",
         "--env=SANDHI_STORE=/state/usage.db",

@@ -1745,12 +1745,20 @@ class AgentOrchestrator(
                 "current_intent": getattr(self, "_current_intent", None),
                 "user_message": getattr(self, "_current_user_message", None),
             }
+        from victor.runtime.policy_snapshot import current_run_policy_snapshot
+
+        admitted_policy = current_run_policy_snapshot()
         runtime_overrides = getattr(self, "_runtime_tool_context_overrides", None)
-        if not isinstance(runtime_overrides, dict) or not runtime_overrides:
+        if admitted_policy is None and (
+            not isinstance(runtime_overrides, dict) or not runtime_overrides
+        ):
             return self._tool_context_cache
 
         merged_context = dict(self._tool_context_cache)
-        merged_context.update(runtime_overrides)
+        if admitted_policy is not None:
+            merged_context["run_policy_snapshot"] = admitted_policy
+        if isinstance(runtime_overrides, dict):
+            merged_context.update(runtime_overrides)
         return merged_context
 
     def reset_conversation(self) -> None:

@@ -1,0 +1,49 @@
+{
+  "qualified_on": "2026-11-13",
+  "victor_develop_base": "12fc116dca58eb111c295c5ec252153faf3bbe54",
+  "victor_prepared_version": "0.29.0",
+  "sandhi_version": "0.18.0",
+  "dependency_declarations": [
+    "pyproject.toml",
+    "requirements.txt",
+    "requirements/api/requirements.txt",
+    "requirements/embeddings-cpu/requirements.txt"
+  ],
+  "wheel": {
+    "metadata_url": "https://pypi.org/pypi/sandhi-gateway/0.18.0/json",
+    "filename": "sandhi_gateway-0.18.0-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "sha256": "df7851eec4e40e0b19de3ab0d10877f378a52e8702062f7ad8bbb62fd1256479",
+    "upload_time_iso_8601": "2026-11-13T22:19:12.729530Z",
+    "yanked": false,
+    "size": 3498692
+  },
+  "native_module_sha256": "5a327110d6a5eea82fc4b4ed4efdbbc1e6f9b76bfecfcf910ef188ddd62c7d5e",
+  "contracts": {
+    "wire": "1",
+    "chat": "1",
+    "chat_minor": 14
+  },
+  "gateway_release": {
+    "tag": "v0.18.0",
+    "asset": "sandhi-proxy-v0.18.0-x86_64-unknown-linux-gnu.tar.gz",
+    "asset_sha256": "16dbbc5b638b0cef179ea847d832cf3cb85bdc53cb82abc0507600d19b720c18",
+    "proxy_sha256": "fb877221f9b89b9ee375712a591ac66a279dae50f1324755ac93c7290a84b3c6"
+  },
+  "checks": {
+    "pip_check": "No broken requirements found",
+    "static": "Black, Ruff, full mypy and version synchronization passed",
+    "provider_config_units": "2313 passed, 6 existing skips",
+    "agent_tool_loops": 18,
+    "idm_gateway_integration_tests": 3,
+    "idm_joined_settlements": [
+      14,
+      14
+    ],
+    "idm_denial_controls": 6,
+    "tls_scoped_bundle": "transport failure without bundle; deliberate HTTP 401 with bundle",
+    "session_refresh_rotation": true,
+    "session_refresh_concurrent_reader_boundaries": 4,
+    "full_collection": "40574 tests collected in 39.03s"
+  },
+  "scope": "Local Linux/Python 3.12 published-artifact consumer qualification; Victor remains unpublished and no live provider, identity deployment or unattended operation is claimed."
+}
