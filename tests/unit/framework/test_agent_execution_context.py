@@ -35,6 +35,7 @@ def _make_orchestrator(
         )
     )
     orchestrator.reset_conversation = MagicMock()
+    orchestrator.settings = SimpleNamespace(sandbox=None)
     orchestrator.get_stage = MagicMock(return_value=ConversationStage.INITIAL)
     return orchestrator
 

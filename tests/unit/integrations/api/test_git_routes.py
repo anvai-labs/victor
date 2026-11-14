@@ -66,11 +66,11 @@ def _trap_git_spawn(monkeypatch, launched: list, *, returncode: int = 0, stdout:
 
     def _trap(argv, *args, **kwargs):
         launched.append([str(a) for a in argv])
-        if launched and launched[-1][0] == "bwrap":
-            # The wrapper intercepts the launch; simulate the inner git call
-            # having succeeded so routes can complete.
+        if argv[0] != "git":
+            # A policy wrapper intercepts the launch; simulate the inner git
+            # call having succeeded so routes can complete.
             return _FakeCompleted()
-        return real_run(argv, *args, **kwargs) if argv[0] != "git" else _FakeCompleted()
+        return _FakeCompleted()
 
     monkeypatch.setattr(subprocess, "run", _trap)
 
@@ -152,3 +152,91 @@ def test_git_routes_refuse_when_policy_unreadable(monkeypatch, tmp_path):
     assert "policy" in status.json().get("error", "").lower()
     assert commit.json().get("success") is False
     assert "policy" in commit.json().get("error", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# FEP-0044: direct git routes consume request-admitted policy
+# ---------------------------------------------------------------------------
+
+
+def _install_globals(monkeypatch, policy: str) -> None:
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_policy=policy))
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+
+def _admitted_snapshot(policy: str):
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    return RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy=policy))
+    )
+
+
+def test_admitted_required_git_commit_beats_reloaded_disabled(monkeypatch, tmp_path):
+    server = _create_server(monkeypatch, tmp_path)
+    _install_required(monkeypatch, backend_available=True)
+    _install_globals(monkeypatch, "disabled")
+    monkeypatch.setattr(
+        "victor.runtime.policy_snapshot.current_run_policy_snapshot",
+        lambda: _admitted_snapshot("required"),
+    )
+    launched: list = []
+    _trap_git_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    response = client.post("/git/commit", json={"message": "probe", "files": ["evidence.txt"]})
+
+    assert response.json().get("success") is True
+    assert launched and all(argv[0] == "bwrap" for argv in launched), launched
+    assert len(launched) == 2, f"add/commit did not both use admitted policy: {launched}"
+
+
+def test_git_commit_copies_settings_once_for_multi_spawn_request(monkeypatch, tmp_path):
+    server = _create_server(monkeypatch, tmp_path)
+    _install_required(monkeypatch, backend_available=True)
+    from victor.config.sandbox_settings import SandboxSettings
+
+    settings = SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+
+    class _Backend:
+        type_name = "fake"
+
+        def wrap_argv(self, argv, cwd=None):
+            return ["policy-wrapper", *argv]
+
+    def _resolve_backend(received):
+        # Simulate a global reload after request admission but before later
+        # children in the same HTTP commit flow.
+        settings.sandbox.sandbox_policy = "disabled"
+        return _Backend()
+
+    monkeypatch.setattr("victor.tools.sandbox.backends.resolve_sandbox_backend", _resolve_backend)
+    launched: list = []
+    _trap_git_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    response = client.post("/git/commit", json={"message": "probe", "files": ["evidence.txt"]})
+
+    assert response.json().get("success") is True
+    assert len(launched) == 2 and all(argv[0] == "policy-wrapper" for argv in launched), launched
+
+
+def test_admitted_disabled_git_is_not_tightened_by_reloaded_required(monkeypatch, tmp_path):
+    server = _create_server(monkeypatch, tmp_path)
+    _install_required(monkeypatch, backend_available=False)
+    monkeypatch.setattr(
+        "victor.runtime.policy_snapshot.current_run_policy_snapshot",
+        lambda: _admitted_snapshot("disabled"),
+    )
+    launched: list = []
+    _trap_git_spawn(monkeypatch, launched)
+    client = TestClient(server.app)
+
+    response = client.get("/git/status")
+
+    assert response.status_code == 200
+    assert launched and launched[0][0] == "git", f"admitted policy tightened: {launched}"

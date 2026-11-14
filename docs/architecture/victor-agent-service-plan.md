@@ -69,17 +69,32 @@ edit. A mock test is not live provider or C5 evidence.
 
 - **PROMOTION-026 — RETRYING** (2026-11-14), owner: framework-review delivery
   session. The historical blocked battery and exact failure inventory are
-  preserved at promotion-head `faeb18ff3`. The provider-qualification blocker
-  was addressed by published Sandhi 0.18.0 adoption in PR #1793, including the
-  official wheel/native/binary provenance and actual Agent/OIDC checks. The
-  obsolete macOS Intel wheel target was removed in PR #1795; release support is
-  Linux x64/ARM64, macOS ARM64 and Windows x64. This promotion branch now
-  carries develop `55968fab` and must pass a fresh complete main-target battery
-  before merge. No Victor publication or live deployment is claimed here.
+  preserved at promotion-head `faeb18ff3`. Published Sandhi 0.18.0 adoption
+  (#1793), Apple-Silicon-only native release support (#1795), and the strict
+  promotion-gate alignment (#1802) address the known blockers. This promotion
+  branch now carries develop `8a724a2c`; a fresh complete main-target battery
+  is required before merge. No Victor publication or live deployment is
+  claimed here.
 
-- **VAS-05t — IN REVIEW** (2026-11-14), owner: Codex framework-review
+- **VAS-05v — MERGED** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1800](https://github.com/anvai-labs/victor/pull/1800)
+  (`feat/background-policy-snapshot`), baseline `dfacb748c`; merged as squash
+  `9f8609b5a` with every applicable CI check green.
+  RED (three intended failures): `start_agent` rejected an explicit snapshot,
+  had no stored snapshot field, and the real `/agents/start` route created a
+  detached stream with `current_run_policy_snapshot() is None`. GREEN: API start
+  copies `server._settings` into one immutable snapshot before manager dispatch;
+  manager start accepts a typed snapshot or copies the parent context once;
+  `BackgroundAgent` stores it and `_run_agent` binds it around the complete
+  detached chat/tool stream. Programmatic no-snapshot starts retain legacy
+  behavior. Evidence: focused manager/route RED cases now GREEN; affected
+  background/API owners 58 passed; selector mapped three owner modules;
+  40,586 tests collect clean; Black/Ruff/mypy/diff clean. Exact-head review confirmed the server-owned snapshot is copied before manager dispatch and bound around the complete detached stream. Serialized cross-process delegation remains separate.
+
+- **VAS-05t — MERGED** (2026-11-14), owner: Codex framework-review
   continuation; PR [#1794](https://github.com/anvai-labs/victor/pull/1794)
-  (`feat/workflow-policy-snapshot`), head `2b6cfc029`, baseline `12fc116dc`.
+  (`feat/workflow-policy-snapshot`), baseline `12fc116dc`; merged as squash
+  `c396fcd15` with every applicable CI check green after rebasing on #1793.
   RED (four intended failures): admitted-required process execution lost its
   wrapper after globals reloaded disabled; admitted-disabled inline execution
   was refused after globals reloaded required-unavailable; admitted-required
@@ -92,9 +107,26 @@ edit. A mock test is not live provider or C5 evidence.
   there are no active internal `get_sandboxed_executor()` callers, so this is
   not a claim that every compiled workflow node family is migrated. Evidence:
   owner 21 passed (4 RED-first); full workflows 1,396 passed; full collection
-  clean at 40,464; Black/Ruff/mypy/diff clean. Next: full CI green, exact-head review,
-  squash merge, then exact SHA reconciliation. Terminal/git direct routes and delegation remain
-  separate.
+  clean at 40,464; Black/Ruff/mypy/diff clean. Terminal/git direct
+  routes and delegation remain separate.
+
+- **VAS-05u — MERGED** (2026-11-14), owner: Codex framework-review
+  continuation; PR [#1797](https://github.com/anvai-labs/victor/pull/1797)
+  (`feat/direct-route-policy-snapshot`), baseline `55968fab0` after the final
+  rebase; merged as squash `1e3ceb2fd` with every applicable CI check green.
+  RED (four intended failures): real
+  `/terminal/execute` and `/git/commit` launches reread mutable globals despite
+  an admitted required/disabled snapshot; required wrapping was lost and
+  disabled admission was tightened. GREEN: terminal resolves one request policy
+  before launch; every git handler admits one policy and binds it around the
+  complete request, so add → AI turn → commit cannot observe a reload between
+  children. A direct multi-spawn probe mutates global settings to disabled
+  after admission and still wraps both git children. Existing no-snapshot
+  global behavior and unreadable-policy refusals remain pinned. Evidence:
+  terminal/git owners 19 passed; changed-file selector mapped and passed both
+  owners; 40,583 tests collect clean; Black/Ruff/mypy/diff clean. Exact-head review confirmed one request-scoped
+  policy covers terminal launch and every git child/AI turn.
+  Delegation/background propagation remains separate.
 
 - **VAS-05s — MERGED** (2026-11-14), owner: Codex framework-review
   continuation; PR [#1791](https://github.com/anvai-labs/victor/pull/1791)
@@ -3572,7 +3604,9 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-05q | Policy-unreadable launches refuse (NEXT-01 slice 1) | VAS-05p | ✅ MERGED | [#1787](https://github.com/anvai-labs/victor/pull/1787) squash `d3da8e3868`, branch `feat/policy-unavailable-refusal`, baseline `787a26eb3`. RED: get_settings raising produced NoneSandbox + raw spawns in canonical/git/terminal/workflow owners. Typed `PolicyUnavailable` (`settings_read_failed`) refuses at every owner: `POLICY_UNAVAILABLE` structured results (distinct from SANDBOX_REQUIRED), zero spawns; explicit disabled/preferred only after successful read (pinned). Owners 49 GREEN (6 RED-first); suites 5,462 passed; ratchet at baseline; lint/mypy clean. FEP-scoped follow-ups: snapshot establishment/propagation, reload/revocation, delegation/resume semantics |
 | VAS-05r | Immutable run-policy snapshot and pause/resume invariant (NEXT-01 slice 2) | VAS-05q | ✅ MERGED | [#1789](https://github.com/anvai-labs/victor/pull/1789) squash `e671e56e7`, baseline `fc83a1bcd`; draft FEP-0044. RED proved missing pause evidence, unreadable-policy admission reaching chat resolution, and approved dispatch after required→disabled/preferred reload or metadata tampering. Snapshot binds all non-secret sandbox fields with a SHA-256 digest at both message boundaries, propagates through `RuntimeExecutionContext`, persists with pauses, and exact-match-verifies before resume dispatch; legacy pauses remain on current checks. Owners 12/105/147/58 plus selector 210 pass; 40,450 tests collect clean; all applicable CI green including Vertical Py3.12 and FEP validation. Launch-owner consumption and delegation propagation remain separately owned follow-ups |
 | VAS-05s | Canonical subprocess/shell consumes admitted run-policy snapshot (FEP-0044 Phase 2 slice 1) | VAS-05r | ✅ MERGED | [#1791](https://github.com/anvai-labs/victor/pull/1791) squash `00d26f9ed`, baseline `f430b2e00`. RED proved sync/async subprocess and real shell launches lacked snapshot admission/context. Message/stream execution now binds policy, tool context exposes it per call, shell/subprocess resolve it before mutable globals, and resume dispatch/continuation rebind persisted policy. Owners 143 and 1,042 affected pass; CI changed-file selector and Vertical Py3.12 green; 40,460 collect clean; lint/type clean. Workflow/git/terminal snapshot consumption and delegation propagation remain open |
-| VAS-05t | Workflow executor consumes admitted run-policy snapshot (FEP-0044 Phase 2 slice 2) | VAS-05s | IN REVIEW | PR [#1794](https://github.com/anvai-labs/victor/pull/1794), head `2b6cfc029`, baseline `12fc116dc`. Owner Codex framework-review continuation; branch `feat/workflow-policy-snapshot`, baseline `12fc116dc`. RED proved four mutable-settings reload races. `_resolve_policy_decision` and the Docker network floor now consume the admitted snapshot; no-snapshot callers retain globals. Owner 21 and workflows 1,396 pass; 40,464 tests collect clean; lint/type clean. PR/CI/merge evidence pending; terminal/git routes and delegation remain separate |
+| VAS-05t | Workflow executor consumes admitted run-policy snapshot (FEP-0044 Phase 2 slice 2) | VAS-05s | ✅ MERGED | [#1794](https://github.com/anvai-labs/victor/pull/1794) squash `c396fcd15`, baseline `12fc116dc`. RED proved four mutable-settings reload races. `_resolve_policy_decision` and the Docker network floor now consume the admitted snapshot; no-snapshot callers retain globals. Owner 21 and workflows 1,396 pass; 40,464 tests collect clean; lint/type clean. All applicable CI green; terminal/git routes and delegation remain separate |
+| VAS-05u | Terminal/git direct routes consume request-scoped policy snapshots (FEP-0044 Phase 2 slice 3) | VAS-05t | ✅ MERGED | [#1797](https://github.com/anvai-labs/victor/pull/1797) squash `1e3ceb2fd`, final baseline `55968fab0`. RED proved real terminal/git launches reread mutable globals despite admitted policy. Terminal now resolves one request policy; git binds one request policy across every child and AI turn. Owners 19 pass, selector passes, 40,583 tests collect clean, lint/type clean. All applicable CI green; delegation/background propagation remains separate |
+| VAS-05v | Background agents inherit admitted policy snapshots (FEP-0044 Phase 2 slice 4) | VAS-05u | ✅ MERGED | [#1800](https://github.com/anvai-labs/victor/pull/1800) squash `9f8609b5a`, baseline `dfacb748c`. RED proved detached `/agents/start` work lacked admitted policy. API start now copies server settings once, manager stores the immutable snapshot, and the detached run binds it end-to-end. Owners 58 pass; 40,586 tests collect clean; lint/type clean. All applicable CI green; serialized cross-process delegation remains separate |
 | VAS-05m | Resource-owner authorization before read/mutation (HB-01) | VAS-05l | ✅ MERGED | [#1779](https://github.com/anvai-labs/victor/pull/1779) squash `64778c5a0`, branch `feat/resource-owner-auth`, baseline `bcab05d71`. RED: RED: Bob listed and approved Alice's approval via real routes (200, entry removed). Tool approvals list/approve/cancel + workflow list/read/status/cancel + agent list/get/cancel authorize against the STORED owner; denied calls keep state and emit nothing; not-found shape without existence confirmation; ownerless entries quarantined on keyed servers; spoofed body owner grants nothing; keyless unchanged. Ownership stamped via new `register_pending_approval` (store had no producer; FEP-0029 paused-run store is the durable approval path). Ratchet consolidated to baseline. Owners 60 GREEN (6 RED-first); suites 318 passed; lint/type/collect clean. Paused-run/subscription scoping (VAS-06) and shared session scoping remain open |
 | VAS-05n | Direct-spawn convergence: terminal route gate (order 3 slice) | VAS-05l | ✅ MERGED | [#1780](https://github.com/anvai-labs/victor/pull/1780) squash `ee1d306c61`, branch `feat/direct-spawn-gate`, baseline `0ed5536a7`. RED: terminal route launched raw argv under required+available backend; spawned under unenforceable required. Shared `resolve_required_launch` in the sandbox owner; terminal launch wraps argv or refuses; `_resolve_default_sandbox` re-expressed on the same decision. Classified inventory recorded: git/search = trusted fixed-argv control reads; MCP stdio = control plane; per-site decisions pending for the remaining fixed-binary tools. Owners 94 GREEN (2 RED-first); lint/type/collect clean; ratchet at baseline. Remaining inventory sites are follow-up increments |
 | VAS-16b | Bounded fan-out task/state admission (HB-04, order 4) | VAS-16a | ✅ MERGED | [#1781](https://github.com/anvai-labs/victor/pull/1781) squash `69719f04d8`, branch `feat/bounded-fanout-admission`, baseline `64778c5a0`. RED event-ordering probe: 32 states copied before the first execution under bound=1. `_execute_parallel` runs min(bound, fanout) worker tasks pulling from a shared iterator; deepcopy after admission; results by index (merge order/failure semantics unchanged); cancellation stops new admission; `ExecutionConfig.max_fanout_branches` (None default) rejects oversized expansion pre-effect with typed `FanoutBudgetExceeded`. Result-byte budgets recorded as contract-review follow-up (VAS-16/22). Owners 172 GREEN (2 RED-first); collect 40,418 clean; ratchet at baseline |
