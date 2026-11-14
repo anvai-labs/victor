@@ -11,6 +11,14 @@ from victor.integrations.api import fastapi_server
 
 
 def _create_server(monkeypatch, tmp_path):
+    from victor.config import settings as settings_module
+
+    # This test intentionally mutates sandbox policy. Use a fresh uncached
+    # object and patch the loader so the process-wide read-only settings
+    # snapshot cannot leak "required" into later unrelated shell tests.
+    settings = settings_module.load_settings(fresh=True)
+    settings.sandbox.sandbox_policy = "required"
+    monkeypatch.setattr(settings_module, "load_settings", lambda fresh=False: settings)
     monkeypatch.setattr(
         fastapi_server,
         "load_fastapi_router_registrations",
@@ -42,7 +50,6 @@ async def test_agents_start_binds_server_policy_to_detached_background_run(monke
     monkeypatch.setattr(background_agent, "get_agent_manager", lambda: manager)
 
     server = _create_server(monkeypatch, tmp_path)
-    server._settings.sandbox.sandbox_policy = "required"
     client = TestClient(server.app)
 
     response = client.post("/agents/start", json={"task": "background task"})
