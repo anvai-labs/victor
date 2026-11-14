@@ -359,3 +359,161 @@ async def test_run_command_async_policy_unreadable_refuses_execution(monkeypatch
     result = await run_command_async("echo hi")
     assert result.success is False
     assert result.error_type == CommandErrorType.POLICY_UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# FEP-0044 Phase 2: launches consume the admitted immutable snapshot
+# ---------------------------------------------------------------------------
+
+
+def _admitted_required_snapshot():
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    return RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required"))
+    )
+
+
+def _install_reloaded_disabled_settings(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+
+    monkeypatch.setattr(
+        "victor.config.settings.get_settings",
+        lambda: SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="disabled")),
+    )
+
+
+def test_run_command_uses_admitted_snapshot_over_reloaded_disabled(monkeypatch):
+    """Canonical sync dispatch must not reread mutable settings after admission."""
+    from victor.tools.sandbox.backends import RequiredLaunchDecision
+
+    _install_reloaded_disabled_settings(monkeypatch)
+    backend = _RecordingBackend()
+    monkeypatch.setattr(
+        "victor.tools.sandbox.resolve_required_launch",
+        lambda settings: RequiredLaunchDecision(required_active=True, backend=backend),
+    )
+    result = run_command(
+        "echo hi",
+        shell=True,
+        run_policy_snapshot=_admitted_required_snapshot(),
+    )
+
+    assert result.success
+    assert result.stdout.strip() == "WRAPPED"
+    assert backend.calls == [(["/bin/sh", "-c", "echo hi"], None)]
+
+
+async def test_run_command_async_uses_admitted_snapshot_over_reloaded_disabled(
+    monkeypatch,
+):
+    from victor.tools.sandbox.backends import RequiredLaunchDecision
+
+    _install_reloaded_disabled_settings(monkeypatch)
+    backend = _RecordingBackend()
+    monkeypatch.setattr(
+        "victor.tools.sandbox.resolve_required_launch",
+        lambda settings: RequiredLaunchDecision(required_active=True, backend=backend),
+    )
+
+    result = await run_command_async(
+        "echo hi",
+        run_policy_snapshot=_admitted_required_snapshot(),
+    )
+
+    assert result.success
+    assert result.stdout.strip() == "WRAPPED"
+    assert backend.calls == [(["/bin/sh", "-c", "echo hi"], None)]
+
+
+def test_admitted_disabled_snapshot_is_not_tightened_by_reloaded_required(monkeypatch):
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+    monkeypatch.setattr(
+        "victor.config.settings.get_settings",
+        lambda: SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="required")),
+    )
+    admitted = RunPolicySnapshot.from_settings(
+        SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="disabled"))
+    )
+
+    result = run_command("echo hi", shell=True, run_policy_snapshot=admitted)
+
+    assert result.success
+    assert result.stdout.strip() == "hi"
+
+
+def test_explicit_none_sandbox_cannot_weaken_admitted_required(monkeypatch):
+    _install_reloaded_disabled_settings(monkeypatch)
+    result = run_command(
+        "echo hi",
+        shell=True,
+        sandbox=NoneSandbox(),
+        run_policy_snapshot=_admitted_required_snapshot(),
+    )
+
+    assert result.success is False
+    assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+
+
+async def test_real_shell_tool_uses_snapshot_from_execution_context(monkeypatch):
+    """The real shell tool consumes its framework context rather than settings."""
+    from victor.tools.bash import shell
+    from victor.tools.sandbox.backends import RequiredLaunchDecision
+    import victor.tools.subprocess_executor as subprocess_executor
+
+    _install_reloaded_disabled_settings(monkeypatch)
+    backend = _RecordingBackend()
+    monkeypatch.setattr(
+        "victor.tools.sandbox.resolve_required_launch",
+        lambda settings: RequiredLaunchDecision(required_active=True, backend=backend),
+    )
+    captured = {}
+
+    async def _managed_process(**kwargs):
+        captured.update(kwargs)
+        return b"ok\n", b"", 0, False, False
+
+    monkeypatch.setattr(subprocess_executor, "run_managed_process", _managed_process)
+
+    result = await shell(
+        cmd="echo hi",
+        cwd=".",
+        action="exec",
+        _exec_ctx={"run_policy_snapshot": _admitted_required_snapshot()},
+    )
+
+    assert result["success"] is True
+    assert backend.calls == [(["/bin/sh", "-c", "echo hi"], Path("."))]
+    assert captured["argv"] == ["echo", "WRAPPED"]
+
+
+def test_tool_context_exposes_current_admitted_snapshot():
+    from types import SimpleNamespace
+
+    from victor.agent.orchestrator import AgentOrchestrator
+    from victor.runtime.policy_snapshot import run_policy_context
+
+    snapshot = _admitted_required_snapshot()
+    owner = SimpleNamespace(
+        _tool_context_cache=None,
+        code_manager=object(),
+        provider=object(),
+        model="test",
+        tools=object(),
+        workflow_registry=object(),
+        settings=object(),
+    )
+
+    with run_policy_context(snapshot):
+        context = AgentOrchestrator._get_tool_context(owner)
+
+    assert context["run_policy_snapshot"] is snapshot

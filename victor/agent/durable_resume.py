@@ -122,7 +122,11 @@ async def resume_paused_run(
         proposal,
         require_complete_batch_evidence,
     )
-    from victor.runtime.policy_snapshot import PolicySnapshotError, RunPolicySnapshot
+    from victor.runtime.policy_snapshot import (
+        PolicySnapshotError,
+        RunPolicySnapshot,
+        run_policy_context,
+    )
 
     controller = getattr(orchestrator, "_conversation_controller", None)
     runtime_factory = getattr(orchestrator, "_get_tool_execution_runtime", None)
@@ -130,6 +134,7 @@ async def resume_paused_run(
     if controller is None or not callable(runtime_factory) or turn_executor is None:
         raise ResumeError("orchestrator is missing the canonical conversation/tool/turn runtime")
     paused_metadata = getattr(paused_run, "metadata", None) or {}
+    admitted_policy: RunPolicySnapshot | None = None
     if "run_policy" in paused_metadata:
         try:
             admitted_policy = RunPolicySnapshot.from_metadata(paused_metadata["run_policy"])
@@ -215,9 +220,14 @@ async def resume_paused_run(
         token = current_approval_grant.set(grant)
         try:
             try:
-                execution_results = await runtime_factory().execute_tool_calls(
+                execution = runtime_factory().execute_tool_calls(
                     [call], **({"require_persistence": True} if action_store is not None else {})
                 )
+                if admitted_policy is None:
+                    execution_results = await execution
+                else:
+                    with run_policy_context(admitted_policy):
+                        execution_results = await execution
             except Exception as exc:
                 if action_store is not None:
                     raise ResumeError(
@@ -272,7 +282,11 @@ async def resume_paused_run(
     try:
         for _ in range(_MAX_CONTINUATION_TURNS):
             try:
-                turn = await turn_executor.execute_turn(user_message)
+                if admitted_policy is None:
+                    turn = await turn_executor.execute_turn(user_message)
+                else:
+                    with run_policy_context(admitted_policy):
+                        turn = await turn_executor.execute_turn(user_message)
             except ApprovalPause as pause:
                 # Chained pause: a further ASK fired mid-continuation — park again.
                 import time
