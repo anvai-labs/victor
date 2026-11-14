@@ -33,7 +33,7 @@ This document proposes a unified distribution architecture that:
 | Artifact | Format | Platform | Notes |
 |----------|--------|----------|-------|
 | **Python wheel** | `victor_ai-*.whl` | Cross-platform | Pure Python, no native extensions |
-| **Standalone binaries** | `victor-{os}-{arch}` | macOS ARM64, Linux x64/ARM64, Windows x64 | PyO3-compiled, bundled Python runtime |
+| **Standalone binaries** | `victor-{os}-{arch}` | macOS ARM64, Linux x64/ARM64, Windows x64 | PyO3-compiled, bundled Python runtime; macOS requires Apple Silicon |
 | **Docker image** | `ghcr.io/anvai-labs/victor:latest` | Linux x64/ARM64 | Multi-arch, includes optional deps |
 | **VS Code extension** | `victor-*.vsix` | Cross-platform | Bundles CLI, activates in workspace |
 | **Rust crates** | `victor-protocol`, `victor-state`, `victor-tools`, `victor-edge` | Cross-platform | Published to crates.io |
@@ -83,7 +83,6 @@ pip install victor-ai[gpu]             # CUDA/Metal/ROCm native extensions
 | Platform | Architecture | Variants | Notes |
 |----------|--------------|----------|-------|
 | **macOS** | ARM64 (Apple Silicon) | `victor-macos-arm64`, `victor-macos-arm64-metal` | Metal acceleration in `-metal` variant |
-| **macOS** | x64 (Intel) | `victor-macos-x64` | No GPU acceleration |
 | **Linux** | x64 | `victor-linux-x64`, `victor-linux-x64-cuda`, `victor-linux-x64-rocm` | CUDA 12.x, ROCm 6.x |
 | **Linux** | ARM64 | `victor-linux-arm64` | No GPU acceleration (Jetson support planned) |
 | **Windows** | x64 | `victor-windows-x64`, `victor-windows-x64-cuda` | CUDA 12.x |
@@ -310,8 +309,10 @@ only a floor for *fresh* installs — existing installs never upgrade the wheel.
 | **Installation time** | ~30s (pip install) | <10s (binary installer) |
 | **GPU acceleration adoption** | <5% (manual build) | >30% (auto-detected) |
 | **Vertical discovery** | Manual (README, docs) | Automated (`victor verticals list`) |
-| **Platform coverage** | 3/5 (macOS ARM64, Linux x64/ARM64) | 5/5 (+ macOS x64, Windows x64) |
+| **Platform coverage** | 4/4 (macOS ARM64, Linux x64/ARM64, Windows x64) | Maintain 4/4; macOS Intel is unsupported |
 | **Container GPU support** | Not documented | Documented for Docker, Podman, K8s |
+
+Prebuilt macOS artifacts and agentic-flow qualification target Apple Silicon. Intel Macs are out of service for Victor releases; they may run the pure-Python package at a user’s own risk, but source builds and Intel wheels are not qualified or distributed.
 
 ## Risks and Mitigations
 
