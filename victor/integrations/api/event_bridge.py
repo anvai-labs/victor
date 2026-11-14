@@ -871,6 +871,10 @@ class EventBroadcaster:
         self._recent_events.append(event)
         self._delivery.broadcast_sync(event)
 
+    def record_queue_drop(self) -> None:
+        """Record an overflow drop from a transport-specific subscriber queue."""
+        self._metrics._queue_drop_count += 1
+
     async def _send_to_clients(self, event: BridgeEvent) -> None:
         """Deliver an event to subscribed clients (delegates to the engine)."""
         await self._delivery._send_to_clients(event)
