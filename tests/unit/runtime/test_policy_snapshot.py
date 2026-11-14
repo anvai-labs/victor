@@ -55,6 +55,28 @@ def test_changed_policy_changes_digest_and_equality() -> None:
     assert admitted.digest != reloaded.digest
 
 
+def test_snapshot_reconstructs_typed_sandbox_settings() -> None:
+    snapshot = RunPolicySnapshot.from_settings(
+        SimpleNamespace(
+            sandbox=SandboxSettings(
+                sandbox_policy="required",
+                sandbox_filesystem_mode="read-only",
+                sandbox_namespace_restrictions=False,
+                sandbox_network_isolation=True,
+                sandbox_allowed_mounts=["/data"],
+            )
+        )
+    )
+
+    settings = snapshot.to_sandbox_settings()
+
+    assert settings.sandbox_policy == "required"
+    assert settings.sandbox_filesystem_mode == "read-only"
+    assert settings.sandbox_namespace_restrictions is False
+    assert settings.sandbox_network_isolation is True
+    assert settings.sandbox_allowed_mounts == ["/data"]
+
+
 @pytest.mark.parametrize(
     "metadata",
     [

@@ -10,8 +10,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 
 class PolicySnapshotError(RuntimeError):
@@ -20,6 +22,26 @@ class PolicySnapshotError(RuntimeError):
     def __init__(self, reason: str, message: str) -> None:
         super().__init__(message)
         self.reason = reason
+
+
+_current_run_policy_snapshot: ContextVar[RunPolicySnapshot | None] = ContextVar(
+    "victor_current_run_policy_snapshot", default=None
+)
+
+
+def current_run_policy_snapshot() -> RunPolicySnapshot | None:
+    """Return the immutable policy admitted by the enclosing run, if any."""
+    return _current_run_policy_snapshot.get()
+
+
+@contextmanager
+def run_policy_context(snapshot: RunPolicySnapshot) -> Iterator[None]:
+    """Bind an admitted policy to the current asynchronous execution context."""
+    token = _current_run_policy_snapshot.set(snapshot)
+    try:
+        yield
+    finally:
+        _current_run_policy_snapshot.reset(token)
 
 
 @dataclass(frozen=True)
@@ -165,6 +187,19 @@ class RunPolicySnapshot:
         values = asdict(self)
         values["allowed_mounts"] = list(self.allowed_mounts)
         return values
+
+    def to_sandbox_settings(self) -> Any:
+        """Reconstruct the typed settings view consumed by sandbox resolvers."""
+        from victor.config.sandbox_settings import SandboxSettings
+
+        return SandboxSettings(
+            sandbox_enabled=self.sandbox_enabled,
+            sandbox_policy=self.effective_policy,
+            sandbox_filesystem_mode=self.filesystem_mode,
+            sandbox_namespace_restrictions=self.namespace_restrictions,
+            sandbox_network_isolation=self.network_isolation,
+            sandbox_allowed_mounts=list(self.allowed_mounts),
+        )
 
     @staticmethod
     def _effective_policy(sandbox: Any) -> str:

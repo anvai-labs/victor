@@ -1102,6 +1102,7 @@ async def shell(
     action: str = "read",
     stdout_limit: Optional[int] = None,
     stderr_limit: Optional[int] = None,
+    _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Execute a shell command from a working directory.
 
@@ -1375,7 +1376,14 @@ async def shell(
         from victor.tools.shell_command_cache import get_shell_cache
         from victor.tools.subprocess_executor import _resolve_default_sandbox, run_managed_process
 
-        _sandbox = _resolve_default_sandbox()
+        from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+        _admitted_policy = (_exec_ctx or {}).get("run_policy_snapshot")
+        _sandbox = _resolve_default_sandbox(
+            run_policy_snapshot=(
+                _admitted_policy if isinstance(_admitted_policy, RunPolicySnapshot) else None
+            )
+        )
         cache_eligible = (
             _sandbox.type_name == "none"
             and not dangerous

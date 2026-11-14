@@ -11,7 +11,7 @@ from victor.agent.paused_run_store import (
 )
 from victor.config.sandbox_settings import SandboxSettings
 from victor.framework.approval_pause import ApprovalPause
-from victor.runtime.policy_snapshot import RunPolicySnapshot
+from victor.runtime.policy_snapshot import RunPolicySnapshot, current_run_policy_snapshot
 
 
 class FakeExecutionContext:
@@ -117,6 +117,53 @@ async def test_stream_pause_persists_admitted_policy_snapshot(store) -> None:
     paused = store.get(awaiting[0].metadata["run_id"])
     assert paused is not None
     assert paused.metadata["run_policy"]["effective_policy"] == "required"
+
+
+@pytest.mark.asyncio
+async def test_buffered_execution_context_carries_admitted_policy() -> None:
+    from victor.framework.message_execution import execute_message
+
+    captured = {}
+
+    async def chat(message, **kwargs):
+        captured["policy"] = current_run_policy_snapshot()
+        raise ApprovalPause(ApprovalRequest())
+
+    await execute_message(
+        orchestrator=_orchestrator(),
+        execution_context=FakeExecutionContext(SimpleNamespace(chat=chat)),
+        user_message="write evidence",
+    )
+
+    assert isinstance(captured["policy"], RunPolicySnapshot)
+    assert captured["policy"].effective_policy == "required"
+
+
+@pytest.mark.asyncio
+async def test_stream_execution_context_carries_admitted_policy(store) -> None:
+    from victor.framework.message_execution import stream_message_events
+
+    request = ApprovalRequest()
+    captured = {}
+
+    class StreamChat:
+        async def stream_chat(self, message, **kwargs):
+            captured["policy"] = current_run_policy_snapshot()
+            raise ApprovalPause(request)
+            yield  # pragma: no cover - async-generator shape
+
+    context = FakeExecutionContext(SimpleNamespace(stream_chat=StreamChat().stream_chat))
+    [
+        _
+        async for _ in stream_message_events(
+            orchestrator=_orchestrator(),
+            execution_context=context,
+            user_message="write evidence",
+        )
+    ]
+
+    assert isinstance(captured["policy"], RunPolicySnapshot)
+    assert captured["policy"].effective_policy == "required"
 
 
 @pytest.mark.asyncio

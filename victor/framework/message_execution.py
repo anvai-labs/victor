@@ -22,7 +22,11 @@ from victor.framework._internal import _supports_keyword_argument, format_contex
 from victor.framework.task import DirectResponseOutputState, TaskResult
 from victor.providers.base import CompletionResponse
 from victor.runtime.chat_runtime import resolve_chat_runtime as _resolve_chat_runtime
-from victor.runtime.policy_snapshot import PolicySnapshotError, RunPolicySnapshot
+from victor.runtime.policy_snapshot import (
+    PolicySnapshotError,
+    RunPolicySnapshot,
+    run_policy_context,
+)
 
 
 @dataclass(frozen=True)
@@ -409,18 +413,19 @@ async def execute_message(
     try:
         chat_runtime = _resolve_chat_runtime(orchestrator, admitted_context)
         output_state = DirectResponseOutputState(prepared.response_message)
-        response = _coerce_completion_response(
-            await _invoke_chat(
-                chat_runtime,
-                prepared.runtime_message,
-                stream=stream,
-                forward_stream_option=forward_stream_option,
-                runtime_context_overrides=runtime_context_overrides,
-                run_context=context,
-                caller_run_context=caller_run_context,
-            ),
-            default_model=getattr(orchestrator, "model", "unknown"),
-        )
+        with run_policy_context(run_policy):
+            response = _coerce_completion_response(
+                await _invoke_chat(
+                    chat_runtime,
+                    prepared.runtime_message,
+                    stream=stream,
+                    forward_stream_option=forward_stream_option,
+                    runtime_context_overrides=runtime_context_overrides,
+                    run_context=context,
+                    caller_run_context=caller_run_context,
+                ),
+                default_model=getattr(orchestrator, "model", "unknown"),
+            )
         response_content = output_state.normalize_final_response(response.content or "")
         response_metadata = response.metadata or {}
         success = response_metadata.get("agentic_loop_success", True) is True
@@ -524,15 +529,16 @@ async def stream_message_events(
     _durable = _durable_pause_enabled(orchestrator)
     _token = current_durable_pause_enabled.set(True) if _durable else None
     try:
-        async for event in stream_with_events(
-            chat_runtime,
-            prepared.runtime_message,
-            response_prompt=prepared.response_message,
-            runtime_context_overrides=runtime_context_overrides,
-            run_context=context,
-            caller_run_context=caller_run_context,
-        ):
-            yield event
+        with run_policy_context(run_policy):
+            async for event in stream_with_events(
+                chat_runtime,
+                prepared.runtime_message,
+                response_prompt=prepared.response_message,
+                runtime_context_overrides=runtime_context_overrides,
+                run_context=context,
+                caller_run_context=caller_run_context,
+            ):
+                yield event
     except ApprovalPause as pause:
         result = await _build_awaiting_task_result(orchestrator, pause, run_policy)
         yield awaiting_approval_event(result.run_id, result.approval_request)

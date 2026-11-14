@@ -40,6 +40,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
+from victor.runtime.policy_snapshot import RunPolicySnapshot
+
 if TYPE_CHECKING:
     from victor.tools.sandbox import SandboxBackend
 
@@ -356,7 +358,9 @@ def check_pip_available() -> bool:
 # =============================================================================
 
 
-def _resolve_default_sandbox() -> "SandboxBackend":
+def _resolve_default_sandbox(
+    run_policy_snapshot: Optional[RunPolicySnapshot] = None,
+) -> "SandboxBackend":
     """Resolve the sandbox backend from global settings (fail-open to none).
 
     Reads ``settings.sandbox`` (off by default). A ``required`` policy that
@@ -372,9 +376,12 @@ def _resolve_default_sandbox() -> "SandboxBackend":
     )
 
     try:
-        from victor.config.settings import get_settings
+        if run_policy_snapshot is not None:
+            sandbox_settings = run_policy_snapshot.to_sandbox_settings()
+        else:
+            from victor.config.settings import get_settings
 
-        sandbox_settings = getattr(get_settings(), "sandbox", None)
+            sandbox_settings = getattr(get_settings(), "sandbox", None)
     except Exception as exc:
         # NEXT-01: policy unreadable is not affirmative disabled mode —
         # governed execution refuses rather than degrading open.
@@ -420,12 +427,16 @@ def _sandbox_refusal_result(
     )
 
 
-def _required_policy_active() -> bool:
+def _required_policy_active(
+    run_policy_snapshot: Optional[RunPolicySnapshot] = None,
+) -> bool:
     """Whether the effective sandbox policy is ``required`` (best effort).
 
     Unreadable settings mean unknowable policy and return False; callers
     treat that as the historical non-required path.
     """
+    if run_policy_snapshot is not None:
+        return run_policy_snapshot.effective_policy == "required"
     try:
         from victor.config.settings import get_settings
         from victor.tools.sandbox import effective_sandbox_policy
@@ -440,6 +451,7 @@ def _apply_sandbox(
     args: Union[str, List[str]],
     shell: bool,
     working_dir: Optional[Union[str, Path]],
+    run_policy_snapshot: Optional[RunPolicySnapshot] = None,
 ) -> Tuple[Union[str, List[str]], bool]:
     """Wrap ``args`` with the sandbox launcher if one is active.
 
@@ -447,7 +459,11 @@ def _apply_sandbox(
     are returned unchanged (zero behavior change with sandboxing disabled).
     A wrapped command always runs as an argv list with ``shell=False``.
     """
-    backend = sandbox if sandbox is not None else _resolve_default_sandbox()
+    backend = (
+        sandbox
+        if sandbox is not None
+        else _resolve_default_sandbox(run_policy_snapshot=run_policy_snapshot)
+    )
     if backend.type_name == "none":
         return args, shell
 
@@ -468,6 +484,7 @@ def run_command(
     preexec_fn: Optional[Callable[[], None]] = None,
     max_output_bytes: int = 0,
     sandbox: "Optional[SandboxBackend]" = None,
+    run_policy_snapshot: Optional[RunPolicySnapshot] = None,
 ) -> CommandResult:
     """Execute a command synchronously and return structured result.
 
@@ -530,7 +547,11 @@ def run_command(
 
     # HB-02: a caller-supplied NoneSandbox cannot weaken an effective
     # required policy — unwrapped execution is refused.
-    if sandbox is not None and sandbox.type_name == "none" and _required_policy_active():
+    if (
+        sandbox is not None
+        and sandbox.type_name == "none"
+        and _required_policy_active(run_policy_snapshot)
+    ):
         refusal = (
             "Sandbox policy is 'required': an explicit no-sandbox backend "
             "cannot bypass enforcement (fail-closed)."
@@ -539,7 +560,9 @@ def run_command(
         return _sandbox_refusal_result(refusal, cmd_str, working_dir)
 
     try:
-        exec_args, exec_shell = _apply_sandbox(sandbox, args, shell, working_dir)
+        exec_args, exec_shell = _apply_sandbox(
+            sandbox, args, shell, working_dir, run_policy_snapshot
+        )
     except PolicyUnavailable as exc:
         logger.error("Refusing command execution: %s", exc)
         return _sandbox_refusal_result(
@@ -812,6 +835,7 @@ async def run_command_async(
     preexec_fn: Optional[Callable[[], None]] = None,
     max_output_bytes: int = 0,
     sandbox: "Optional[SandboxBackend]" = None,
+    run_policy_snapshot: Optional[RunPolicySnapshot] = None,
 ) -> CommandResult:
     """Execute a shell command asynchronously and return structured result.
 
@@ -826,6 +850,8 @@ async def run_command_async(
         sandbox: Optional sandbox backend. When None, resolved from settings
             (off by default). A non-none backend wraps the command argv and
             runs it via exec instead of the shell.
+        run_policy_snapshot: Immutable policy admitted by an enclosing run;
+            it takes precedence over mutable global settings.
 
     Returns:
         CommandResult with execution details.
@@ -872,7 +898,11 @@ async def run_command_async(
 
     # HB-02: a caller-supplied NoneSandbox cannot weaken an effective
     # required policy — unwrapped execution is refused.
-    if sandbox is not None and sandbox.type_name == "none" and _required_policy_active():
+    if (
+        sandbox is not None
+        and sandbox.type_name == "none"
+        and _required_policy_active(run_policy_snapshot)
+    ):
         refusal = (
             "Sandbox policy is 'required': an explicit no-sandbox backend "
             "cannot bypass enforcement (fail-closed)."
@@ -881,7 +911,11 @@ async def run_command_async(
         return _sandbox_refusal_result(refusal, command, working_dir)
 
     try:
-        backend = sandbox if sandbox is not None else _resolve_default_sandbox()
+        backend = (
+            sandbox
+            if sandbox is not None
+            else _resolve_default_sandbox(run_policy_snapshot=run_policy_snapshot)
+        )
     except PolicyUnavailable as exc:
         logger.error("Refusing command execution: %s", exc)
         return _sandbox_refusal_result(
