@@ -163,6 +163,16 @@ class DelegationHandler:
             f"{request.task[:50]}... (role={request.suggested_role})"
         )
 
+        # A direct handler call is also a delegation boundary. Capture the
+        # parent policy into the request so fire-and-forget execution and any
+        # serialized transport retain the same immutable value.
+        if request.run_policy is None:
+            from victor.runtime.policy_snapshot import current_run_policy_snapshot
+
+            parent_policy = current_run_policy_snapshot()
+            if parent_policy is not None:
+                request.run_policy = parent_policy.to_metadata()
+
         # Validate request
         validation_error = self._validate_request(request)
         if validation_error:
@@ -210,6 +220,21 @@ class DelegationHandler:
 
     @tagged_run(RunKind.DELEGATE)
     async def _execute_delegation(
+        self,
+        delegation: ActiveDelegation,
+        role: SubAgentRole,
+    ) -> DelegationResponse:
+        """Bind restored parent policy around the full delegate execution."""
+        if delegation.request.run_policy is None:
+            return await self._execute_delegation_inner(delegation, role)
+
+        from victor.runtime.policy_snapshot import RunPolicySnapshot, run_policy_context
+
+        admitted_policy = RunPolicySnapshot.from_metadata(delegation.request.run_policy)
+        with run_policy_context(admitted_policy):
+            return await self._execute_delegation_inner(delegation, role)
+
+    async def _execute_delegation_inner(
         self,
         delegation: ActiveDelegation,
         role: SubAgentRole,

@@ -14,6 +14,8 @@
 
 """Tests for Agent convenience methods (run_oneshot, run_interactive)."""
 
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -37,6 +39,7 @@ def mock_orchestrator():
     orchestrator.provider.name = "test_provider"
     orchestrator.model = "test-model"
     orchestrator.messages = []
+    orchestrator.settings = SimpleNamespace(sandbox=None)
 
     # Mock chat method for run_oneshot
     from victor.providers.base import CompletionResponse

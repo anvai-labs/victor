@@ -49,6 +49,7 @@ async def test_explicit_member_gateway_needs_no_upstream_credential(monkeypatch)
         assert create.call_args.kwargs["gateway"] == {
             "url": "http://127.0.0.1:18788",
             "virtual_key": "vk-test",
+            "auth_mode": "tokens",
         }
         assert create.call_args.kwargs["api_key"] == "vk-test"
         key.assert_not_called()
@@ -72,6 +73,7 @@ async def test_member_gateway_honors_provider_profile_block(monkeypatch):
 
     monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
     configured = {"url": "http://127.0.0.1:18788", "virtual_key": "vk-profile"}
+    resolved = {**configured, "auth_mode": "tokens"}
     for entry in ({"gateway": configured}, SimpleNamespace(gateway=configured)):
         parent = SimpleNamespace(
             model="glm-5.3", settings=SimpleNamespace(providers={"zai": entry})
@@ -80,7 +82,7 @@ async def test_member_gateway_honors_provider_profile_block(monkeypatch):
             "victor.providers.factory.ManagedProviderFactory.create", new_callable=AsyncMock
         ) as create:
             await SubAgentOrchestrator(parent)._resolve_override_provider("zai", None)
-            assert create.call_args.kwargs["gateway"] == configured
+            assert create.call_args.kwargs["gateway"] == resolved
             assert create.call_args.kwargs["api_key"] == "vk-profile"
 
 

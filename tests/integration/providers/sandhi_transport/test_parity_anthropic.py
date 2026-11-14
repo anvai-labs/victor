@@ -54,7 +54,12 @@ TOOL_USE_BODY = {
     ],
     "stop_reason": "tool_use",
     "stop_sequence": None,
-    "usage": {"input_tokens": 50, "output_tokens": 20},
+    "usage": {
+        "input_tokens": 50,
+        "output_tokens": 20,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    },
 }
 
 MESSAGES = [

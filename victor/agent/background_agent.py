@@ -55,6 +55,11 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from victor.core.async_utils import run_sync
 from victor.agent.services.protocols import ChatServiceProtocol
+from victor.runtime.policy_snapshot import (
+    RunPolicySnapshot,
+    current_run_policy_snapshot,
+    run_policy_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +112,8 @@ class BackgroundAgent:
     error: Optional[str] = None
     #: Resolved principal that started this agent (owner-scoped delivery).
     owner_client_id: Optional[str] = None
+    #: Immutable policy admitted by the parent/request before detachment.
+    run_policy_snapshot: Optional[RunPolicySnapshot] = field(default=None, repr=False)
 
     # Internal state
     _task: Optional[asyncio.Task] = field(default=None, repr=False)
@@ -249,6 +256,7 @@ class BackgroundAgentManager:
         description: Optional[str] = None,
         config: Optional[Any] = None,
         owner_client_id: Optional[str] = None,
+        run_policy_snapshot: Optional[RunPolicySnapshot] = None,
     ) -> str:
         """Start a new background agent.
 
@@ -263,6 +271,8 @@ class BackgroundAgentManager:
             name: Optional display name
             description: Optional description
             config: Optional UnifiedAgentConfig for advanced configuration
+            run_policy_snapshot: Optional request/parent policy snapshot; the
+                current parent async context is copied once when omitted
 
         Returns:
             Agent ID
@@ -270,6 +280,12 @@ class BackgroundAgentManager:
         Raises:
             RuntimeError: If max concurrent agents reached
         """
+        if run_policy_snapshot is not None and not isinstance(
+            run_policy_snapshot, RunPolicySnapshot
+        ):
+            raise TypeError("run_policy_snapshot must be a RunPolicySnapshot")
+        admitted_policy = run_policy_snapshot or current_run_policy_snapshot()
+
         async with self._lock:
             if len(self._running_tasks) >= self._max_concurrent:
                 raise RuntimeError(
@@ -330,6 +346,7 @@ class BackgroundAgentManager:
                     owner_client_id=owner_client_id,
                 )
 
+            agent.run_policy_snapshot = admitted_policy
             self._agents[agent_id] = agent
             self._running_tasks.add(agent_id)
 
@@ -430,6 +447,15 @@ class BackgroundAgentManager:
         return len(to_remove)
 
     async def _run_agent(self, agent: BackgroundAgent) -> None:
+        """Bind the admitted policy, when present, around the detached run."""
+        if agent.run_policy_snapshot is None:
+            await self._run_agent_inner(agent)
+            return
+
+        with run_policy_context(agent.run_policy_snapshot):
+            await self._run_agent_inner(agent)
+
+    async def _run_agent_inner(self, agent: BackgroundAgent) -> None:
         """Execute an agent task.
 
         This runs in the background and updates agent status/progress.
