@@ -1184,6 +1184,15 @@ RELATED_TESTS = {
         "tests/unit/agent/test_auto_commit.py",
         "tests/unit/agent/test_auto_commit_policy.py",
     ),
+    "victor/agent/snapshot_store.py": (
+        "tests/unit/state/test_snapshots.py",
+        "tests/unit/security/test_snapshot_policy.py",
+    ),
+    "victor/runtime/policy_snapshot.py": (
+        "tests/unit/runtime/test_policy_snapshot.py",
+        "tests/unit/agent/test_auto_commit_policy.py",
+        "tests/unit/security/test_snapshot_policy.py",
+    ),
     "victor/agent/factory/coordination_builders.py": (
         "tests/unit/framework/policies/test_builder_wiring.py",
     ),

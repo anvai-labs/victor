@@ -51,6 +51,14 @@ from typing import Any, Dict, List, Optional, Set
 logger = logging.getLogger(__name__)
 
 
+class SnapshotPolicyRefusal(RuntimeError):
+    """A snapshot git launch was refused before discovery or publication."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 @dataclass
 class FileSnapshot:
     """Snapshot of a single file."""
@@ -158,6 +166,7 @@ class FileSnapshotStore:
         workspace_root: Optional[Path] = None,
         max_snapshots: int = 20,
         persist_dir: Optional[Path] = None,
+        run_policy_snapshot: Any = None,
     ):
         """Initialize snapshot store.
 
@@ -165,6 +174,7 @@ class FileSnapshotStore:
             workspace_root: Root directory of workspace (default: cwd)
             max_snapshots: Maximum number of snapshots to keep
             persist_dir: Directory to persist snapshots (optional)
+            run_policy_snapshot: Opaque policy admitted by an enclosing run
         """
         self.workspace_root = workspace_root or Path.cwd()
         self.max_snapshots = max_snapshots
@@ -172,6 +182,7 @@ class FileSnapshotStore:
         self._snapshots: Dict[str, WorkspaceSnapshot] = {}
         self._snapshot_order: List[str] = []  # Oldest to newest
         self._counter = 0
+        self._run_policy_snapshot = run_policy_snapshot
 
         if persist_dir:
             persist_dir.mkdir(parents=True, exist_ok=True)
@@ -187,16 +198,45 @@ class FileSnapshotStore:
         """Generate SHA256 hash of content."""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
 
-    def _get_git_ref(self) -> Optional[str]:
+    def _resolve_policy_decision(self) -> Any:
+        """Resolve one admitted decision for a logical snapshot operation."""
+        from victor.runtime.policy_snapshot import resolve_admitted_sandbox_settings
+        from victor.tools.sandbox import resolve_required_launch
+
+        try:
+            sandbox_settings = resolve_admitted_sandbox_settings(self._run_policy_snapshot)
+        except Exception as exc:
+            raise SnapshotPolicyRefusal(
+                "policy_unavailable",
+                f"Snapshot policy could not be established ({exc}); refusing git discovery.",
+            ) from exc
+
+        decision = resolve_required_launch(sandbox_settings)
+        if decision.refuse:
+            raise SnapshotPolicyRefusal(
+                "sandbox_required",
+                f"{decision.reason}; refusing snapshot git discovery.",
+            )
+        return decision
+
+    def _run_git(self, args: List[str], *, decision: Any) -> subprocess.CompletedProcess:
+        """Run one fixed git child through an admitted launch decision."""
+        command = ["git", *args]
+        if decision.required_active and decision.backend is not None:
+            command = decision.backend.wrap_argv(command, self.workspace_root)
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=self.workspace_root,
+        )
+
+    def _get_git_ref(self, *, decision: Any = None) -> Optional[str]:
         """Get current git HEAD reference."""
         try:
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=self.workspace_root,
-            )
+            launch_decision = decision if decision is not None else self._resolve_policy_decision()
+            result = self._run_git(["rev-parse", "HEAD"], decision=launch_decision)
             if result.returncode == 0:
                 return result.stdout.strip()[:12]
         except Exception as e:
@@ -256,11 +296,12 @@ class FileSnapshotStore:
         Returns:
             Snapshot ID
         """
+        launch_decision = self._resolve_policy_decision()
         snapshot_id = self._generate_snapshot_id()
 
         # If no files specified, get modified files from git
         if files is None:
-            files = self._get_modified_files()
+            files = self._get_modified_files(decision=launch_decision)
 
         file_snapshots = []
         for file_path in files:
@@ -294,7 +335,7 @@ class FileSnapshotStore:
             description=description,
             files=file_snapshots,
             workspace_root=str(self.workspace_root),
-            git_ref=self._get_git_ref(),
+            git_ref=self._get_git_ref(decision=launch_decision),
             metadata=metadata or {},
         )
 
@@ -312,19 +353,17 @@ class FileSnapshotStore:
         logger.info(f"Created snapshot {snapshot_id}: {description} ({len(files)} files)")
         return snapshot_id
 
-    def _get_modified_files(self) -> List[str]:
+    def _get_modified_files(self, *, decision: Any = None) -> List[str]:
         """Get list of modified files from git status."""
         try:
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                cwd=self.workspace_root,
+            launch_decision = decision if decision is not None else self._resolve_policy_decision()
+            result = self._run_git(
+                ["status", "--porcelain"],
+                decision=launch_decision,
             )
             if result.returncode == 0:
                 files = []
-                for line in result.stdout.strip().split("\n"):
+                for line in result.stdout.splitlines():
                     if line:
                         # Format: "XY filename" where X=index, Y=worktree
                         line[:2]

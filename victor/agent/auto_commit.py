@@ -119,20 +119,11 @@ class AutoCommitter:
 
     def _resolve_policy_decision(self) -> Any:
         """Resolve one admitted decision for a logical git operation."""
+        from victor.runtime.policy_snapshot import resolve_admitted_sandbox_settings
         from victor.tools.sandbox import resolve_required_launch
 
         try:
-            if self._run_policy_snapshot is not None:
-                sandbox_settings = self._run_policy_snapshot.to_sandbox_settings()
-            else:
-                from victor.runtime.policy_snapshot import current_run_policy_snapshot
-                from victor.config.settings import get_settings
-
-                admitted_snapshot = current_run_policy_snapshot()
-                if admitted_snapshot is not None:
-                    sandbox_settings = admitted_snapshot.to_sandbox_settings()
-                else:
-                    sandbox_settings = get_settings().sandbox
+            sandbox_settings = resolve_admitted_sandbox_settings(self._run_policy_snapshot)
         except Exception as exc:
             raise AutoCommitPolicyRefusal(
                 "policy_unavailable",
