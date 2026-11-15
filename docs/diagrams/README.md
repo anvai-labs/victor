@@ -17,7 +17,7 @@ rendered to `.svg`. The `.svg` files are build artifacts — regenerate them fro
 ## Sources
 
 - **`architecture/`** — high-level architecture diagrams. `victor_0_7_architecture.mmd` is
-  the canonical 0.7 layered map; `victor_0_7_readme_architecture.svg` is the variant used by
+  the historical 0.7 layered map; `victor_0_7_readme_architecture.svg` is the variant used by
   the root `README.md`. `system-overview`, `provider-system`, `config-system`, and
   `multi-agent` are focused component diagrams referenced from `architecture.md`.
 - **`sequences/`** — sequence diagrams for key flows: `tool-execution`, `provider-switch`,
@@ -41,6 +41,7 @@ see the render runbook in `VICTOR_AGENT_GUIDE.adoc`.
 
 ## Current architecture diagrams
 
-The [September 2026 diagram map and audit](refresh-2026-09.md) links the current Mermaid
-diagrams and distinguishes shipped behavior from proposal targets. Older exported artwork
-remains historical; canonical diagrams are authored beside the owning documentation.
+Canonical diagrams are authored beside the owning documentation; the provider and system
+sources in this directory were reconciled to the Victor 0.29.2 Sandhi boundary on
+2026-11-15. The [September 2026 diagram map and audit](refresh-2026-09.md) is a dated
+snapshot. Older exported artwork remains historical.
