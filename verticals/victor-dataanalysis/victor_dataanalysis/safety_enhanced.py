@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import List
 
-from victor.framework.extensions import (
+from victor_contracts import (
     SafetyAction,
     SafetyCategory,
     SafetyRule,

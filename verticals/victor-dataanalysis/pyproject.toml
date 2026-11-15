@@ -119,3 +119,15 @@ ignore = [
 [tool.mypy]
 python_version = "3.12"
 warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pandas",
+    "pycaret.*",
+    "sklearn.*",
+    "autosklearn.*",
+    "gymnasium",
+    "stable_baselines3",
+    "stable_baselines3.*",
+]
+ignore_missing_imports = true

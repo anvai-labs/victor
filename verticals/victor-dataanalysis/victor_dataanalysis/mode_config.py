@@ -12,28 +12,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data Analysis mode configurations using central registry.
-
-This module registers data analysis-specific operational modes with the central
-ModeConfigRegistry and exports a registry-based provider for protocol
-compatibility.
-"""
+"""Static, contract-only mode configurations for the data-analysis vertical."""
 
 from __future__ import annotations
 
 from typing import Dict
 
-from victor.framework.extensions import (
-    ModeConfigRegistry,
-    RegistryBasedModeConfigProvider,
+from victor_contracts.verticals.mode_config import (
+    ModeDefinition,
+    StaticModeConfigProvider,
+    VerticalModeConfig,
 )
-from victor_contracts.verticals.mode_config import ModeDefinition
-
-# =============================================================================
-# Data Analysis-Specific Modes (Registered with Central Registry)
-# =============================================================================
 
 _DATA_ANALYSIS_MODES: Dict[str, ModeDefinition] = {
+    "quick": ModeDefinition(
+        name="quick",
+        tool_budget=25,
+        max_iterations=50,
+        temperature=0.5,
+        description="Quick tasks with minimal exploration",
+        exploration_multiplier=0.5,
+    ),
+    "standard": ModeDefinition(
+        name="standard",
+        tool_budget=75,
+        max_iterations=200,
+        temperature=0.7,
+        description="Balanced mode for typical tasks",
+        exploration_multiplier=1.0,
+    ),
+    "comprehensive": ModeDefinition(
+        name="comprehensive",
+        tool_budget=150,
+        max_iterations=400,
+        temperature=0.8,
+        description="Thorough analysis and comprehensive changes",
+        exploration_multiplier=2.0,
+    ),
     "research": ModeDefinition(
         name="research",
         tool_budget=400,
@@ -54,8 +69,8 @@ _DATA_ANALYSIS_MODES: Dict[str, ModeDefinition] = {
     ),
 }
 
-# Data Analysis-specific task type budgets
-# 5x'd 2026-10-31: agents run longer autonomous sessions
+# Data Analysis-specific task type budgets; these longer autonomous sessions
+# were intentionally increased on 2026-10-31.
 _DATA_ANALYSIS_TASK_BUDGETS: Dict[str, int] = {
     "data_profiling": 40,
     "basic_stats": 50,
@@ -69,60 +84,21 @@ _DATA_ANALYSIS_TASK_BUDGETS: Dict[str, int] = {
 }
 
 
-# =============================================================================
-# Register with Central Registry
-# =============================================================================
-
-
-def _register_data_analysis_modes() -> None:
-    """Register data analysis modes with the central registry."""
-    registry = ModeConfigRegistry.get_instance()
-    registry.register_vertical(
-        name="data_analysis",
-        modes=_DATA_ANALYSIS_MODES,
-        task_budgets=_DATA_ANALYSIS_TASK_BUDGETS,
-        default_mode="standard",
-        default_budget=125,  # 5x'd 2026-10-31
-    )
-
-
-# NOTE: Import-time auto-registration removed (SOLID compliance)
-# Registration happens when DataAnalysisModeConfigProvider is instantiated during
-# vertical integration. The provider's __init__ calls _register_data_analysis_modes()
-# for idempotent registration.
-
-
-# =============================================================================
-# Provider (Protocol Compatibility)
-# =============================================================================
-
-
-class DataAnalysisModeConfigProvider(RegistryBasedModeConfigProvider):
-    """Mode configuration provider for data analysis vertical.
-
-    Uses the central ModeConfigRegistry but provides analysis-specific
-    complexity mapping.
-    """
+class DataAnalysisModeConfigProvider(StaticModeConfigProvider):
+    """Static mode provider with analysis-specific complexity mapping."""
 
     def __init__(self) -> None:
-        """Initialize data analysis mode provider."""
-        # Ensure registration (idempotent - handles singleton reset)
-        _register_data_analysis_modes()
         super().__init__(
-            vertical="data_analysis",
-            default_mode="standard",
-            default_budget=125,  # 5x'd 2026-10-31
+            VerticalModeConfig(
+                vertical_name="data_analysis",
+                modes=_DATA_ANALYSIS_MODES,
+                task_budgets=_DATA_ANALYSIS_TASK_BUDGETS,
+                default_mode="standard",
+                default_budget=125,
+            )
         )
 
     def get_mode_for_complexity(self, complexity: str) -> str:
-        """Map complexity level to analysis mode.
-
-        Args:
-            complexity: Complexity level
-
-        Returns:
-            Recommended mode name
-        """
         mapping = {
             "trivial": "quick",
             "simple": "quick",
@@ -133,6 +109,4 @@ class DataAnalysisModeConfigProvider(RegistryBasedModeConfigProvider):
         return mapping.get(complexity, "standard")
 
 
-__all__ = [
-    "DataAnalysisModeConfigProvider",
-]
+__all__ = ["DataAnalysisModeConfigProvider"]

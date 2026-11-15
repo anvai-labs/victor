@@ -3,13 +3,14 @@
 Competitive positioning: ChatGPT Data Analysis, Claude Artifacts, Jupyter AI.
 """
 
-from typing import Dict, List
+from typing import ClassVar, Dict, List
 
+from victor_contracts.capabilities import FileOperationsCapability
 from victor_contracts.verticals.protocols.base import VerticalBase
 from victor_contracts.core.types import StageDefinition
+from victor_contracts.constants.tool_names import ToolNames
 
-# Framework capabilities imported lazily inside methods that need them.
-# FileOperationsCapability, protocol types accessed at runtime only.
+# Contract-owned capabilities are imported directly; no framework runtime import is needed.
 
 
 class DataAnalysisAssistant(VerticalBase):
@@ -23,13 +24,11 @@ class DataAnalysisAssistant(VerticalBase):
     version = "1.0.0"
 
     # Phase 3: Framework file operations capability (lazy-loaded)
-    _file_ops = None
+    _file_ops: ClassVar[FileOperationsCapability | None] = None
 
     @classmethod
-    def _get_file_ops(cls):
+    def _get_file_ops(cls) -> FileOperationsCapability:
         if cls._file_ops is None:
-            from victor_contracts.capabilities import FileOperationsCapability
-
             cls._file_ops = FileOperationsCapability()
         return cls._file_ops
 
@@ -40,10 +39,8 @@ class DataAnalysisAssistant(VerticalBase):
         Phase 3: Uses framework FileOperationsCapability for common file operations
         to reduce code duplication and maintain consistency across verticals.
 
-        Uses canonical tool names from victor.tools.tool_names.
+        Uses SDK-owned canonical tool identifiers.
         """
-        from victor.tools.tool_names import ToolNames
-
         # Start with framework file operations (read, write, edit, grep)
         tools = cls._get_file_ops().get_tool_list()
 
@@ -75,10 +72,8 @@ class DataAnalysisAssistant(VerticalBase):
     def get_stages(cls) -> Dict[str, StageDefinition]:
         """Get Data Analysis-specific stage definitions.
 
-        Uses canonical tool names from victor.tools.tool_names.
+        Uses SDK-owned canonical tool identifiers.
         """
-        from victor.tools.tool_names import ToolNames
-
         return {
             "INITIAL": StageDefinition(
                 name="INITIAL",
