@@ -100,6 +100,7 @@ class MCPRegistry:
         self,
         health_check_enabled: bool = True,
         default_health_interval: int = 30,
+        run_policy_snapshot: Any = None,
     ):
         """Initialize MCP registry.
 
@@ -114,6 +115,7 @@ class MCPRegistry:
         self._health_task: Optional[asyncio.Task] = None
         self._running = False
         self._event_callbacks: List[Callable[[str, str, Any], None]] = []
+        self._run_policy_snapshot = run_policy_snapshot
 
     def register_server(self, config: MCPServerConfig) -> None:
         """Register an MCP server configuration.
@@ -174,7 +176,7 @@ class MCPRegistry:
         self._emit_event("connecting", name, None)
 
         try:
-            client = MCPClient(name=f"Victor-{name}")
+            client = MCPClient(name=f"Victor-{name}", run_policy_snapshot=self._run_policy_snapshot)
             success = await client.connect(entry.config.command)
 
             if success:
@@ -592,7 +594,11 @@ class MCPRegistry:
     # Configuration loading
 
     @classmethod
-    def discover_servers(cls, include_claude_desktop: bool = True) -> "MCPRegistry":
+    def discover_servers(
+        cls,
+        include_claude_desktop: bool = True,
+        run_policy_snapshot: Any = None,
+    ) -> "MCPRegistry":
         """Auto-discover MCP servers from standard locations.
 
         Comprehensive discovery that searches:
@@ -605,6 +611,7 @@ class MCPRegistry:
 
         Args:
             include_claude_desktop: Whether to discover Claude Desktop's MCP servers
+            run_policy_snapshot: Optional opaque runtime-admitted policy snapshot
 
         Returns:
             Configured MCPRegistry with discovered servers
@@ -613,7 +620,7 @@ class MCPRegistry:
 
         from victor.config.settings import get_project_paths
 
-        registry = cls()
+        registry = cls(run_policy_snapshot=run_policy_snapshot)
         search_paths: List[Path] = []
         paths = get_project_paths()
 

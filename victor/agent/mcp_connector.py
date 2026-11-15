@@ -152,6 +152,7 @@ class MCPConnector:
         self._mcp_registry: Optional[Any] = None
         self._pending_tasks: List[asyncio.Task] = []
         self._connected = False
+        self._run_policy_snapshot: Any = None
 
     @property
     def is_connected(self) -> bool:
@@ -201,6 +202,9 @@ class MCPConnector:
             MCPConnectResult with connection statistics
         """
         result = MCPConnectResult()
+        from victor.runtime.policy_snapshot import current_run_policy_snapshot
+
+        self._run_policy_snapshot = current_run_policy_snapshot()
 
         if not self._config.enabled and not getattr(self._settings, "use_mcp_tools", False):
             # Still connect if vertical declares MCP servers
@@ -216,9 +220,11 @@ class MCPConnector:
 
             # Auto-discover MCP servers from standard locations
             if self._config.auto_discover:
-                self._mcp_registry = MCPRegistry.discover_servers()
+                self._mcp_registry = MCPRegistry.discover_servers(
+                    run_policy_snapshot=self._run_policy_snapshot
+                )
             else:
-                self._mcp_registry = MCPRegistry()
+                self._mcp_registry = MCPRegistry(run_policy_snapshot=self._run_policy_snapshot)
 
             # Register servers declared by the active vertical
             if vertical_mcp_servers:
@@ -347,7 +353,7 @@ class MCPConnector:
             try:
                 from victor.integrations.mcp.client import MCPClient
 
-                mcp_client = MCPClient()
+                mcp_client = MCPClient(run_policy_snapshot=self._run_policy_snapshot)
                 cmd_parts = mcp_command.split()
                 self._create_task(mcp_client.connect(cmd_parts), "mcp_legacy_connect")
             except Exception as exc:
