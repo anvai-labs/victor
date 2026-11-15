@@ -261,11 +261,11 @@ builds and contribution worktrees are documented there and in the
 
 Victor has optional dependencies for specific features:
 
-!!! note "TUI dependency split on develop"
+!!! note "TUI dependency split"
 
-    After 0.12.0, `develop` moves Textual into the `tui` extra. For a source
-    checkout, follow the development setup above, then install `pip install -e ".[tui]"`
-    when using Textual interfaces. Published 0.12.0 still includes Textual in core.
+    Textual is in the `tui` extra. For a source checkout, follow the development
+    setup above, then install `pip install -e ".[tui]"` when using Textual
+    interfaces.
 
 | Extra | Command | Features |
 |-------|---------|----------|

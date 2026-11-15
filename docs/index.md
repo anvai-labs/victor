@@ -8,7 +8,9 @@
     Victor is a contract-first agent framework for tool use, compiled workflows and
     multi-agent coordination across local and cloud providers.
 
-    **Published baseline:** Victor AI 0.12.0 (2026-10-04). **Development line:** post-release changes.
+    **Published baseline:** Victor AI 0.29.2 (2026-11-15), with the published
+    `sandhi-gateway==0.19.0` execution-contract pin. **Development line:**
+    post-release changes until the next main promotion.
 
 **Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.12+
 
@@ -70,12 +72,13 @@ flowchart TB
 
 ## Delivery State
 
-| Surface | Published 0.12.0 | Remaining work |
+| Surface | Current 0.29.2 state | Remaining work |
 | --- | --- | --- |
-| Tool supply and teams | Unified turn pipeline, expanded formations, isolation and usage guards | Acceptance gaps remain tracked; release does not certify every live formation. |
-| Chat ownership | Service-owned turn frame and partial runtime inversion | Retry ownership moves to a lifecycle capability; broader inversion remains open. |
-| API / gateway | Classify API, gateway policy, result withholding and Sandhi 0.10.1 accounting | General client routing and retained safety gaps remain open. |
-| Installation | Node 24 minimum; Python 3.12/3.13 CI; optional NumPy and Linux binaries | Later develop changes move Textual into the TUI extra; see the installation guide. |
+| Release and artifacts | Victor AI 0.29.2, Victor native 0.29.2, native wheels, Docker images and release assets are published and verified | Registry publication is not live-provider or managed-service acceptance. |
+| Execution contract | Victor consumes the official `sandhi-gateway==0.19.0` pin; wheel, native module and release-binary evidence is recorded separately | Live deployment, delegated credentials and provider soak remain deployment-specific gates. |
+| Tool supply and teams | Unified turn pipeline, expanded formations, isolation and usage guards are included | Acceptance gaps remain tracked; this release does not certify every live formation. |
+| Runtime structure | Service-owned turn frame and lifecycle-owned retry are present; coordinator and policy work has advanced | Broader runtime inversion, general client routing, graph continuation and retained safety gaps remain open. |
+| Installation and verticals | Python 3.12/3.13 CI, Node 24 minimum, optional NumPy, Linux binaries, Docker publication and the Textual `tui` extra are current | Cross-vertical Black/mypy cleanup remains advisory tracked debt; data-analysis is clean. |
 
 !!! note
 
@@ -208,8 +211,10 @@ Contributions use conventional commits and the checks documented in the PR workf
 
 ## Current work and historical evidence
 
-The [roadmap](roadmap.md) and [Stage C reassessment](architecture/stage-c-reassessment.md)
-distinguish published 0.12.0 from subsequent changes and unfinished structural work.
+The [roadmap](roadmap.md) distinguishes published 0.29.2 from subsequent develop
+changes and unfinished structural work. The
+[Stage C reassessment](architecture/stage-c-reassessment.md) is a dated
+2026-10-04 snapshot, not the current release-status page.
 The [September co-design review](reviews/2026-09-03-codesign/README.md) preserves dated findings;
 merged design documents do not imply their implementation has shipped. See the
 [documentation source index](https://github.com/anvai-labs/victor/blob/develop/docs/README.md) for canonical ownership and historical-record conventions.
