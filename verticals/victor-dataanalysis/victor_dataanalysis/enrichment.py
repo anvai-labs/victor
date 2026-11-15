@@ -68,7 +68,8 @@ def _detect_analysis_type(prompt: str) -> List[str]:
     Returns:
         List of detected analysis types
     """
-    return _analysis_classifier.classify(prompt)
+    detected = _analysis_classifier.classify(prompt)
+    return [str(analysis_type) for analysis_type in detected]
 
 
 def _extract_data_references(prompt: str) -> Dict[str, List[str]]:

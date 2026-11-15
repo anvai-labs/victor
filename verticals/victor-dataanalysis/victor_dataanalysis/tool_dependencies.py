@@ -35,9 +35,9 @@ from __future__ import annotations
 import logging
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
-from victor.framework.extensions import YAMLToolDependencyProvider
+from victor_contracts.verticals.tool_dependencies import YAMLToolDependencyProvider
 
 if TYPE_CHECKING:
     from victor_contracts.verticals.protocols import ToolDependency
@@ -99,6 +99,10 @@ class DataAnalysisToolDependencyProvider(YAMLToolDependencyProvider):
         )
         logger.debug(f"Loaded DataAnalysis tool dependencies from {_YAML_PATH}")
 
+    def get_sequences_by_task_type(self) -> Dict[str, List[str]]:
+        """Return the declarative task-type-to-tool-sequence mapping."""
+        return {task_type: list(sequence) for task_type, sequence in self._config.sequences.items()}
+
 
 # =============================================================================
 # BACKWARD COMPATIBILITY EXPORTS (DEPRECATED)
@@ -107,11 +111,15 @@ class DataAnalysisToolDependencyProvider(YAMLToolDependencyProvider):
 # Use DataAnalysisToolDependencyProvider instead to access configuration.
 
 
-def _get_deprecated_config() -> "DataAnalysisToolDependencyProvider":
+_DEPRECATED_PROVIDER: DataAnalysisToolDependencyProvider | None = None
+
+
+def _get_deprecated_config() -> DataAnalysisToolDependencyProvider:
     """Lazily load provider for deprecated constant access."""
-    if not hasattr(_get_deprecated_config, "_provider"):
-        _get_deprecated_config._provider = DataAnalysisToolDependencyProvider()
-    return _get_deprecated_config._provider
+    global _DEPRECATED_PROVIDER
+    if _DEPRECATED_PROVIDER is None:
+        _DEPRECATED_PROVIDER = DataAnalysisToolDependencyProvider()
+    return _DEPRECATED_PROVIDER
 
 
 def _warn_deprecated(name: str) -> None:
@@ -185,27 +193,27 @@ class _DeprecatedSequences:
 
     def __getitem__(self, key: str) -> List[str]:
         _warn_deprecated("DATA_ANALYSIS_TOOL_SEQUENCES")
-        return _get_deprecated_config().get_tool_sequences().get(key, [])
+        return _get_deprecated_config().get_sequences_by_task_type().get(key, [])
 
     def __iter__(self):
         _warn_deprecated("DATA_ANALYSIS_TOOL_SEQUENCES")
-        return iter(_get_deprecated_config().get_tool_sequences())
+        return iter(_get_deprecated_config().get_sequences_by_task_type())
 
     def items(self):
         _warn_deprecated("DATA_ANALYSIS_TOOL_SEQUENCES")
-        return _get_deprecated_config().get_tool_sequences().items()
+        return _get_deprecated_config().get_sequences_by_task_type().items()
 
     def keys(self):
         _warn_deprecated("DATA_ANALYSIS_TOOL_SEQUENCES")
-        return _get_deprecated_config().get_tool_sequences().keys()
+        return _get_deprecated_config().get_sequences_by_task_type().keys()
 
     def values(self):
         _warn_deprecated("DATA_ANALYSIS_TOOL_SEQUENCES")
-        return _get_deprecated_config().get_tool_sequences().values()
+        return _get_deprecated_config().get_sequences_by_task_type().values()
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: Optional[List[str]] = None) -> Optional[List[str]]:
         _warn_deprecated("DATA_ANALYSIS_TOOL_SEQUENCES")
-        return _get_deprecated_config().get_tool_sequences().get(key, default)
+        return _get_deprecated_config().get_sequences_by_task_type().get(key, default)
 
 
 class _DeprecatedDependencies:
