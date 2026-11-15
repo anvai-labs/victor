@@ -17,6 +17,7 @@
 import asyncio
 import logging
 import os
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -1302,14 +1303,45 @@ def _extra_read_roots() -> "Tuple[str, ...]":
     return tuple(sorted(roots))
 
 
-def _discover_read_roots(project_root: Path) -> "frozenset[str]":
+def _read_root_launch_decision(run_policy_snapshot: Any = None):
+    """Resolve the policy for git discovery, or ``None`` to skip the launch.
+
+    Read-root discovery is an optimization used by the conservative workspace
+    guard. If required policy cannot be enforced or current policy cannot be
+    established, skipping git discovery is safer than spawning: the guard keeps
+    the project root and operator-declared roots.
+    """
+    from victor.tools.sandbox import resolve_required_launch
+
+    if run_policy_snapshot is None:
+        try:
+            from victor.config.settings import get_settings
+
+            sandbox_settings = get_settings().sandbox
+        except Exception:
+            return None
+    else:
+        sandbox_settings = run_policy_snapshot.to_sandbox_settings()
+
+    decision = resolve_required_launch(sandbox_settings)
+    if decision.refuse:
+        return None
+    return decision
+
+
+def _discover_read_roots(project_root: Path, run_policy_snapshot: Any = None) -> "frozenset[str]":
     """Return the project root, every linked git-worktree root, and extra roots."""
     roots = {str(project_root), *_extra_read_roots()}
-    try:
-        import subprocess
+    launch_decision = _read_root_launch_decision(run_policy_snapshot)
+    if launch_decision is None:
+        return frozenset(roots)
 
+    argv = ["git", "-C", str(project_root), "worktree", "list", "--porcelain"]
+    if launch_decision.required_active and launch_decision.backend is not None:
+        argv = launch_decision.backend.wrap_argv(argv, project_root)
+    try:
         proc = subprocess.run(
-            ["git", "-C", str(project_root), "worktree", "list", "--porcelain"],
+            argv,
             capture_output=True,
             text=True,
             timeout=5,
@@ -1326,7 +1358,12 @@ def _discover_read_roots(project_root: Path) -> "frozenset[str]":
     return frozenset(roots)
 
 
-def _allowed_read_roots(project_root: Path, *, refresh: bool = False) -> "frozenset[str]":
+def _allowed_read_roots(
+    project_root: Path,
+    *,
+    refresh: bool = False,
+    run_policy_snapshot: Any = None,
+) -> "frozenset[str]":
     """Cached set of in-workspace roots (project root + worktrees + extra roots)."""
     # The extra roots are part of the key: changing VICTOR_EXTRA_READ_ROOTS
     # mid-session must take effect immediately, not after the TTL expires.
@@ -1336,7 +1373,7 @@ def _allowed_read_roots(project_root: Path, *, refresh: bool = False) -> "frozen
         cached = _ALLOWED_READ_ROOTS_CACHE.get(key)
         if cached is not None and cached[0] > now:
             return cached[1]
-    roots = _discover_read_roots(project_root)
+    roots = _discover_read_roots(project_root, run_policy_snapshot)
     _ALLOWED_READ_ROOTS_CACHE[key] = (now + _ALLOWED_READ_ROOTS_TTL, roots)
     return roots
 
@@ -1372,7 +1409,9 @@ def _out_of_workspace_message(path: str, file_path: Path, project_root: Path) ->
     )
 
 
-def _path_within_workspace(file_path: Path, project_root: Path) -> bool:
+def _path_within_workspace(
+    file_path: Path, project_root: Path, run_policy_snapshot: Any = None
+) -> bool:
     """True if ``file_path`` is under the project root or any linked git worktree.
 
     On a cache-miss for the path (e.g. a worktree created mid-session), the
@@ -1384,10 +1423,12 @@ def _path_within_workspace(file_path: Path, project_root: Path) -> bool:
     def _under(roots: "frozenset[str]") -> bool:
         return any(target == r or target.startswith(r + os.sep) for r in roots)
 
-    if _under(_allowed_read_roots(project_root)):
+    if _under(_allowed_read_roots(project_root, run_policy_snapshot=run_policy_snapshot)):
         return True
     # Miss: a worktree may have appeared since the cache was populated.
-    return _under(_allowed_read_roots(project_root, refresh=True))
+    return _under(
+        _allowed_read_roots(project_root, refresh=True, run_policy_snapshot=run_policy_snapshot)
+    )
 
 
 @tool(
@@ -1467,6 +1508,7 @@ async def read(
     # Parameter aliases for models that use different names (e.g., gpt-oss)
     line_start: int = None,
     line_end: int = None,
+    _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Read text/code file. Binary files rejected.
 
@@ -1542,7 +1584,11 @@ async def read(
             # worktrees resolve outside the main root but are legitimate (and the
             # documented) working dirs, so a naive prefix check would wrongly block
             # reads that edit/write already permit.
-            if not _path_within_workspace(file_path, _project_root):
+            if not _path_within_workspace(
+                file_path,
+                _project_root,
+                run_policy_snapshot=(_exec_ctx or {}).get("run_policy_snapshot"),
+            ):
                 return _out_of_workspace_message(path, file_path, _project_root)
         except Exception:
             logger.warning("Workspace read guard could not be evaluated", exc_info=True)
