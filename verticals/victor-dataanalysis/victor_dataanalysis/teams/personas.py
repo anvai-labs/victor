@@ -254,7 +254,7 @@ class DataAnalysisPersona(VerticalPersona):
     """Complete persona definition for a data-analysis role (kernel-backed)."""
 
 
-DATA_ANALYSIS_PERSONAS: Dict[str, DataAnalysisPersona] = {
+DATA_ANALYSIS_PERSONAS: Dict[str, VerticalPersona] = {
     # Data Engineering personas
     "data_engineer": DataAnalysisPersona(
         name="Data Engineer",

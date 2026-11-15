@@ -62,12 +62,25 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Mapping, Optional
 
 if TYPE_CHECKING:
-    from victor.tools.registry import ToolRegistry
+    from typing import Protocol
+
+    from victor_contracts.verticals.protocols.tools import ToolRegistryProtocol
+    from victor_contracts.verticals.protocols.tools import ToolResultData
     from victor_contracts.workflow_runtime import ComputeNode
     from victor_contracts.workflow_runtime import NodeResult, WorkflowContext
+
+    class ExecutingToolRegistry(Protocol):
+        def execute(
+            self,
+            name: str,
+            **kwargs: Any,
+        ) -> Awaitable[ToolResultData]:
+            """Execute a named tool and await its structured result."""
+            ...
+
 
 from victor_contracts.workflows_compute import make_handler_registrar
 
@@ -95,7 +108,7 @@ class StatsComputeHandler:
         self,
         node: "ComputeNode",
         context: "WorkflowContext",
-        tool_registry: "ToolRegistry",
+        tool_registry: "ToolRegistryProtocol",
     ) -> "NodeResult":
         from victor_contracts.workflow_runtime import NodeResult, ExecutorNodeStatus
 
@@ -201,7 +214,7 @@ class MLTrainingHandler:
         self,
         node: "ComputeNode",
         context: "WorkflowContext",
-        tool_registry: "ToolRegistry",
+        tool_registry: "ExecutingToolRegistry",
     ) -> "NodeResult":
         from victor_contracts.workflow_runtime import NodeResult, ExecutorNodeStatus
 
@@ -277,7 +290,7 @@ class PyCaretHandler:
         self,
         node: "ComputeNode",
         context: "WorkflowContext",
-        tool_registry: "ToolRegistry",
+        tool_registry: "ToolRegistryProtocol",
     ) -> "NodeResult":
         from victor_contracts.workflow_runtime import NodeResult, ExecutorNodeStatus
 
@@ -529,7 +542,7 @@ class AutoSklearnHandler:
         self,
         node: "ComputeNode",
         context: "WorkflowContext",
-        tool_registry: "ToolRegistry",
+        tool_registry: "ToolRegistryProtocol",
     ) -> "NodeResult":
         from victor_contracts.workflow_runtime import NodeResult, ExecutorNodeStatus
 
@@ -764,7 +777,7 @@ class RLTrainingHandler:
         self,
         node: "ComputeNode",
         context: "WorkflowContext",
-        tool_registry: "ToolRegistry",
+        tool_registry: "ToolRegistryProtocol",
     ) -> "NodeResult":
         from victor_contracts.workflow_runtime import NodeResult, ExecutorNodeStatus
 
@@ -922,7 +935,7 @@ class RLTrainingHandler:
 
 
 # Handler instances
-HANDLERS = {
+HANDLERS: Mapping[str, Callable[..., Any]] = {
     "stats_compute": StatsComputeHandler(),
     "ml_training": MLTrainingHandler(),
     "pycaret_automl": PyCaretHandler(),
