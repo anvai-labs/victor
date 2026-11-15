@@ -73,8 +73,6 @@ idna==3.20
     #   httpx2
     #   requests
     #   yarl
-importlib-metadata==10.1.0
-    # via opentelemetry-api
 jiter==0.19.0
     # via
     #   anthropic
@@ -95,7 +93,7 @@ multidict==6.9.1
     #   yarl
 openai==3.46.0
     # via victor-ai (pyproject.toml)
-opentelemetry-api==1.37.0
+opentelemetry-api==1.45.2
     # via
     #   -c constraints.txt
     #   anthropic
@@ -201,5 +199,3 @@ wcwidth==0.9.4
     # via prompt-toolkit
 yarl==1.25.1
     # via aiohttp
-zipp==4.1.2
-    # via importlib-metadata
