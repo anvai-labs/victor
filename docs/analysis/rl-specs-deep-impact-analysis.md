@@ -421,6 +421,6 @@ milestone with exact PR/commit evidence; do not duplicate in other ledgers.
 |----|-----------|-------|----------|
 | RLM-1 | P0 RL measurement integrity (`outcome_category`, FEP-0046, metrics column fix) | MERGED | PR [#1848](https://github.com/anvai-labs/victor/pull/1848), merge `f0b11425e`, `CI Success` green. Local: 16K+ tests (rl/core/framework-rl/agent), black/ruff/mypy, hygiene, collect 39,809, `victor fep validate` ✓; production-copy migration proof 0.52s idempotent (code_generation → 0 task rows; corrected system success 93.9%). Next: RLM-2 unblocked |
 | RLM-2 | P1 shared metadata infra + shell error classification (re-aimed at `tool_executor._emit_rl_tool_event`; `rl_tool_outcome` is legacy, zero writers) | TODO | blocked on RLM-1 merge |
-| RLM-3 | P1 graph-search instrumentation + index health | TODO | blocked on RLM-1 merge |
+| RLM-3 | P1 graph-search instrumentation (Phase 1: structured error taxonomy at the `_graph_tool_entry` seam; no-index message verified already present) | LOCAL_PASS — owner: vjsingh1984 session, branch `feat/rl-graph-instrumentation`, baseline `origin/develop@ea362224e` | 24 vertical tests (classifier positive/negative + seam); RLEvent metadata passthrough deferred to RLM-2's executor change (no live result→metadata channel exists) |
 | RLM-4 | P2 learner performance (quality_weights, continuation_prompts) | DATA-GATED | needs ≥2 weeks of post-RLM-1 categorized outcomes |
 | RLM-5 | P2 provider routing (task-aware, damped) | DATA-GATED | last; needs corrected per-provider metrics |
