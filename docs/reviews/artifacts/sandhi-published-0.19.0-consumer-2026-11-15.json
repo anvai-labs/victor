@@ -1,0 +1,41 @@
+{
+  "qualified_on": "2026-11-15",
+  "victor_develop_base": "e96dc578a89deca500605f475934bd8cd44817e9",
+  "victor_prepared_version": "0.29.2",
+  "sandhi_version": "0.19.0",
+  "dependency_declarations": [
+    "pyproject.toml",
+    "requirements.txt",
+    "requirements/api/requirements.txt",
+    "requirements/embeddings-cpu/requirements.txt"
+  ],
+  "wheel": {
+    "metadata_url": "https://pypi.org/pypi/sandhi-gateway/0.19.0/json",
+    "filename": "sandhi_gateway-0.19.0-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "sha256": "a0fbbe20584a04440aee9e7a891e9287ee2549ac1373beaf8f38a3c15fe95116",
+    "upload_time_iso_8601": "2026-11-15T06:57:36.685723Z",
+    "yanked": false,
+    "size": 3501281
+  },
+  "native_module_sha256": "b4eb692e1adedbd30d67b6903299fc689045f162ff7ada9307d56153f4e7103f",
+  "contracts": {
+    "wire": "1",
+    "chat": "1",
+    "chat_minor": 14
+  },
+  "gateway_release": {
+    "tag": "v0.19.0",
+    "source_commit": "c5c4553b846cf1630c7db24db9ddcbc0f3c4f657",
+    "asset": "sandhi-proxy-v0.19.0-x86_64-unknown-linux-gnu.tar.gz",
+    "asset_sha256": "ceaf4d8c17483a20f967fd1e2fc8c98623ffd7af1eded29574ebfed27b23b5d6",
+    "proxy_sha256": "60a6b3da9a168a0f80b981228e2c4e7bce16847d62a8da4365bf2c76cfcf4705"
+  },
+  "checks": {
+    "pip_check": "No broken requirements found",
+    "contract_and_binding_units": "48 passed",
+    "agent_tool_loops": "16 passed across four client dialects, buffered/streaming and token/starter modes",
+    "gateway_version": "sandhi-proxy 0.19.0",
+    "sandhi_artifact_verifier": "GitHub, PyPI, crates.io and npm targets verified by release workflow run 43687411760 after registry propagation retry"
+  },
+  "scope": "Differential local Linux/Python 3.12 published-artifact consumer qualification for the Sandhi 0.19.0 pin. No live provider call, identity-provider deployment, service upgrade or unattended operation is claimed."
+}
