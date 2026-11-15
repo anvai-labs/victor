@@ -4,8 +4,9 @@ flowchart TB
         Reg["ProviderRegistry.create()"]
         Resolve["resolve_transport_class()"]
         Policies["25 provider policies/adapters<br/>prompt, tools, capability and model selection"]
+        Factory["ManagedProviderFactory<br/>creates and wraps provider instances"]
         Resilient["ResilientProvider<br/>logical-call retry and explicit fallback"]
-        Native["Native-only adapters<br/>explicit protocol exceptions"]
+        Native["Native-only protocol/execution models<br/>explicit classified exceptions"]
     end
 
     subgraph Sandhi["Sandhi typed transport"]
@@ -22,7 +23,9 @@ flowchart TB
     Reg --> Resolve
     Resolve -->|"admitted family"| Policies
     Resolve -->|"classified exception"| Native
-    Resilient -->|"explicitly authorized attempt or fallback"| Reg
+    Factory -->|"create primary/fallback instances"| Reg
+    Factory -->|"wrap selected instances"| Resilient
+    Resilient -->|"explicitly authorized attempt or fallback"| Policies
     Policies --> Wrapper
     Wrapper -->|"embedded observation · no ledger"| Direct
     Wrapper -->|"peer_role=sandhi_gateway_v1"| Gateway
@@ -34,15 +37,15 @@ flowchart TB
     Native --> Cloud
     Native --> Local
 
-    %% No edge from Direct to Gateway: a failed or ambiguous call never replays
-    %% through the other front door. Logical-call ownership stays in Victor.
+    %% No edge from Direct to Gateway: the Sandhi handle performs no hidden retry
+    %% or fallback. Explicit Victor fallback is a new authorized logical attempt.
 
     classDef victorStyle fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
     classDef transportStyle fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
     classDef endpointStyle fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
     classDef durableStyle fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
 
-    class Reg,Resolve,Policies,Resilient,Native victorStyle
+    class Reg,Resolve,Policies,Factory,Resilient,Native victorStyle
     class Wrapper,Direct,Gateway transportStyle
     class Cloud,Local endpointStyle
     class Server,Ledger durableStyle

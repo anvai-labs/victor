@@ -260,7 +260,7 @@ bootstraps the DI container, creates the orchestrator, and wires observability.
 ## Provider System
 
 The provider diagram distinguishes admitted Sandhi-backed families, explicit
-native-only protocol adapters, and optional routing. The provider registry resolves
+native-only protocol or execution models, and optional routing. The provider registry resolves
 each admitted family through `victor/providers/sandhi_transport.py`; an unclassified
 Victor provider fails construction instead of silently bypassing the boundary. The
 required `sandhi-gateway==0.19.0` dependency supplies the versioned neutral chat
@@ -274,15 +274,17 @@ durable budget enforcement.
 
 **Gateway mode** is selected by a gateway URL before upstream API-key discovery. The
 same FFI handle uses an explicit client dialect and `peer_role="sandhi_gateway_v1"`
-with either a virtual key/OIDC client credential or the server's local-starter
-marker. The gateway owns subject identity, model/backend admission, upstream
+with a virtual key, the server's local-starter marker or, for a qualified OpenAI
+gateway configuration, a renewable OIDC/client credential. The gateway owns
+subject identity, model/backend admission, upstream
 credential references, budgets, run attribution, durable attempt evidence, and
 settlement receipts. Client-visible gateway usage remains a projection; the
 server-owned run-cost tree and ledger are the accounting authority.
 
-Both front doors set `max_retries=0`. Victor's logical-call owner explicitly decides
-whether a retry or fallback is authorized; a failed or ambiguous Sandhi call never
-replays through another transport. Optional `SmartRoutingProvider` composes that
+Both front doors set `max_retries=0`. The Sandhi handle performs no hidden retry or
+fallback, and a terminal or ambiguous Sandhi failure stops that handle. Victor's
+logical-call owner may explicitly configure a fallback provider; that is a new
+authorized logical attempt, not hidden replay. Optional `SmartRoutingProvider` composes that
 logical decision; it does not create a second provider wire path. The separately
 planned feature layer is semantic caching, declarative fallback chains,
 Victor-side hard budget enforcement, and routing-performance work
@@ -303,7 +305,7 @@ flowchart TB
   G["Gateway peer handle<br/>client dialect · virtual key or local starter"]
   SG["Sandhi gateway<br/>identity · references · policy · budgets"]
   R["SmartRoutingProvider<br/>optional multi-provider routing"]
-  N["Native-only adapters<br/>explicit protocol exceptions"]
+  N["Native-only protocol/execution models<br/>explicit classified exceptions"]
   U["Provider endpoints"]
   S -->|"manage configured provider through runtime bindings"| B
   A -->|"prompt, tools and model policy"| T
