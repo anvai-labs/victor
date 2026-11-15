@@ -39,11 +39,19 @@ import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from victor.core.attribution import append_victor_commit_attribution
 
 logger = logging.getLogger(__name__)
+
+
+class AutoCommitPolicyRefusal(RuntimeError):
+    """An auto-commit git launch was refused before process admission."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class ChangeType(Enum):
@@ -94,6 +102,7 @@ class AutoCommitter:
         workspace_root: Optional[Path] = None,
         auto_commit: bool = True,
         use_conventional_commits: bool = True,
+        run_policy_snapshot: Any = None,
     ):
         """Initialize auto-committer.
 
@@ -101,12 +110,49 @@ class AutoCommitter:
             workspace_root: Root directory of workspace (default: cwd)
             auto_commit: Whether to automatically commit changes
             use_conventional_commits: Whether to use conventional commit format
+            run_policy_snapshot: Opaque policy admitted by an enclosing runtime run
         """
         self.workspace_root = workspace_root or Path.cwd()
         self.auto_commit = auto_commit
         self.use_conventional_commits = use_conventional_commits
+        self._run_policy_snapshot = run_policy_snapshot
 
-    def _run_git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    def _resolve_policy_decision(self) -> Any:
+        """Resolve one admitted decision for a logical git operation."""
+        from victor.tools.sandbox import resolve_required_launch
+
+        try:
+            if self._run_policy_snapshot is not None:
+                sandbox_settings = self._run_policy_snapshot.to_sandbox_settings()
+            else:
+                from victor.runtime.policy_snapshot import current_run_policy_snapshot
+                from victor.config.settings import get_settings
+
+                admitted_snapshot = current_run_policy_snapshot()
+                if admitted_snapshot is not None:
+                    sandbox_settings = admitted_snapshot.to_sandbox_settings()
+                else:
+                    sandbox_settings = get_settings().sandbox
+        except Exception as exc:
+            raise AutoCommitPolicyRefusal(
+                "policy_unavailable",
+                f"Auto-commit policy could not be established ({exc}); refusing git execution.",
+            ) from exc
+
+        decision = resolve_required_launch(sandbox_settings)
+        if decision.refuse:
+            raise AutoCommitPolicyRefusal(
+                "sandbox_required",
+                f"{decision.reason}; refusing auto-commit git execution.",
+            )
+        return decision
+
+    def _run_git(
+        self,
+        *args: str,
+        check: bool = True,
+        decision: Any = None,
+    ) -> subprocess.CompletedProcess:
         """Run a git command.
 
         Args:
@@ -116,8 +162,12 @@ class AutoCommitter:
         Returns:
             CompletedProcess result
         """
+        launch_decision = decision if decision is not None else self._resolve_policy_decision()
+        argv = ["git", *args]
+        if launch_decision.required_active and launch_decision.backend is not None:
+            argv = launch_decision.backend.wrap_argv(argv, self.workspace_root)
         return subprocess.run(
-            ["git"] + list(args),
+            argv,
             capture_output=True,
             text=True,
             timeout=30,
@@ -125,15 +175,15 @@ class AutoCommitter:
             check=check,
         )
 
-    def is_git_repo(self) -> bool:
+    def is_git_repo(self, *, decision: Any = None) -> bool:
         """Check if workspace is a git repository."""
         try:
-            result = self._run_git("rev-parse", "--git-dir", check=False)
+            result = self._run_git("rev-parse", "--git-dir", check=False, decision=decision)
             return result.returncode == 0
         except Exception:
             return False
 
-    def has_changes(self, files: Optional[List[str]] = None) -> bool:
+    def has_changes(self, files: Optional[List[str]] = None, *, decision: Any = None) -> bool:
         """Check if there are uncommitted changes.
 
         Args:
@@ -146,15 +196,15 @@ class AutoCommitter:
             cmd = ["status", "--porcelain"]
             if files:
                 cmd.extend(files)
-            result = self._run_git(*cmd, check=False)
+            result = self._run_git(*cmd, check=False, decision=decision)
             return bool(result.stdout.strip())
         except Exception:
             return False
 
-    def get_changed_files(self) -> List[str]:
+    def get_changed_files(self, *, decision: Any = None) -> List[str]:
         """Get list of changed files."""
         try:
-            result = self._run_git("status", "--porcelain", check=False)
+            result = self._run_git("status", "--porcelain", check=False, decision=decision)
             files = []
             for line in result.stdout.strip().split("\n"):
                 if line:
@@ -168,7 +218,7 @@ class AutoCommitter:
         except Exception:
             return []
 
-    def stage_files(self, files: List[str]) -> bool:
+    def stage_files(self, files: List[str], *, decision: Any = None) -> bool:
         """Stage files for commit.
 
         Args:
@@ -181,7 +231,7 @@ class AutoCommitter:
             return False
 
         try:
-            self._run_git("add", *files)
+            self._run_git("add", *files, decision=decision)
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to stage files: {e.stderr}")
@@ -298,7 +348,9 @@ class AutoCommitter:
         Returns:
             CommitResult with outcome
         """
-        if not self.is_git_repo():
+        launch_decision = self._resolve_policy_decision()
+
+        if not self.is_git_repo(decision=launch_decision):
             return CommitResult(
                 success=False,
                 error="Not a git repository",
@@ -306,7 +358,7 @@ class AutoCommitter:
 
         # Get files to commit
         if files is None:
-            files = self.get_changed_files()
+            files = self.get_changed_files(decision=launch_decision)
 
         if not files:
             return CommitResult(
@@ -316,7 +368,7 @@ class AutoCommitter:
 
         # Stage files if requested
         if auto_stage:
-            if not self.stage_files(files):
+            if not self.stage_files(files, decision=launch_decision):
                 return CommitResult(
                     success=False,
                     error="Failed to stage files",
@@ -333,7 +385,7 @@ class AutoCommitter:
 
         # Commit
         try:
-            result = self._run_git("commit", "-m", message)
+            result = self._run_git("commit", "-m", message, decision=launch_decision)
 
             # Extract commit hash
             commit_hash = None
@@ -370,10 +422,11 @@ class AutoCommitter:
             True if successful
         """
         try:
+            launch_decision = self._resolve_policy_decision()
             if keep_changes:
-                self._run_git("reset", "--soft", "HEAD~1")
+                self._run_git("reset", "--soft", "HEAD~1", decision=launch_decision)
             else:
-                self._run_git("reset", "--hard", "HEAD~1")
+                self._run_git("reset", "--hard", "HEAD~1", decision=launch_decision)
             logger.info("Undid last commit")
             return True
         except subprocess.CalledProcessError as e:
@@ -387,13 +440,26 @@ class AutoCommitter:
             Dict with commit info or None
         """
         try:
+            launch_decision = self._resolve_policy_decision()
             # Get basic commit info
-            result = self._run_git("log", "-1", "--format=%H|%s|%an|%ae|%ci", check=False)
+            result = self._run_git(
+                "log",
+                "-1",
+                "--format=%H|%s|%an|%ae|%ci",
+                check=False,
+                decision=launch_decision,
+            )
             if result.returncode == 0 and result.stdout.strip():
                 parts = result.stdout.strip().split("|")
                 if len(parts) >= 5:
                     # Also get full commit message to check for signature
-                    body_result = self._run_git("log", "-1", "--format=%B", check=False)
+                    body_result = self._run_git(
+                        "log",
+                        "-1",
+                        "--format=%B",
+                        check=False,
+                        decision=launch_decision,
+                    )
                     full_message = body_result.stdout if body_result.returncode == 0 else ""
 
                     return {
