@@ -3,7 +3,7 @@
 > **Single source of truth** for Victor system architecture.
 > Supersedes: `ARCHITECTURE.md`, `docs/architecture/overview.md`, `docs/diagrams/`
 
-**Version**: {{ victor_version }} | **Last Updated**: 2026-09-19 | **Status**: Canonical
+**Version**: {{ victor_version }} | **Last Updated**: 2026-11-15 | **Status**: Canonical
 
 ---
 
@@ -12,6 +12,8 @@
     - Clients enter through `VictorClient`, `Agent`, or `AgentFactory`.
     - Framework APIs delegate to service-owned runtime behavior.
     - `AgentOrchestrator` composes and delegates; it is not a second service layer.
+    - Admitted provider families execute through one typed Sandhi boundary; native-only
+      protocol adapters are explicit exceptions.
     - Providers, tools, storage, and core utilities supply infrastructure.
     - External vertical definitions depend on `victor_contracts` only.
 
@@ -19,6 +21,7 @@
 | --- | --- | --- |
 | Public entry points | `victor/framework/` | Client import guards |
 | Chat execution | `ChatService` + `ChatRuntimeServices` | Facade AST and shrink-only caps |
+| Provider execution | Sandhi typed transport; explicit native-only exceptions | Exact binding pin; no hidden Sandhi retry/fallback, while Victor may authorize an explicit fallback attempt |
 | Workflows | `NativeWorkflowGraphCompiler` + `CompiledGraph` | Engine parity tests |
 | Domain definitions | `victor_contracts` | Vertical boundary audit |
 
@@ -49,7 +52,7 @@ flowchart TB
     WRT["Workflow runtime<br/>victor/workflows · victor/framework/graph.py"]
   end
   subgraph INF["Infrastructure"]
-    I["victor/providers · victor/tools<br/>victor/storage · victor/core"]
+    I["victor/providers · Sandhi for admitted providers<br/>victor/tools · victor/storage · victor/core"]
   end
   V["External vertical definitions"]
   SDK["victor_contracts<br/>protocols · types · manifests"]
@@ -256,15 +259,37 @@ bootstraps the DI container, creates the orchestrator, and wires observability.
 
 ## Provider System
 
-The provider diagram distinguishes implementations from optional routing.
+The provider diagram distinguishes admitted Sandhi-backed families, explicit
+native-only protocol or execution models, and optional routing. The provider registry resolves
+each admitted family through `victor/providers/sandhi_transport.py`; an unclassified
+Victor provider fails construction instead of silently bypassing the boundary. The
+required `sandhi-gateway==0.19.0` dependency supplies the versioned neutral chat
+contract and Rust `ProviderRuntime` used by both front doors.
 
-25 LLM provider adapters behind a unified interface with circuit breaker,
-retry, and smart routing (multi-provider selection/fallback via
-`victor/providers/smart_router.py`). The consolidated provider gateway
-feature layer — semantic caching, budget guardrails, routing-performance
-work — is **planned**, not shipped
+**Direct FFI mode** uses the in-process Rust binding with a Victor-resolved endpoint
+and credential, when required. It returns neutral typed usage, but the
+embedded binding is ledger-free: that observation is not a gateway reservation,
+settlement receipt, or proof of
+durable budget enforcement.
+
+**Gateway mode** is selected by a gateway URL before upstream API-key discovery. The
+same FFI handle uses an explicit client dialect and `peer_role="sandhi_gateway_v1"`
+with a virtual key, the server's local-starter marker or, for a qualified OpenAI
+gateway configuration, a renewable OIDC/client credential. The gateway owns
+subject identity, model/backend admission, upstream
+credential references, budgets, run attribution, durable attempt evidence, and
+settlement receipts. Client-visible gateway usage remains a projection; the
+server-owned run-cost tree and ledger are the accounting authority.
+
+Both front doors set `max_retries=0`. The Sandhi handle performs no hidden retry or
+fallback, and a terminal or ambiguous Sandhi failure stops that handle. Victor's
+logical-call owner may explicitly configure a fallback provider; that is a new
+authorized logical attempt, not hidden replay. Optional `SmartRoutingProvider` composes that
+logical decision; it does not create a second provider wire path. The separately
+planned feature layer is semantic caching, declarative fallback chains,
+Victor-side hard budget enforcement, and routing-performance work
 ([ADR-022](architecture/adr/022-provider-gateway-feature-layer.md), TD-24;
-see the [roadmap](roadmap.md)).
+see the [roadmap](roadmap.md))—not the already shipped Sandhi transport boundary.
 
 ```mermaid
 ---
@@ -274,13 +299,23 @@ title: Provider contracts and runtime routing
 flowchart TB
   S["ProviderService"]
   B["BaseProvider<br/>shared provider interface"]
-  C["Cloud adapters<br/>Anthropic · OpenAI · Google · others"]
-  L["Local adapters<br/>Ollama · LM Studio · vLLM · MLX"]
+  A["Admitted provider policies<br/>Anthropic · OpenAI · Google · local · OpenAI-compatible"]
+  T["Sandhi transport wrappers<br/>victor/providers/sandhi_transport.py"]
+  D["Direct FFI handle<br/>Victor endpoint · credential if required"]
+  G["Gateway peer handle<br/>client dialect · virtual key or local starter"]
+  SG["Sandhi gateway<br/>identity · references · policy · budgets"]
   R["SmartRoutingProvider<br/>optional multi-provider routing"]
+  N["Native-only protocol/execution models<br/>explicit classified exceptions"]
+  U["Provider endpoints"]
   S -->|"manage configured provider through runtime bindings"| B
-  C -.->|"implement"| B
-  L -.->|"implement"| B
-  R -->|"select configured provider"| B
+  A -->|"prompt, tools and model policy"| T
+  T -->|"embedded observation; no durable ledger"| D
+  T -->|"peer_role sandhi_gateway_v1"| G
+  G -->|"server-owned admission and settlement"| SG
+  D -->|"one retry-free dispatch"| U
+  SG -->|"server credential/reference"| U
+  R -->|"explicit logical-call selection"| A
+  N -.->|"classified exception"| U
 ```
 
 ### Caching Architecture
