@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from victor_contracts import TurnType
 from victor_contracts.verticals import VerticalConversationManager
@@ -55,15 +55,30 @@ class EnhancedDataAnalysisConversationManager(VerticalConversationManager):
             **kwargs,
         )
 
-    def add_message(self, role: str, content: str, turn_type: TurnType, **kwargs) -> str:
+    def add_message(
+        self,
+        role: str,
+        content: str,
+        turn_type: TurnType,
+        metadata: Optional[Dict[str, Any]] = None,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
         """Backward-compatible kwargs passthrough over the kernel signature."""
-        return super().add_message(role, content, turn_type, **kwargs)
+        return super().add_message(role, content, turn_type, metadata, tool_calls)
 
-    def get_history(self, **kwargs) -> List[Dict[str, Any]]:
-        return super().get_history(**kwargs)
+    def get_history(
+        self,
+        max_turns: Optional[int] = None,
+        include_system: bool = True,
+        include_tool: bool = True,
+    ) -> List[Dict[str, Any]]:
+        return super().get_history(max_turns, include_system, include_tool)
 
     def get_dataanalysis_context(self) -> DataAnalysisContext:
-        return self.get_context()
+        context = self.get_context()
+        if not isinstance(context, DataAnalysisContext):
+            raise TypeError("dataanalysis conversation context has the wrong type")
+        return context
 
     def track_dataset(self, dataset: str) -> None:
         if dataset not in self._context.datasets_loaded:
