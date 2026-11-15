@@ -208,6 +208,24 @@ class TestDetectAction:
             assert result.metadata["conflicts"] == []
 
     @pytest.mark.asyncio
+    async def test_detect_passes_framework_policy_snapshot_to_manager(self, tool):
+        """The framework-owned admitted policy reaches every merge git launch."""
+        admitted_policy = object()
+
+        with patch("victor.tools.merge_tool.MergeManager") as MockManager:
+            mock_manager = AsyncMock()
+            mock_manager.detect_conflicts.return_value = []
+            MockManager.return_value = mock_manager
+
+            result = await tool.execute(
+                action="detect",
+                _exec_ctx={"run_policy_snapshot": admitted_policy},
+            )
+
+        assert result.success is True
+        assert MockManager.call_args.kwargs["run_policy_snapshot"] is admitted_policy
+
+    @pytest.mark.asyncio
     async def test_detect_with_conflicts(self, tool, sample_conflict):
         """Test detection with conflicts."""
         with patch("victor.tools.merge_tool.MergeManager") as MockManager:

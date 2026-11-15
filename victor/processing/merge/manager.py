@@ -44,6 +44,10 @@ from .resolvers import get_analyzer, get_resolvers
 logger = logging.getLogger(__name__)
 
 
+class MergePolicyRefusal(RuntimeError):
+    """A required sandbox policy cannot enforce a merge-manager git launch."""
+
+
 class MergeManager:
     """Manager for merge conflict resolution.
 
@@ -56,19 +60,55 @@ class MergeManager:
     Configuration is driven by settings.py for consistency with Victor.
     """
 
-    def __init__(self, root_path: str | Path | None = None):
+    def __init__(
+        self,
+        root_path: str | Path | None = None,
+        *,
+        run_policy_snapshot: Any | None = None,
+    ):
         """Initialize the merge manager.
 
         Args:
             root_path: Root directory of the git repository. Defaults to current directory.
+            run_policy_snapshot: Opaque policy admitted by an enclosing tool run
         """
         self.root_path = Path(root_path) if root_path else Path.cwd()
-        self._settings = load_settings()
+        self._run_policy_snapshot = run_policy_snapshot
+        self._settings = None if run_policy_snapshot is not None else load_settings()
         self._paths = get_project_paths(self.root_path)
         self._history_file = self._paths.project_victor_dir / "merge_history.json"
         self._current_context: MergeContext | None = None
         self._resolvers = get_resolvers()
         self._analyzer = get_analyzer()
+
+    def _resolve_git_launch(self):
+        """Resolve one admitted policy decision for a logical git operation."""
+        from victor.tools.sandbox import resolve_required_launch
+
+        if self._run_policy_snapshot is not None:
+            sandbox_settings = self._run_policy_snapshot.to_sandbox_settings()
+        else:
+            try:
+                sandbox_settings = load_settings().sandbox
+            except Exception as exc:
+                raise MergePolicyRefusal(
+                    f"Sandbox policy could not be established ({exc}); refusing merge git execution."
+                ) from exc
+
+        decision = resolve_required_launch(sandbox_settings)
+        if decision.refuse:
+            raise MergePolicyRefusal(decision.reason)
+        return decision
+
+    def _run_git(self, args: list[str], *, decision=None, **kwargs):
+        """Run one git argv through an already resolved launch decision."""
+        from pathlib import Path
+
+        launch_decision = decision if decision is not None else self._resolve_git_launch()
+        argv = ["git", *args]
+        if launch_decision.required_active and launch_decision.backend is not None:
+            argv = launch_decision.backend.wrap_argv(argv, Path(self.root_path))
+        return subprocess.run(argv, cwd=self.root_path, **kwargs)
 
     async def detect_conflicts(self) -> list[FileConflict]:
         """Detect merge conflicts in the current repository.
@@ -80,9 +120,10 @@ class MergeManager:
 
         # Get list of unmerged files from git
         try:
-            result = subprocess.run(
-                ["git", "diff", "--name-only", "--diff-filter=U"],
-                cwd=self.root_path,
+            launch_decision = self._resolve_git_launch()
+            result = self._run_git(
+                ["diff", "--name-only", "--diff-filter=U"],
+                decision=launch_decision,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -102,7 +143,7 @@ class MergeManager:
 
         # Get branch info
         source_branch = self._get_merging_branch()
-        target_branch = self._get_current_branch()
+        target_branch = self._get_current_branch(decision=launch_decision)
 
         for conflict in conflicts:
             conflict.ours_branch = target_branch
@@ -226,12 +267,12 @@ class MergeManager:
         """Normalize whitespace for comparison."""
         return re.sub(r"\s+", " ", text.strip())
 
-    def _get_current_branch(self) -> str:
+    def _get_current_branch(self, *, decision=None) -> str:
         """Get current git branch name."""
         try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=self.root_path,
+            result = self._run_git(
+                ["rev-parse", "--abbrev-ref", "HEAD"],
+                decision=decision,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -432,18 +473,21 @@ class MergeManager:
             True if successful
         """
         try:
+            launch_decision = self._resolve_git_launch()
             resolution.file_path.write_text(resolution.final_content, encoding="utf-8")
             resolution.applied = True
 
             # Stage the file
-            subprocess.run(
-                ["git", "add", str(resolution.file_path)],
-                cwd=self.root_path,
+            self._run_git(
+                ["add", str(resolution.file_path)],
+                decision=launch_decision,
                 check=True,
             )
 
             logger.info(f"Applied resolution to {resolution.file_path}")
             return True
+        except MergePolicyRefusal:
+            raise
         except Exception as e:
             logger.error(f"Failed to apply resolution: {e}")
             return False
@@ -463,23 +507,27 @@ class MergeManager:
             return False
 
         try:
+            launch_decision = self._resolve_git_launch()
+
             # Use git checkout --ours/--theirs
             flag = "--ours" if strategy == ResolutionStrategy.OURS else "--theirs"
-            subprocess.run(
-                ["git", "checkout", flag, "--", str(file_path)],
-                cwd=self.root_path,
+            self._run_git(
+                ["checkout", flag, "--", str(file_path)],
+                decision=launch_decision,
                 check=True,
             )
 
             # Stage the file
-            subprocess.run(
-                ["git", "add", str(file_path)],
-                cwd=self.root_path,
+            self._run_git(
+                ["add", str(file_path)],
+                decision=launch_decision,
                 check=True,
             )
 
             logger.info(f"Applied {strategy.value} to {file_path}")
             return True
+        except MergePolicyRefusal:
+            raise
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to apply resolution: {e}")
             return False
@@ -520,9 +568,10 @@ class MergeManager:
             True if successful
         """
         try:
-            subprocess.run(
-                ["git", "merge", "--abort"],
-                cwd=self.root_path,
+            launch_decision = self._resolve_git_launch()
+            self._run_git(
+                ["merge", "--abort"],
+                decision=launch_decision,
                 check=True,
             )
             logger.info("Aborted merge")
@@ -530,9 +579,9 @@ class MergeManager:
         except subprocess.CalledProcessError:
             # Try rebase abort
             try:
-                subprocess.run(
-                    ["git", "rebase", "--abort"],
-                    cwd=self.root_path,
+                self._run_git(
+                    ["rebase", "--abort"],
+                    decision=launch_decision,
                     check=True,
                 )
                 logger.info("Aborted rebase")
