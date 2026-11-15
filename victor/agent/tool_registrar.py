@@ -698,10 +698,13 @@ class ToolRegistrar:
 
         # Try MCPRegistry with auto-discovery first
         try:
+            from victor.runtime.policy_snapshot import current_run_policy_snapshot
+
             from victor.integrations.mcp.registry import MCPRegistry, MCPServerConfig
 
+            admitted_policy = current_run_policy_snapshot()
             # Auto-discover MCP servers from standard locations
-            self.mcp_registry = MCPRegistry.discover_servers()
+            self.mcp_registry = MCPRegistry.discover_servers(run_policy_snapshot=admitted_policy)
 
             # Also register command from settings if specified
             if mcp_command:
@@ -742,9 +745,11 @@ class ToolRegistrar:
         """Set up legacy single MCP client (backwards compatibility)."""
         if mcp_command:
             try:
+                from victor.runtime.policy_snapshot import current_run_policy_snapshot
+
                 from victor.integrations.mcp.client import MCPClient
 
-                mcp_client = MCPClient()
+                mcp_client = MCPClient(run_policy_snapshot=current_run_policy_snapshot())
                 cmd_parts = mcp_command.split()
                 self._create_task(mcp_client.connect(cmd_parts), "mcp_legacy_connect")
                 # MCP client setup is now handled via context injection
