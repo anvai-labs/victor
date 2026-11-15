@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | Public entry points | `victor/framework/` | Client import guards |
 | Chat execution | `ChatService` + `ChatRuntimeServices` | Facade AST and shrink-only caps |
-| Provider execution | Sandhi typed transport; explicit native-only exceptions | Exact binding pin and no replay/fallback between front doors |
+| Provider execution | Sandhi typed transport; explicit native-only exceptions | Exact binding pin; no hidden Sandhi retry/fallback, while Victor may authorize an explicit fallback attempt |
 | Workflows | `NativeWorkflowGraphCompiler` + `CompiledGraph` | Engine parity tests |
 | Domain definitions | `victor_contracts` | Vertical boundary audit |
 
