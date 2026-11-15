@@ -31,6 +31,7 @@ import os
 import subprocess
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from victor.config.timeouts import McpTimeouts
@@ -58,6 +59,40 @@ _MAX_RESULT_IMAGES = 4
 _MAX_IMAGE_B64_CHARS = 2 * 1024 * 1024
 
 
+class MCPPolicyRefusal(RuntimeError):
+    """A configured MCP server launch was refused before process admission."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+def _resolve_mcp_launch_policy(run_policy_snapshot: Any = None) -> Any:
+    """Resolve one MCP launch decision before either process owner starts."""
+    try:
+        if run_policy_snapshot is not None:
+            sandbox_settings = run_policy_snapshot.to_sandbox_settings()
+        else:
+            from victor.config.settings import get_settings
+
+            sandbox_settings = getattr(get_settings(), "sandbox", None)
+    except Exception as exc:
+        raise MCPPolicyRefusal(
+            "policy_unavailable",
+            f"MCP launch policy could not be established ({exc}); refusing connection.",
+        ) from exc
+
+    from victor.tools.sandbox import resolve_required_launch
+
+    decision = resolve_required_launch(sandbox_settings)
+    if decision.refuse:
+        raise MCPPolicyRefusal(
+            "sandbox_required",
+            f"{decision.reason}; refusing configured MCP server launch.",
+        )
+    return decision
+
+
 class MCPClient:
     """MCP client that connects to external MCP servers.
 
@@ -81,6 +116,7 @@ class MCPClient:
         reconnect_delay: int = 5,
         sandbox_config: Optional["SandboxConfig"] = None,
         command: Optional[List[str]] = None,
+        run_policy_snapshot: Any = None,
     ):
         """Initialize MCP client.
 
@@ -94,6 +130,9 @@ class MCPClient:
             sandbox_config: Optional sandboxing config for subprocess resource limits
             command: Optional command to auto-connect when used as async context manager.
                      If provided, __aenter__ will call connect(command) automatically.
+            run_policy_snapshot: Optional immutable policy admitted by an enclosing
+                    runtime run. It is opaque here and takes precedence over mutable
+                    global settings on initial connect and reconnect.
 
         Example with command parameter for context manager usage:
             async with MCPClient(command=["python", "server.py"]) as client:
@@ -126,6 +165,7 @@ class MCPClient:
         # Sandboxing configuration
         self._sandbox_config = sandbox_config
         self._sandboxed_process: Optional["SandboxedProcess"] = None
+        self._run_policy_snapshot = run_policy_snapshot
 
         # Connection state
         self._command: Optional[List[str]] = command  # Store for reconnection and context manager
@@ -142,19 +182,24 @@ class MCPClient:
 
     async def _start_process(self, command: List[str]):
         """Start with the configured policy; publish no partially started owner."""
+        launch_decision = _resolve_mcp_launch_policy(self._run_policy_snapshot)
+        admitted_command = list(command)
+        if launch_decision.required_active and launch_decision.backend is not None:
+            admitted_command = launch_decision.backend.wrap_argv(admitted_command, Path.cwd())
+
         if self._sandbox_config is not None:
             from victor.integrations.mcp.sandbox import SandboxedProcess
 
             owner = SandboxedProcess(self._sandbox_config)
             try:
-                return await owner.start(command), owner
+                return await owner.start(admitted_command), owner
             except BaseException:
                 # Retain owner cleanup even if startup is cancelled again.
                 await asyncio.shield(self._retire_transport(StdioTransport(None, owner)))
                 raise
         return (
             subprocess.Popen(
-                command,
+                admitted_command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

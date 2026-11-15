@@ -42,6 +42,7 @@ MCP_LIFECYCLE_TESTS = (
     "tests/unit/agent/test_mcp_client.py",
     "tests/unit/integrations/mcp/test_client_response_correlation.py",
     "tests/unit/security/test_mcp_factory_lifecycle.py",
+    "tests/unit/security/test_mcp_policy_boundary.py",
 )
 MCP_SCHEMA_TESTS = ("tests/unit/tools/test_mcp_schema_fidelity.py",)
 DEPRECATION_NOTICE_TESTS = ("tests/unit/test_release_deprecation_targets.py",)
@@ -1200,6 +1201,19 @@ RELATED_TESTS = {
         "tests/unit/agent/services/test_chat_turn_runtime.py",
     ),
     "victor/integrations/mcp/client.py": (*MCP_LIFECYCLE_TESTS, *MCP_SCHEMA_TESTS),
+    "victor/integrations/mcp/registry.py": (
+        "tests/unit/agent/test_mcp_registry.py",
+        "tests/unit/agent/test_mcp_registry_discovery.py",
+        "tests/unit/security/test_mcp_policy_boundary.py",
+    ),
+    "victor/agent/mcp_connector.py": (
+        "tests/unit/agent/test_mcp_connector.py",
+        "tests/unit/security/test_mcp_policy_boundary.py",
+    ),
+    "victor/agent/tool_registrar.py": (
+        "tests/unit/tools/test_tool_registrar.py",
+        "tests/unit/security/test_mcp_policy_boundary.py",
+    ),
     "victor/integrations/mcp/protocol.py": (
         "tests/unit/agent/test_mcp_protocol.py",
         *MCP_SCHEMA_TESTS,

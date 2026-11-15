@@ -747,7 +747,7 @@ def register_data_analysis_teams() -> int:
         )
 
         registry = get_team_registry()
-        count = registry.register_from_vertical("data_analysis", DATA_ANALYSIS_TEAM_SPECS)
+        count = int(registry.register_from_vertical("data_analysis", DATA_ANALYSIS_TEAM_SPECS))
         logger.debug(f"Registered {count} data analysis teams via framework integration")
         return count
     except Exception as e:

@@ -25,6 +25,7 @@ Tests LSP validation and formatting for multiple supported languages:
 
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -255,6 +256,188 @@ class TestLSPWriteEnhancer:
         # Should return content (possibly formatted or unchanged)
         assert isinstance(content, str)
         # Formatter name depends on system, so we don't assert it
+
+
+class TestLSPFormatterPolicyBoundary:
+    """Formatter fallback launches follow the admitted sandbox policy."""
+
+    @staticmethod
+    def _install_policy(monkeypatch, policy: str, backend_available: bool) -> None:
+        from victor.config.sandbox_settings import SandboxSettings
+        from victor.tools.sandbox import backends
+
+        settings = SimpleNamespace(
+            sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy=policy)
+        )
+        monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+        monkeypatch.setattr(backends.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(
+            backends.shutil,
+            "which",
+            lambda name: "/usr/bin/bwrap" if backend_available and name == "bwrap" else None,
+        )
+
+    @staticmethod
+    def _enhancer_with_formatter(tmp_path):
+        enhancer = LSPWriteEnhancer(workspace_root=str(tmp_path))
+        enhancer._use_thread_formatter = False
+        formatter = SimpleNamespace(name="fakefmt", command=["fakefmt"])
+        plugin = SimpleNamespace(get_formatter=lambda _root: formatter)
+        enhancer._language_registry = SimpleNamespace(
+            detect_language=lambda path: "python", get=lambda _language: plugin
+        )
+        return enhancer
+
+    @staticmethod
+    def _trap_launch(monkeypatch, launched: list[list[str]]) -> None:
+        import victor.tools.lsp_write_enhancer as lsp_module
+
+        async def _communicate() -> tuple[bytes, bytes]:
+            return b"", b""
+
+        async def _create_subprocess_exec(*argv: str, **_kwargs):
+            launched.append([str(value) for value in argv])
+            return SimpleNamespace(returncode=0, communicate=_communicate)
+
+        monkeypatch.setattr(lsp_module.asyncio, "create_subprocess_exec", _create_subprocess_exec)
+
+    async def test_required_available_wraps_formatter_launch(self, monkeypatch, tmp_path):
+        self._install_policy(monkeypatch, "required", backend_available=True)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        content, formatter_name = await self._enhancer_with_formatter(
+            tmp_path
+        ).format_with_formatter("example.py", "x = 1\n")
+
+        assert content == "x = 1\n"
+        assert formatter_name == "fakefmt"
+        assert launched and launched[0][0] == "bwrap"
+        assert "fakefmt" in launched[0]
+        assert Path(launched[0][-1]).is_relative_to(tmp_path)
+
+    async def test_required_unavailable_skips_formatter_launch(self, monkeypatch, tmp_path):
+        self._install_policy(monkeypatch, "required", backend_available=False)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        content, formatter_name = await self._enhancer_with_formatter(
+            tmp_path
+        ).format_with_formatter("example.py", "x = 1\n")
+
+        assert content == "x = 1\n"
+        assert formatter_name is None
+        assert launched == []
+
+    async def test_unreadable_policy_skips_formatter_launch(self, monkeypatch, tmp_path):
+        def _unavailable():
+            raise RuntimeError("settings unavailable")
+
+        monkeypatch.setattr("victor.config.settings.get_settings", _unavailable)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        content, formatter_name = await self._enhancer_with_formatter(
+            tmp_path
+        ).format_with_formatter("example.py", "x = 1\n")
+
+        assert content == "x = 1\n"
+        assert formatter_name is None
+        assert launched == []
+
+    @pytest.mark.parametrize("policy", ["disabled", "preferred"])
+    async def test_non_required_policy_keeps_formatter_raw(self, monkeypatch, tmp_path, policy):
+        self._install_policy(monkeypatch, policy, backend_available=True)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        await self._enhancer_with_formatter(tmp_path).format_with_formatter("example.py", "x = 1\n")
+
+        assert launched and launched[0][0] == "fakefmt"
+
+    async def test_admitted_snapshot_overrides_reloaded_required_settings(
+        self, monkeypatch, tmp_path
+    ):
+        import victor.config.settings as settings_module
+        from victor.runtime.policy_snapshot import RunPolicySnapshot
+
+        self._install_policy(monkeypatch, "disabled", backend_available=True)
+        admitted = RunPolicySnapshot.from_settings(settings_module.get_settings())
+        self._install_policy(monkeypatch, "required", backend_available=False)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        content, formatter_name = await self._enhancer_with_formatter(
+            tmp_path
+        ).format_with_formatter("example.py", "x = 1\n", run_policy_snapshot=admitted)
+
+        assert content == "x = 1\n"
+        assert formatter_name == "fakefmt"
+        assert launched and launched[0][0] == "fakefmt"
+
+    async def test_write_with_lsp_passes_framework_snapshot_to_formatter(self, tmp_path):
+        from unittest.mock import AsyncMock
+
+        admitted_policy = object()
+        enhancer = self._enhancer_with_formatter(tmp_path)
+        enhancer.format_with_formatter = AsyncMock(return_value=("x = 1\n", "fakefmt"))
+
+        await enhancer.write_with_lsp(
+            "example.py",
+            "x = 1\n",
+            validate=False,
+            format_code=True,
+            write=False,
+            _exec_ctx={"run_policy_snapshot": admitted_policy},
+        )
+
+        enhancer.format_with_formatter.assert_awaited_once_with(
+            "example.py", "x = 1\n", run_policy_snapshot=admitted_policy
+        )
+
+    @pytest.mark.parametrize("backend_available", [True, False])
+    async def test_filesystem_write_keeps_admitted_formatter_policy(
+        self, monkeypatch, tmp_path, backend_available
+    ):
+        import victor.config.settings as settings_module
+        from victor.runtime.policy_snapshot import RunPolicySnapshot
+        import victor.tools.filesystem as filesystem_module
+        import victor.tools.lsp_write_enhancer as lsp_module
+
+        self._install_policy(monkeypatch, "required", backend_available)
+        admitted = RunPolicySnapshot.from_settings(settings_module.get_settings())
+        self._install_policy(monkeypatch, "disabled", backend_available)
+
+        enhancer = self._enhancer_with_formatter(tmp_path)
+        enhancer.validate_with_lsp = AsyncMock(return_value=[])
+        original_format = enhancer.format_with_formatter
+        captured_format_kwargs = {}
+
+        async def _capturing_format(*args, **kwargs):
+            captured_format_kwargs.update(kwargs)
+            return await original_format(*args, **kwargs)
+
+        enhancer.format_with_formatter = _capturing_format
+        lsp_module._enhancer = enhancer
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        result = await filesystem_module.write(
+            str(tmp_path / "example.py"),
+            "x = 1\n",
+            format_code=True,
+            dry_run=True,
+            _exec_ctx={"run_policy_snapshot": admitted},
+        )
+
+        assert result["success"] is True
+        assert captured_format_kwargs["run_policy_snapshot"] is admitted
+        if backend_available:
+            assert launched and launched[0][0] == "bwrap"
+            assert "fakefmt" in launched[0]
+            assert Path(launched[0][-1]).is_relative_to(tmp_path)
+        else:
+            assert launched == []
 
     @pytest.mark.asyncio
     async def test_validate_with_lsp_mocked(self):

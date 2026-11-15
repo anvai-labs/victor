@@ -41,6 +41,8 @@ from victor.tools.verification.protocols import (
 
 logger = logging.getLogger(__name__)
 
+ExecContext = Optional[Dict[str, Any]]
+
 
 @tool(
     name="codebase_verify",
@@ -58,7 +60,8 @@ async def codebase_verify(
     enable_temporal_analysis: bool = False,
     enable_severity_weighting: bool = True,
     min_confidence: float = 0.5,
-    exec_ctx: Optional[Dict[str, Any]] = None,
+    exec_ctx: ExecContext = None,
+    _exec_ctx: ExecContext = None,
 ) -> Dict[str, Any]:
     """Verify codebase claims with semantic validation.
 
@@ -89,9 +92,12 @@ async def codebase_verify(
         - reason: Human-readable explanation
     """
     # Get project root from execution context
+    effective_exec_ctx = _exec_ctx or exec_ctx
     project_root = Path.cwd()
-    if exec_ctx:
-        root_from_ctx = exec_ctx.get("workspace_root") or exec_ctx.get("project_root")
+    if effective_exec_ctx:
+        root_from_ctx = effective_exec_ctx.get("workspace_root") or effective_exec_ctx.get(
+            "project_root"
+        )
         if root_from_ctx:
             project_root = Path(root_from_ctx)
 
@@ -144,7 +150,10 @@ async def codebase_verify(
 
     # Step 4: Temporal analysis
     if enable_temporal_analysis and file_path:
-        temporal_analyzer = TemporalContextAnalyzer(project_root=project_root)
+        temporal_analyzer = TemporalContextAnalyzer(
+            project_root=project_root,
+            run_policy_snapshot=(_exec_ctx or {}).get("run_policy_snapshot"),
+        )
         temporal_ctx = temporal_analyzer.analyze_issue_temporal_context(issue)
         result.temporal_nature = temporal_ctx.get("temporal_nature")
 
@@ -186,7 +195,8 @@ async def codebase_verify_batch(
     enable_temporal_analysis: bool = False,
     enable_severity_weighting: bool = True,
     min_confidence: float = 0.5,
-    exec_ctx: Optional[Dict[str, Any]] = None,
+    exec_ctx: ExecContext = None,
+    _exec_ctx: ExecContext = None,
 ) -> Dict[str, Any]:
     """Verify multiple codebase issues with semantic validation.
 
@@ -222,6 +232,7 @@ async def codebase_verify_batch(
             enable_severity_weighting=enable_severity_weighting,
             min_confidence=min_confidence,
             exec_ctx=exec_ctx,
+            _exec_ctx=_exec_ctx,
         )
 
         results.append({**issue, **result})

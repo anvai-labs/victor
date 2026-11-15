@@ -3,11 +3,9 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 
-"""Tests for the registry-based data analysis mode configuration provider."""
+"""Tests for the static data analysis mode configuration provider."""
 
 import pytest
-
-from victor.framework.extensions import RegistryBasedModeConfigProvider
 
 from victor_dataanalysis.mode_config import DataAnalysisModeConfigProvider
 
@@ -18,11 +16,16 @@ def provider() -> DataAnalysisModeConfigProvider:
 
 
 class TestModeDefinitions:
-    def test_is_registry_based_provider(self, provider):
-        assert isinstance(provider, RegistryBasedModeConfigProvider)
+    def test_exposes_expected_modes(self, provider):
+        assert set(provider.get_mode_configs()) >= {
+            "quick",
+            "standard",
+            "comprehensive",
+            "research",
+        }
 
     def test_research_mode_registered(self, provider):
-        """The vertical registers a 'research' mode on top of the shared modes."""
+        """The vertical exposes its research mode alongside the shared static modes."""
         configs = provider.get_mode_configs()
 
         assert "research" in configs
@@ -30,7 +33,7 @@ class TestModeDefinitions:
         assert research.tool_budget == 400  # 5x'd 2026-10-31
         assert research.max_iterations == 750  # 5x'd 2026-10-31 (was 150)
 
-    def test_shared_modes_available_via_registry(self, provider):
+    def test_shared_modes_available(self, provider):
         configs = provider.get_mode_configs()
 
         for shared in ("quick", "standard", "comprehensive"):
