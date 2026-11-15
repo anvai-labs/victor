@@ -234,7 +234,9 @@ class LSPWriteEnhancer:
             for d in diagnostics
         ]
 
-    async def format_with_formatter(self, path: str, content: str) -> tuple[str, Optional[str]]:
+    async def format_with_formatter(
+        self, path: str, content: str, *, run_policy_snapshot: Any = None
+    ) -> tuple[str, Optional[str]]:
         """Format code using language-specific formatter.
 
         Args:
@@ -279,16 +281,42 @@ class LSPWriteEnhancer:
             except Exception as e:
                 logger.debug(f"In-process black failed, falling to subprocess: {e}")
 
+        from victor.tools.sandbox import resolve_required_launch
+
+        if run_policy_snapshot is not None:
+            sandbox_settings = run_policy_snapshot.to_sandbox_settings()
+        else:
+            try:
+                from victor.config.settings import get_settings
+
+                sandbox_settings = get_settings().sandbox
+            except Exception:
+                logger.debug("Formatter policy unavailable; skipping subprocess formatting")
+                return content, None
+
+        launch_decision = resolve_required_launch(sandbox_settings)
+        if launch_decision.refuse:
+            logger.debug("Formatter launch refused: %s", launch_decision.reason)
+            return content, None
+
         # Fallback: subprocess-based formatting
         import tempfile
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=file_path.suffix, delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=file_path.suffix,
+            prefix=".victor-format-",
+            dir=self._workspace_root,
+            delete=False,
+        ) as tmp:
             tmp_path = tmp.name
             tmp.write(content)
 
         try:
             cmd = formatter.command.copy()
             cmd.append(tmp_path)
+            if launch_decision.required_active and launch_decision.backend is not None:
+                cmd = launch_decision.backend.wrap_argv(cmd, Path(self._workspace_root))
 
             # Use asyncio subprocess to avoid blocking event loop
             import asyncio
@@ -356,6 +384,7 @@ class LSPWriteEnhancer:
         validate: bool = True,
         format_code: bool = True,
         write: bool = True,
+        _exec_ctx: Optional[Dict[str, Any]] = None,
     ) -> WriteResult:
         """Write file with LSP validation and formatting.
 
@@ -373,7 +402,11 @@ class LSPWriteEnhancer:
 
         # Format if requested
         if format_code:
-            formatted_content, formatter_name = await self.format_with_formatter(path, content)
+            formatted_content, formatter_name = await self.format_with_formatter(
+                path,
+                content,
+                run_policy_snapshot=(_exec_ctx or {}).get("run_policy_snapshot"),
+            )
             result.formatted = formatter_name is not None
             result.formatter_used = formatter_name
             content_to_write = formatted_content
@@ -446,6 +479,7 @@ async def write_with_lsp(
     format_code: bool = True,
     write: bool = True,
     workspace_root: Optional[str] = None,
+    _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> WriteResult:
     """Convenience function to write with LSP enhancement.
 
@@ -474,7 +508,12 @@ async def write_with_lsp(
     """
     enhancer = get_write_enhancer(workspace_root)
     return await enhancer.write_with_lsp(
-        path, content, validate=validate, format_code=format_code, write=write
+        path,
+        content,
+        validate=validate,
+        format_code=format_code,
+        write=write,
+        _exec_ctx=_exec_ctx,
     )
 
 

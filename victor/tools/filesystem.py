@@ -2231,6 +2231,7 @@ async def write(
     format_code: bool = False,
     dry_run: bool = False,
     force: bool = False,
+    _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> Union[str, Dict[str, Any]]:
     """Write a file with intuitive mode selection.
 
@@ -2285,6 +2286,7 @@ async def write(
         format_code=format_code,
         dry_run=dry_run,
         force=force,
+        _exec_ctx=_exec_ctx,
     )
 
 
@@ -2296,6 +2298,7 @@ async def _write_impl(
     format_code: bool = False,
     dry_run: bool = False,
     force: bool = False,
+    _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> Union[str, Dict[str, Any]]:
     """Internal write implementation — thin facade over ``edit(create)``."""
     file_path = Path(path).expanduser().resolve()
@@ -2328,6 +2331,7 @@ async def _write_impl(
                 validate=True,
                 format_code=format_code or not enhanced_mode,
                 write=False,  # never write here — delegate to edit()
+                _exec_ctx=_exec_ctx,
             )
 
             if result.written_content is not None:
