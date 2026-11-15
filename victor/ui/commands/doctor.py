@@ -557,7 +557,7 @@ class DoctorChecks:
                 message="InferFlux is not reachable",
                 suggestion=(
                     (
-                        "Start the tunnel: ssh -N -L 8080:127.0.0.1:8080 vsingh@aiserver1 "
+                        "Start the tunnel: ssh -N -L 8080:127.0.0.1:8080 user@your-server "
                         "(or start your local inferfluxd)"
                     )
                     if is_default
