@@ -14,32 +14,37 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ---
 
-## Now — October 2026: published 0.12.0 and remaining Stage C
+## Now — November 2026: published 0.29.2 and remaining structural work
 
-!!! info "Reassessed 2026-10-04"
+!!! info "Reconciled 2026-11-15"
 
-    **Published:** [Victor AI 0.12.0](https://github.com/anvai-labs/victor/releases/tag/v0.12.0),
-    2026-10-04. **Develop:** dependency refinements, runtime retry ownership and remaining Stage C work.
-    Release publication and complete design implementation are separate milestones.
+    **Published:** [Victor AI 0.29.2](https://github.com/anvai-labs/victor/releases/tag/v0.29.2),
+    2026-11-15, from protected main `353d5e8871444bdc5ce3ce7729b129b1c2b630e5`.
+    The release publishes Victor AI/native 0.29.2 and pins the separately
+    published `sandhi-gateway==0.19.0`. Source merge, artifact publication and
+    live-service acceptance remain distinct milestones.
 
 | Work | Current status | Acceptance owner |
 | --- | --- | --- |
+| Release evidence | Victor 0.29.2 workflow, package registries, native wheels, Docker and release assets verified | Release records; registry verification is not runtime soak |
+| Sandhi execution contract | Official 0.19.0 wheel/native/release binary differentially qualified against Victor 0.29.2 | [Sandhi consumer qualification](architecture/sandhi-subscription-gateway.md) |
 | Workflow engine and unified chat-loop cleanup | Complete (#1041–#1043) | ADR-030 / FEP-0007; item 23 |
-| Chat runtime inversion | Partial; service-owned turn frame and migrated capabilities landed; broader state/factories/shims remain | FEP-0031; item 27 |
+| Chat runtime inversion and policy boundaries | Partial; service-owned turn frame, lifecycle retry and multiple policy gates landed; broader state/factories/shims remain | FEP-0031; item 27; VAS tracker |
 | Client routing | REPL still streams through an agent; completions still calls the provider directly | Item 32 |
 | Graph interrupt/resume | General paused signal and resume-after semantics remain open | FEP-0032; item 24 |
 | Coordinator, benchmarks and RL | Extraction/consolidation remains open; preserve newer safety and formation contracts | Items 30 → 31 → 29; FEP-0033 |
 | Vertical bases and indexing | Family extraction, full boundary-manifest migration and parse reuse remain open | ADR-031; items 28, 22a follow-up, 26b. Recorded 2026-10-22 (dedup round 8): vector-store embedding-models family — `victor/storage/vector_stores/models.py` vs `victor-coding/codebase/embeddings/models.py` (+base.py, graph/protocol.py pairs; 636 dup lines at min-tokens 120) — needs a config-injection design under ADR-031's no-parallel-hierarchies rule (sides intentionally diverge on defaults bge-small vs MiniLM and print vs logging; core is ahead with EmbeddingProfile attestation; ~10 core importers + the coding embeddings trio in blast radius). Expected drop ~636 when done. |
 | Documentation rollout | Index, diagrams, Pages and link checker shipped; release/status drift maintenance continues | D1–D3 |
 | Newer safety and live acceptance | Partial source repairs; retained G60–G70/G72/C5 gaps require their own acceptance | [Safety audit](architecture/agentic-workflow-safety-audit.md), [formation ledger](architecture/multiagent-formation-coverage-handoff.md) |
+| Vertical type debt | Ruff and tests remain blocking; Black/mypy is advisory while debt is reduced; data-analysis is clean | `make lint-verticals-fmt-types`; vertical CI |
 
 The [Stage C reassessment](architecture/stage-c-reassessment.md) is the dated
-source-evidence snapshot, measurements and revised execution order. The
+2026-10-04 source-evidence snapshot, measurements and revised execution order. The
 [original co-design ledger](reviews/2026-09-03-codesign/README.md) retains historical
 findings. FEP-0031/0032/0033/0034/0035 retain Draft frontmatter: design, partial
 implementation and release are separate states.
 
-Pages last verified published from `main` on 2026-10-07 (`f9515e98e`); see the
+Pages last verified published from `main` on 2026-11-15 (`353d5e887`); see the
 [publishing record](development/docs-publishing.md). PR builds do not deploy;
 newer documentation reaches the public site through the next main promotion.
 
