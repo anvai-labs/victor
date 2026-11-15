@@ -5,7 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Prepared package version: **0.29.0**. This version is not yet released.
+## [0.29.2] - 2026-11-15
+
+Prepared package version: **0.29.2**. This source candidate is not yet released.
+
+### Changed
+
+- Pin the published `sandhi-gateway==0.19.0` binding across the project manifest
+  and root, API, and CPU-embeddings deployment locks. The official wheel, native
+  module, Linux gateway archive and public artifact verifier are qualified
+  separately; live service deployment remains a distinct gate.
+- Sandhi 0.19.0 keeps wire schema v1 and chat contract v1 minor 14 while adding
+  server-owned model-scoped OIDC budgets. Victor continues to expose logical
+  model selection and leaves credentials, hidden backends, model-derived budget
+  scopes, warn/block decisions and substitution policy to Sandhi.
+
+### Fixed
+
+- Gate API search-route launches, workspace filesystem-root discovery, temporal
+  Git analysis, LSP formatter fallback and merge Git operations behind explicit
+  bounded policy checks. The new controls cover allowed routes/roots, repository
+  boundaries, formatter selection, merge operations and denial paths without
+  granting broad filesystem or Git authority.
+- Repair the Python maintenance constraint and deployment-lock set after grouped
+  dependency updates. Keep independent Contracts, CodeGraph and vertical package
+  versions outside this Victor AI patch release.
+- Repair extension development dependencies: restore Glob 14, add exact security
+  overrides for Microsoft identity libraries, `follow-redirects`, Minimatch,
+  QueryString, SerializeJavaScript and DeepMerge, and regenerate the extension
+  locks. These development-only controls do not change Victor runtime packages.
+
+## [0.29.1] - Published 2026-11-14
+
+### Fixed
+
+- Raise the deployment Soupsieve floor to 4.1 across runtime lock files and
+  align the patched Victor AI/native package versions at 0.29.1. The selector
+  update addresses the recorded high-severity vulnerable paths without changing
+  Victor's API.
+
+## [0.29.0] - Published 2026-11-14
 
 ### Changed
 
