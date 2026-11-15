@@ -87,6 +87,9 @@ class RLOutcome:
         timestamp: ISO timestamp of outcome
         metadata: Domain-specific metadata (varies by learner)
         vertical: Which vertical this came from (coding, devops, data_science)
+        outcome_category: ``'task'`` or ``'learner_internal'`` (FEP-0046). ``None``
+            means unspecified; the coordinator's row writer resolves it from the
+            event type in ``metadata`` or the learner identity before persisting.
     """
 
     provider: str
@@ -100,6 +103,9 @@ class RLOutcome:
     # Per-segment process reward {turn/action index: credit} (Vision P6). Transient/observability —
     # blended into quality_score at outcome construction, so it is not persisted to the DB.
     segment_rewards: Optional[Dict[int, float]] = None
+    # FEP-0046: 'task' (observable task-level effect) vs 'learner_internal'
+    # (learner check/decision). None = unspecified; resolved at insert time.
+    outcome_category: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
@@ -112,6 +118,7 @@ class RLOutcome:
             "timestamp": self.timestamp,
             "metadata": json_dumps(self.metadata),
             "vertical": self.vertical,
+            "outcome_category": self.outcome_category,
         }
 
     @classmethod
@@ -130,6 +137,8 @@ class RLOutcome:
             timestamp=data.get("timestamp", datetime.now().isoformat()),
             metadata=metadata,
             vertical=data.get("vertical", "coding"),
+            # Legacy dicts predate the field; None defers to insert-time resolution.
+            outcome_category=data.get("outcome_category"),
         )
 
 

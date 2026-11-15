@@ -409,3 +409,18 @@ The deep analysis reveals that:
 6. **Provider routing is the most complex** — it depends on all other fixes and has second-order effects
 
 The specs are sound, but the implementation order matters. Fix measurement first, then metadata infrastructure, then the individual reliability improvements, and finally provider routing.
+
+---
+
+## Implementation ledger (2026-11-15)
+
+Status rows for the revised implementation order above. Update at each material
+milestone with exact PR/commit evidence; do not duplicate in other ledgers.
+
+| ID | Increment | State | Evidence |
+|----|-----------|-------|----------|
+| RLM-1 | P0 RL measurement integrity (`outcome_category`, FEP-0046, metrics column fix) | ACTIVE — owner: vjsingh1984 session, branch `feat/rl-outcome-category`, baseline `origin/develop@e8c70a6e4` | FEP-0046 draft; tests for taxonomy partition, precedence chain, v10 migration, lazy guard, metrics regression |
+| RLM-2 | P1 shared metadata infra + shell error classification (re-aimed at `tool_executor._emit_rl_tool_event`; `rl_tool_outcome` is legacy, zero writers) | TODO | blocked on RLM-1 merge |
+| RLM-3 | P1 graph-search instrumentation + index health | TODO | blocked on RLM-1 merge |
+| RLM-4 | P2 learner performance (quality_weights, continuation_prompts) | DATA-GATED | needs ≥2 weeks of post-RLM-1 categorized outcomes |
+| RLM-5 | P2 provider routing (task-aware, damped) | DATA-GATED | last; needs corrected per-provider metrics |

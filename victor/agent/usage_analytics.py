@@ -848,6 +848,10 @@ class UsageAnalytics:
                     "avg_tool_calls_per_session": summary.get("avg_tool_calls_per_session", 0.0),
                 },
                 vertical="general",
+                # FEP-0046: this row is an aggregation artifact riding the
+                # tool_selector learner under the pseudo task_type
+                # 'session_summary' — not a task outcome.
+                outcome_category="learner_internal",
             )
             coord.record_outcome("tool_selector", outcome)
             return True

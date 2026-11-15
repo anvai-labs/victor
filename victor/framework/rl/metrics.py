@@ -166,7 +166,7 @@ class RLMetricsExporter:
                     """
                     SELECT COUNT(*), SUM(success), AVG(quality_score)
                     FROM rl_outcome
-                    WHERE learner_name = ?
+                    WHERE learner_id = ?
                     """,
                     (learner_name,),
                 )
@@ -180,9 +180,9 @@ class RLMetricsExporter:
                 # Get last update time
                 cursor.execute(
                     """
-                    SELECT MAX(timestamp)
+                    SELECT MAX(created_at)
                     FROM rl_outcome
-                    WHERE learner_name = ?
+                    WHERE learner_id = ?
                     """,
                     (learner_name,),
                 )
@@ -191,7 +191,7 @@ class RLMetricsExporter:
                     metrics.last_update = row[0]
 
             except Exception as e:
-                logger.debug("Failed to get learner outcome stats: %s", e)
+                logger.warning("Failed to get learner outcome stats: %s", e)
 
         # Get exploration metrics from hooks
         if self._hooks is not None:
@@ -223,10 +223,12 @@ class RLMetricsExporter:
             try:
                 cursor = self._coordinator.db.cursor()
 
-                # Total outcomes and success rate
+                # Total outcomes and success rate. FEP-0046: task-level view —
+                # learner-internal check rows must not drag the system success rate.
                 cursor.execute("""
                     SELECT COUNT(*), SUM(success), AVG(quality_score)
                     FROM rl_outcome
+                    WHERE outcome_category = 'task'
                     """)
                 row = cursor.fetchone()
                 if row and row[0]:
@@ -235,9 +237,10 @@ class RLMetricsExporter:
                     metrics.overall_success_rate = success_count / metrics.total_outcomes
                     metrics.overall_quality = row[2] or 0.5
 
-                # Get active learners (those with outcomes)
+                # Get active learners (those with outcomes). A learner with only
+                # internal rows is still active, so no category filter here.
                 cursor.execute("""
-                    SELECT DISTINCT learner_name
+                    SELECT DISTINCT learner_id
                     FROM rl_outcome
                     """)
                 active = {row[0] for row in cursor.fetchall()}
@@ -248,7 +251,7 @@ class RLMetricsExporter:
                 metrics.total_learners = len(active)
 
             except Exception as e:
-                logger.debug("Failed to get system metrics: %s", e)
+                logger.warning("Failed to get system metrics: %s", e)
 
         # Get event counts from hooks
         if self._hooks is not None:

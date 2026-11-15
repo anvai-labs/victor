@@ -55,7 +55,8 @@ def db_connection():
             vertical TEXT,
             quality_score REAL,
             metadata TEXT,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            outcome_category TEXT DEFAULT 'task'
         )
     """)
 
@@ -200,6 +201,35 @@ class TestPatternDiscovery:
             insert_outcome(db_connection, "edit", "coding", 0.8)
 
         patterns = learner.get_shared_patterns()
+        assert len(patterns) == 0
+
+    def test_pattern_ignores_learner_internal_rows(self, learner, db_connection):
+        """FEP-0046: learner-internal check rows must not count toward shared
+        patterns (sample counts or averages) even when they share the
+        task_type/vertical of real task rows."""
+        # One task row per vertical: 2 samples < min_samples(3)
+        insert_outcome(db_connection, "edit", "coding", 0.8)
+        insert_outcome(db_connection, "edit", "devops", 0.85)
+        # Learner-internal rows that would push counts over the threshold
+        cursor = db_connection.cursor()
+        cursor.execute(
+            f"INSERT INTO {Tables.RL_OUTCOME} (learner, task_type, vertical, quality_score,"
+            " metadata, created_at, outcome_category) VALUES (?, ?, ?, ?, NULL, ?,"
+            " 'learner_internal')",
+            ("grounding_threshold", "edit", "coding", 0.1, "2026-11-15T00:00:00"),
+        )
+        cursor.execute(
+            f"INSERT INTO {Tables.RL_OUTCOME} (learner, task_type, vertical, quality_score,"
+            " metadata, created_at, outcome_category) VALUES (?, ?, ?, ?, NULL, ?,"
+            " 'learner_internal')",
+            ("grounding_threshold", "edit", "devops", 0.1, "2026-11-15T00:00:00"),
+        )
+        db_connection.commit()
+
+        patterns = learner.get_shared_patterns()
+
+        # 2 task samples < min_samples(3): internal rows must not close the
+        # gap (counting them would give 4 and discover a poisoned pattern).
         assert len(patterns) == 0
 
     def test_pattern_discovered_with_multiple_verticals(self, learner, db_connection):

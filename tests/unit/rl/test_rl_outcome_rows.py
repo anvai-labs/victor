@@ -31,7 +31,8 @@ from victor.framework.rl.coordinator import AsyncWriterQueue, BatchedOutcomeWrit
 
 COLUMNS = (
     "learner_id, provider, model, task_type, vertical, success, quality_score, "
-    "feedback_source, user_feedback, helpful, correction, session_id, turn_id"
+    "feedback_source, user_feedback, helpful, correction, session_id, turn_id, "
+    "outcome_category"
 )
 
 
@@ -82,6 +83,7 @@ EXPECTED = (
     "use X",
     "sess-meta",
     "turn-meta",
+    "task",  # FEP-0046: no event_type metadata + task-level learner -> 'task'
 )
 
 
@@ -108,7 +110,7 @@ def test_live_request_context_wins_over_metadata(coordinator, monkeypatch):
     monkeypatch.setattr("victor.core.context.get_turn_id", lambda: "turn-live")
     coordinator.record_outcome("tool_selector", _outcome(), "coding")
     (row,) = _rows(coordinator)
-    assert row[-2:] == ("sess-live", "turn-live")
+    assert row[-3:-1] == ("sess-live", "turn-live")
 
 
 def test_helpful_tristate(coordinator):
@@ -117,3 +119,54 @@ def test_helpful_tristate(coordinator):
         outcome.metadata["helpful"] = helpful
         coordinator.record_outcome("tool_selector", outcome, "coding")
     assert [row[9] for row in _rows(coordinator)] == [1, 0, None]
+
+
+# --- FEP-0046 outcome_category resolution precedence -------------------------
+
+
+def _category(coordinator) -> list:
+    cursor = coordinator.db.cursor()
+    cursor.execute(f"SELECT outcome_category FROM {Tables.RL_OUTCOME}")
+    return [row[0] for row in cursor.fetchall()]
+
+
+def test_category_learner_identity_default_internal(coordinator):
+    """Tier 3: learner-internal learner + no event_type -> learner_internal."""
+    coordinator.record_outcome("grounding_threshold", _outcome(), "coding")
+    assert _category(coordinator) == ["learner_internal"]
+
+
+def test_category_metadata_event_type_beats_learner_default(coordinator):
+    """Tier 2: an internal event_type on a task-level learner wins.
+
+    This is exactly the historical pollution shape: ``tool_selected`` rows
+    (placeholder success) recorded under ``tool_selector``.
+    """
+    outcome = _outcome()
+    outcome.metadata["event_type"] = "tool_selected"
+    coordinator.record_outcome("tool_selector", outcome, "coding")
+    assert _category(coordinator) == ["learner_internal"]
+
+
+def test_category_task_event_metadata_stays_task(coordinator):
+    """Tier 2 (negative): a task-level event_type keeps the row 'task'."""
+    outcome = _outcome()
+    outcome.metadata["event_type"] = "tool_executed"
+    coordinator.record_outcome("tool_selector", outcome, "coding")
+    assert _category(coordinator) == ["task"]
+
+
+def test_category_explicit_value_wins(coordinator):
+    """Tier 1: an explicitly set category overrides every inference."""
+    outcome = _outcome()
+    outcome.outcome_category = "learner_internal"
+    coordinator.record_outcome("tool_selector", outcome, "coding")
+    assert _category(coordinator) == ["learner_internal"]
+
+
+def test_category_unknown_event_type_falls_through(coordinator):
+    """Tier 2 (negative): an unmapped event_type string falls to learner default."""
+    outcome = _outcome()
+    outcome.metadata["event_type"] = "some_future_event"
+    coordinator.record_outcome("tool_selector", outcome, "coding")
+    assert _category(coordinator) == ["task"]

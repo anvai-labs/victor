@@ -56,6 +56,7 @@ The older `docs/feps/` 0001/0002 documents form a separate historical series.
 
 | [FEP-0040](fep-0040-codegraph-embedding-conformance.md) | CodeGraph embedding conformance across local and hosted stores | Accepted |
 | [FEP-0042](fep-0042-remove-versioned-chain-and-persona-registries.md) | Remove the versioned chain registry and persona provider (F-019 Phase 2) | Accepted |
+| [FEP-0046](fep-0046-rl-outcome-category.md) | RL outcome measurement integrity — outcome_category on rl_outcome | Draft |
 
 ## Submit or Update a Proposal
 
