@@ -124,15 +124,17 @@ class GitHistoryAnalyzer:
     FIXME_PATTERN = re.compile(r"FIXME[:\s]*(.+)", re.IGNORECASE)
     DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2}|v\d+\.\d+)")
 
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path, run_policy_snapshot: Any = None):
         """Initialize git history analyzer.
 
         Args:
             project_root: Root directory of the git repository
+            run_policy_snapshot: Opaque admitted policy supplied by a tool
         """
         self._project_root = Path(project_root)
         self._is_git_repo = self._check_git_repo()
         self._cache: Dict[str, FileHistory] = {}
+        self._run_policy_snapshot = run_policy_snapshot
 
     def _check_git_repo(self) -> bool:
         """Check if project root is in a git repository.
@@ -152,9 +154,31 @@ class GitHistoryAnalyzer:
         Returns:
             Command output as string
         """
+        from victor.tools.sandbox import resolve_required_launch
+
+        if self._run_policy_snapshot is not None:
+            sandbox_settings = self._run_policy_snapshot.to_sandbox_settings()
+        else:
+            try:
+                from victor.config.settings import get_settings
+
+                sandbox_settings = get_settings().sandbox
+            except Exception:
+                logger.debug("Temporal git policy unavailable; skipping git evidence")
+                return ""
+
+        decision = resolve_required_launch(sandbox_settings)
+        if decision.refuse:
+            logger.debug("Temporal git launch refused: %s", decision.reason)
+            return ""
+
+        argv = ["git"] + args
+        if decision.required_active and decision.backend is not None:
+            argv = decision.backend.wrap_argv(argv, self._project_root)
+
         try:
             result = subprocess.run(
-                ["git"] + args,
+                argv,
                 cwd=self._project_root,
                 capture_output=True,
                 text=True,
@@ -300,14 +324,18 @@ class TemporalContextAnalyzer:
     or permanent (require intentional fixes).
     """
 
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path, run_policy_snapshot: Any = None):
         """Initialize temporal context analyzer.
 
         Args:
             project_root: Root directory of the project
+            run_policy_snapshot: Opaque admitted policy supplied by a tool
         """
         self._project_root = Path(project_root)
-        self._git_analyzer = GitHistoryAnalyzer(self._project_root)
+        self._run_policy_snapshot = run_policy_snapshot
+        self._git_analyzer = GitHistoryAnalyzer(
+            self._project_root, run_policy_snapshot=run_policy_snapshot
+        )
 
     def estimate_temporal_nature(
         self,

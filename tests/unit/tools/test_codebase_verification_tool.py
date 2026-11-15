@@ -132,3 +132,83 @@ def test_batch_of_nothing(tools, project):
     result = asyncio.run(tools[1]([], exec_ctx=project))
     assert result["total"] == 0
     assert result["summary"]["verification_rate"] == 0.0
+
+
+def test_temporal_analysis_receives_framework_execution_snapshot(tools, project, monkeypatch):
+    admitted_policy = object()
+    captured = {}
+
+    class FakeTemporalAnalyzer:
+        def __init__(self, project_root, run_policy_snapshot=None):
+            captured["project_root"] = project_root
+            captured["run_policy_snapshot"] = run_policy_snapshot
+
+        def analyze_issue_temporal_context(self, _issue):
+            return {"temporal_nature": None}
+
+    import victor.tools.verification as verification_package
+
+    monkeypatch.setattr(verification_package, "TemporalContextAnalyzer", FakeTemporalAnalyzer)
+    result = asyncio.run(
+        tools[0](
+            "Resource leak in load",
+            file_path="pkg/io.py",
+            enable_temporal_analysis=True,
+            _exec_ctx={
+                "workspace_root": project["workspace_root"],
+                "run_policy_snapshot": admitted_policy,
+            },
+        )
+    )
+
+    assert result["success"] is True
+    assert captured["run_policy_snapshot"] is admitted_policy
+
+
+def test_legacy_exec_ctx_snapshot_cannot_weaken_required_policy(tools, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.config.settings import get_settings
+    from victor.runtime.policy_snapshot import RunPolicySnapshot
+    from victor.tools.sandbox import backends
+
+    (tmp_path / ".git").mkdir()
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "io.py").write_text("def load(path):\n    return open(path).read()\n")
+
+    disabled_settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="disabled")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: disabled_settings)
+    caller_snapshot = RunPolicySnapshot.from_settings(get_settings())
+    required_settings = SimpleNamespace(
+        sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+    )
+    monkeypatch.setattr("victor.config.settings.get_settings", lambda: required_settings)
+    monkeypatch.setattr(backends.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(backends.shutil, "which", lambda _name: None)
+
+    launched = []
+
+    def _run(argv, **_kwargs):
+        launched.append([str(value) for value in argv])
+        return None
+
+    monkeypatch.setattr("subprocess.run", _run)
+
+    result = asyncio.run(
+        tools[0](
+            "Resource leak in load",
+            file_path="pkg/io.py",
+            enable_temporal_analysis=True,
+            exec_ctx={
+                "workspace_root": str(tmp_path),
+                "run_policy_snapshot": caller_snapshot,
+            },
+        )
+    )
+
+    assert result["success"] is True
+    assert launched == []
