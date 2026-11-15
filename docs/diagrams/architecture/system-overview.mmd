@@ -17,11 +17,14 @@ flowchart TB
 
     subgraph Core["CORE LAYER"]
         direction LR
-        Prov["Providers (24+)<br/>Anthropic, OpenAI, Ollama..."]
+        Prov["Provider policies (25 adapters)<br/>Anthropic, OpenAI, Ollama..."]
         Tools["Tools (34 modules)<br/>File, Git, Testing..."]
         WFs["Workflows<br/>YAML DSL & Executor"]
         Verts["Verticals (9)<br/>Coding, DevOps, RAG..."]
     end
+
+    Models["Provider endpoints"]
+    Native["Explicit native-only adapters"]
 
     subgraph Infra["INFRASTRUCTURE LAYER"]
         direction LR
@@ -29,6 +32,7 @@ flowchart TB
         Events["Event Bus<br/>(Event Sourcing)"]
         Config["Configuration<br/>(Profiles & Settings)"]
         Storage["Storage<br/>(Cache & Conversations)"]
+        Sandhi["Sandhi for admitted providers<br/>direct FFI or gateway"]
         Bootstrap["Bootstrap<br/>(System Initialization)"]
     end
 
@@ -45,6 +49,10 @@ flowchart TB
 
     Conv --> ToolPipe
     ProvMgr --> Prov
+    Prov -->|"admitted families"| Sandhi
+    Prov -->|"classified exceptions"| Native
+    Sandhi --> Models
+    Native --> Models
 
     %% Orchestration to Core connections
     ToolPipe --> Tools
@@ -77,4 +85,7 @@ flowchart TB
     class CLI,HTTP,MCP clientStyle
     class Orch,Conv,ToolPipe,StreamCtrl,ProvMgr orchestrationStyle
     class Prov,Tools,WFs,Verts coreStyle
-    class DI,Events,Config,Storage,Bootstrap infraStyle
+    class DI,Events,Config,Storage,Sandhi,Bootstrap infraStyle
+    class Models endpointStyle
+
+    classDef endpointStyle fill:#F1F8E9,stroke:#558B2F,stroke-width:2px
