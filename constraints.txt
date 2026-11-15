@@ -21,22 +21,23 @@ numpy>=1.24,<2.6
 requests>=2.32,<2.35
 
 # OpenTelemetry packages must move as a family: API/SDK/exporters use 1.x,
-# instrumentation packages use matching 0.x beta versions. Semgrep 1.x pins
-# this family to API/SDK 1.37 and instrumentation 0.58b0.
-opentelemetry-api==1.37.0
-opentelemetry-exporter-otlp==1.37.0
-opentelemetry-exporter-otlp-proto-common==1.37.0
-opentelemetry-exporter-otlp-proto-grpc==1.37.0
-opentelemetry-exporter-otlp-proto-http==1.37.0
-opentelemetry-proto==1.37.0
-opentelemetry-sdk==1.37.0
-opentelemetry-instrumentation==0.58b0
-opentelemetry-instrumentation-asgi==0.58b0
-opentelemetry-instrumentation-fastapi==0.58b0
-opentelemetry-instrumentation-requests==0.58b0
-opentelemetry-instrumentation-threading==0.58b0
-opentelemetry-semantic-conventions==0.58b0
-opentelemetry-util-http==0.58b0
+# instrumentation packages use matching 0.x beta versions. 1.45.2/0.66b2
+# closes the high-severity OpenTelemetry API advisories; install Semgrep in
+# its own isolated environment because it still pins its own older family.
+opentelemetry-api==1.45.2
+opentelemetry-exporter-otlp==1.45.2
+opentelemetry-exporter-otlp-proto-common==1.45.2
+opentelemetry-exporter-otlp-proto-grpc==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+opentelemetry-proto==1.45.2
+opentelemetry-sdk==1.45.2
+opentelemetry-instrumentation==0.66b2
+opentelemetry-instrumentation-asgi==0.66b2
+opentelemetry-instrumentation-fastapi==0.66b2
+opentelemetry-instrumentation-requests==0.66b2
+opentelemetry-instrumentation-threading==0.66b2
+opentelemetry-semantic-conventions==0.66b2
+opentelemetry-util-http==0.66b2
 
-# OpenTelemetry instrumentation 0.58b0 requires wrapt >=1,<2.
-wrapt>=1.0,<2
+# OpenTelemetry instrumentation 0.66b2 requires wrapt <3,>=1.
+wrapt>=1.0,<3
