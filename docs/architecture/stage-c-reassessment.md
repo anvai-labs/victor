@@ -1,5 +1,12 @@
 # Stage C reassessment — 2026-10-04
 
+!!! warning "Historical snapshot"
+
+    This is the dated 2026-10-04 release/status audit. It superseded the earlier
+    September plan, but it does not describe the current Victor 0.29.2 release
+    baseline. Current publication and remaining work are reconciled in
+    [../roadmap.md](../roadmap.md). Preserve this record as provenance.
+
 !!! info "Stage C remains partially implemented"
 
     Workflow-engine consolidation and the original docs rollout are complete.

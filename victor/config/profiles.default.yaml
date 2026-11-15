@@ -16,7 +16,7 @@ profiles:
   # Primary default: self-hosted InferFlux (OpenAI-compatible, native
   # server-side tool calls, 32k effective context). Requires a reachable
   # server, e.g. from a Mac:
-  #   ssh -N -L 8080:127.0.0.1:8080 vsingh@aiserver1     # tunnel first
+  #   ssh -N -L 8080:127.0.0.1:8080 user@your-server     # tunnel first
   # Keyless deployments need nothing; if the server has api_keys configured:
   #   export INFERFLUX_API_KEY=...   (or ~/.victor/api_keys.yaml)
   # Verify: victor doctor
