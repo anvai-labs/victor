@@ -190,6 +190,25 @@ async def shell_tool(cmd: str) -> str:
 
         stdout = results.get("stdout", "").strip()
         stderr = results.get("stderr", "").strip()
+        failed = results.get("success") is False or results.get("return_code", 0) != 0
+
+        # Honesty fix (RLM-2): blocked/validation failures and non-zero exits
+        # used to render as plain STDOUT/STDERR sections — a failed command
+        # with no output even returned "Command executed successfully with no
+        # output.", hiding the failure from the agent AND from the RL signal
+        # (classify_result_marker sees no ❌ marker → recorded as success).
+        if failed:
+            error_text = (
+                results.get("error", "").strip()
+                or stderr
+                or f"Command failed with exit code {results.get('return_code', -1)}"
+            )
+            out = [f"### ❌ ERROR\n{error_text}"]
+            if stdout:
+                out.append(f"### STDOUT\n```text\n{stdout}\n```")
+            if stderr:
+                out.append(f"### STDERR\n```text\n{stderr}\n```")
+            return "\n\n".join(out)
 
         out = []
         if stdout:

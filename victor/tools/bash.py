@@ -23,6 +23,7 @@ import platform
 import re
 import shlex
 import shutil
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Set
@@ -53,6 +54,7 @@ from victor.security.shell_syntax import (
 )
 from victor.tools.base import AccessMode, DangerLevel, ExecutionCategory, Priority
 from victor.tools.decorators import tool
+from victor.tools.rl_signal import attach_tool_outcome_metadata
 
 # Dangerous commands that should be blocked
 # Consolidated dangerous command detection — single source of truth.
@@ -1047,6 +1049,84 @@ def _maybe_attribute_shell_git_commit(cmd: str) -> str:
     return " ".join(tokens)
 
 
+# --- Shell outcome classification (RLM-2, spec Phase 2) ----------------------
+#
+# Categories answer "why did this command fail?" from the result dict alone:
+#  none | timeout | permission | not_found | syntax | blocked | validation |
+#  exit_code | unknown. Recorded on the TOOL_EXECUTED RL event via
+#  ``attach_tool_outcome_metadata`` so rl_outcome rows become diagnosable.
+
+_BLOCKED_ERROR_PREFIXES = (
+    "Dangerous command blocked",
+    "Filesystem-wide searches are not allowed",
+    "blocked by readonly",
+    "not allowed in readonly",
+    "Readonly mode",
+)
+
+_VALIDATION_ERROR_PREFIXES = (
+    "Missing required parameter",
+    "is a documentation placeholder",
+    "Working directory does not exist",
+    "Missing required",
+    "Argument parsing error",
+)
+
+
+def _is_timeout_result(result: Dict[str, Any]) -> bool:
+    """True when the result describes a timeout (no explicit flag exists)."""
+    error = str(result.get("error", "") or "")
+    return result.get("return_code") == -1 and "timed out" in error.lower()
+
+
+def classify_shell_outcome(result: Dict[str, Any]) -> str:
+    """Classify a ``shell()`` result dict into an error category.
+
+    Defensive by contract: unknown or malformed inputs return ``"unknown"``
+    (or the applicable category reachable from partial data) — the classifier
+    must never raise.
+    """
+    try:
+        if not isinstance(result, dict):
+            return "unknown"
+        if result.get("success", True):
+            return "none"
+
+        error = str(result.get("error", "") or "")
+        error_lower = error.lower()
+        return_code = result.get("return_code")
+        stderr = str(result.get("stderr", "") or "").lower()
+
+        if _is_timeout_result(result):
+            return "timeout"
+        # Substring, not startswith: several producers prefix the error with
+        # the offending command (e.g. "'foo <bar>' is a documentation
+        # placeholder, not a command.").
+        if any(p in error for p in _BLOCKED_ERROR_PREFIXES):
+            return "blocked"
+        if any(p in error for p in _VALIDATION_ERROR_PREFIXES):
+            return "validation"
+        if (
+            return_code == 126
+            or "permission denied" in error_lower
+            or "permission denied" in stderr
+        ):
+            return "permission"
+        if (
+            return_code == 127
+            or "command not found" in error_lower
+            or "command not found" in stderr
+        ):
+            return "not_found"
+        if "syntax error" in error_lower or "syntax error" in stderr:
+            return "syntax"
+        if isinstance(return_code, int) and return_code != 0:
+            return "exit_code"
+        return "unknown"
+    except Exception:  # defensive: classification must never break the tool
+        return "unknown"
+
+
 @tool(
     category="execution",
     priority=Priority.CRITICAL,  # Always available
@@ -1170,6 +1250,44 @@ async def shell(
     Returns:
         Dict with stdout, stderr, return_code keys
     """
+    start = time.monotonic()
+    result = await _shell_impl(
+        cmd=cmd,
+        cwd=cwd,
+        timeout=timeout,
+        dangerous=dangerous,
+        readonly=readonly,
+        action=action,
+        stdout_limit=stdout_limit,
+        stderr_limit=stderr_limit,
+        _exec_ctx=_exec_ctx,
+    )
+    # Structured RL outcome metadata (RLM-2): classify here, where every
+    # early-return and subprocess path has already produced its result dict.
+    attach_tool_outcome_metadata(
+        error_category=classify_shell_outcome(result),
+        return_code=result.get("return_code"),
+        timed_out=_is_timeout_result(result),
+        duration_ms=round((time.monotonic() - start) * 1000, 1),
+        stdout_lines=result.get("stdout_lines", 0) or 0,
+        stderr_lines=result.get("stderr_lines", 0) or 0,
+        truncated=bool(result.get("truncated", False)),
+    )
+    return result
+
+
+async def _shell_impl(
+    cmd: str,
+    cwd: str = ".",
+    timeout: Optional[int] = None,
+    dangerous: bool = False,
+    readonly: bool = False,
+    action: str = "read",
+    stdout_limit: Optional[int] = None,
+    stderr_limit: Optional[int] = None,
+    _exec_ctx: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Execute a shell command (implementation body; see ``shell``)."""
     if not cmd:
         return {
             "success": False,
