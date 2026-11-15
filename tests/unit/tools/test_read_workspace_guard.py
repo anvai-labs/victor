@@ -22,6 +22,7 @@ guard now allows the project root plus every linked worktree root.
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -95,6 +96,92 @@ class TestDiscoverReadRoots:
         assert roots == frozenset({str(root)})
 
 
+class TestDiscoverReadRootPolicyBoundary:
+    """The fixed git discovery launch follows the admitted sandbox policy."""
+
+    @staticmethod
+    def _install_policy(monkeypatch, policy: str, backend_available: bool) -> None:
+        from victor.config.sandbox_settings import SandboxSettings
+        from victor.tools.sandbox import backends
+
+        settings = SimpleNamespace(
+            sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy=policy)
+        )
+        monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+        monkeypatch.setattr(backends.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(
+            backends.shutil,
+            "which",
+            lambda name: "/usr/bin/bwrap" if backend_available and name == "bwrap" else None,
+        )
+
+    @staticmethod
+    def _trap_launch(monkeypatch, launched: list[list[str]]) -> None:
+        def _run(argv: list[str], **_kwargs):
+            launched.append([str(value) for value in argv])
+            return MagicMock(returncode=1, stdout="")
+
+        monkeypatch.setattr("subprocess.run", _run)
+
+    def test_required_available_wraps_git_discovery(self, monkeypatch, tmp_path):
+        self._install_policy(monkeypatch, "required", backend_available=True)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        _discover_read_roots(tmp_path)
+
+        assert launched and launched[0][0] == "bwrap"
+        assert "git" in launched[0]
+
+    def test_required_unavailable_skips_git_discovery(self, monkeypatch, tmp_path):
+        self._install_policy(monkeypatch, "required", backend_available=False)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        roots = _discover_read_roots(tmp_path)
+
+        assert launched == []
+        assert roots == frozenset({str(tmp_path)})
+
+    @pytest.mark.parametrize("policy", ["disabled", "preferred"])
+    def test_non_required_policy_keeps_raw_git_discovery(self, monkeypatch, tmp_path, policy):
+        self._install_policy(monkeypatch, policy, backend_available=True)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        _discover_read_roots(tmp_path)
+
+        assert launched and launched[0][0] == "git"
+
+    def test_unreadable_policy_skips_git_discovery(self, monkeypatch, tmp_path):
+        def _unavailable():
+            raise RuntimeError("settings unavailable")
+
+        monkeypatch.setattr("victor.config.settings.get_settings", _unavailable)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        roots = _discover_read_roots(tmp_path)
+
+        assert launched == []
+        assert roots == frozenset({str(tmp_path)})
+
+    def test_admitted_snapshot_overrides_reloaded_required_settings(self, monkeypatch, tmp_path):
+        from victor.runtime.policy_snapshot import RunPolicySnapshot
+        from victor.config.settings import get_settings
+
+        self._install_policy(monkeypatch, "disabled", backend_available=True)
+        admitted = RunPolicySnapshot.from_settings(get_settings())
+        self._install_policy(monkeypatch, "required", backend_available=False)
+        launched: list[list[str]] = []
+        self._trap_launch(monkeypatch, launched)
+
+        roots = _discover_read_roots(tmp_path, admitted)
+
+        assert launched and launched[0][0] == "git"
+        assert str(tmp_path) in roots
+
+
 class TestReadGuardEndToEnd:
     @pytest.mark.asyncio
     async def test_read_rejects_genuine_outside_path(self, tmp_path):
@@ -114,6 +201,48 @@ class TestReadGuardEndToEnd:
         # around reads as a missing capability and the session gives up.
         assert "shell(cmd=" in result
         assert "VICTOR_EXTRA_READ_ROOTS" in result
+
+    @pytest.mark.asyncio
+    async def test_read_passes_exec_ctx_snapshot_to_git_discovery(self, monkeypatch, tmp_path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        target = project / "hello.py"
+        target.write_text("print('hi')\n")
+
+        from victor.config.sandbox_settings import SandboxSettings
+        from victor.config.settings import get_settings
+        from victor.runtime.policy_snapshot import RunPolicySnapshot
+        from victor.tools.sandbox import backends
+
+        settings = SimpleNamespace(
+            sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="disabled")
+        )
+        monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+        admitted = RunPolicySnapshot.from_settings(get_settings())
+        required = SimpleNamespace(
+            sandbox=SandboxSettings(sandbox_enabled=True, sandbox_policy="required")
+        )
+        monkeypatch.setattr("victor.config.settings.get_settings", lambda: required)
+        monkeypatch.setattr(backends.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(backends.shutil, "which", lambda _name: None)
+
+        launched: list[list[str]] = []
+
+        def _run(argv: list[str], **_kwargs):
+            launched.append([str(value) for value in argv])
+            return MagicMock(returncode=1, stdout="")
+
+        monkeypatch.setattr("subprocess.run", _run)
+        paths = MagicMock(project_root=str(project))
+
+        with patch(
+            "victor.config.settings.get_project_paths",
+            return_value=paths,
+        ):
+            result = await read(path=str(target), _exec_ctx={"run_policy_snapshot": admitted})
+
+        assert "hi" in result
+        assert launched and launched[0][0] == "git"
 
 
 class TestOutOfWorkspaceMessage:
