@@ -25,8 +25,9 @@ def test_table_constants_defined():
     assert Tables.LOCAL_CLASSIFIER_DELTA == "local_classifier_delta"
 
 
-def test_schema_version_bumped_to_9():
-    assert CURRENT_SCHEMA_VERSION == 9
+def test_schema_version_bumped_to_10():
+    # v9: FEP-0012 Phase 6 per-label delta; v10: FEP-0046 outcome_category.
+    assert CURRENT_SCHEMA_VERSION == 10
 
 
 def test_global_tables_registered_in_get_all_schemas():
