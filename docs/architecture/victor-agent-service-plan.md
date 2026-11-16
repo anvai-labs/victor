@@ -228,7 +228,7 @@ edit. A mock test is not live provider or C5 evidence.
   at 1024, closely matching the retained payload totals; retained memory fell
   to 0.0–0.1 MiB after a merger that discards payloads. This is local design
   evidence only, not a release performance claim. Draft
-  [FEP-0045](../feps/fep-0045-fanout-result-retention-budget.md) keeps the
+  [FEP-0045](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0045-fanout-result-retention-budget.md) keeps the
   default retain-all contract, defines logical retained-byte accounting, and
   chooses typed fail-closed overflow over truncation or durable spill. FEP
   validation and diff checks pass.
@@ -367,7 +367,7 @@ edit. A mock test is not live provider or C5 evidence.
   (`feat/run-policy-snapshot`), baseline `fc83a1bcd`; merged as squash
   `e671e56e7` with every applicable CI check green (including Vertical Py3.12,
   changed-file tests, full collection and both FEP validators). Draft
-  [FEP-0044](../feps/fep-0044-immutable-run-policy-snapshot.md). RED
+  [FEP-0044](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0044-immutable-run-policy-snapshot.md). RED
   (six intended failures after adding only the missing typed owner): buffered
   and streaming durable pauses had no `run_policy` metadata; unreadable
   settings reached chat-runtime resolution; and an approved paused write
