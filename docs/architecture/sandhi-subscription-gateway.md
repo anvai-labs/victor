@@ -2,7 +2,7 @@
 
 ## Coordinated execution-contract migration
 
-Victor's post-0.29.2 development line is the source candidate for published
+Victor's 0.30.0 source candidate is the release carrier for published
 `sandhi-gateway==0.20.0`. This consumer pin does not imply a service upgrade.
 The user authorized a coordinated migration because Victor is the sole client;
 there is no requirement to retain a permissive Sandhi legacy mode.
@@ -69,7 +69,7 @@ account headers and cache capabilities remain server owned.
 
 ### Independent gateway client dialect
 
-The Victor post-0.29.2 candidate and published Sandhi 0.20.0 support a local
+The Victor 0.30.0 candidate and published Sandhi 0.20.0 support a local
 starter with no client credential. A gateway URL deliberately selects that
 gateway before upstream account or API-key discovery:
 

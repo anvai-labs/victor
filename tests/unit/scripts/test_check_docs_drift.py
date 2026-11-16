@@ -56,6 +56,28 @@ def test_wrong_published_baseline_flagged_on_home_page():
     assert any("published baseline 0.12.0 != 0.29.2" in e for e in errs)
 
 
+def test_prepared_source_candidate_overrides_published_home_baseline():
+    errs = scan(
+        "docs/index.md",
+        "**Prepared source candidate:** Victor AI 0.30.0\n"
+        "**Published baseline:** Victor AI 0.29.2",
+        "0.30.0",
+        24,
+    )
+    assert errs == []
+
+
+def test_wrong_prepared_source_candidate_flagged_on_home_page():
+    errs = scan(
+        "docs/index.md",
+        "**Prepared source candidate:** Victor AI 0.29.2\n"
+        "**Published baseline:** Victor AI 0.29.2",
+        "0.30.0",
+        24,
+    )
+    assert any("prepared source candidate 0.29.2 != 0.30.0" in e for e in errs)
+
+
 def test_wrong_current_roadmap_release_flagged():
     errs = scan(
         "docs/roadmap.md",
@@ -74,6 +96,16 @@ def test_wrong_pages_promotion_release_flagged():
         24,
     )
     assert any("Pages promotion 0.12.0 != 0.29.2" in e for e in errs)
+
+
+def test_wrong_prepared_pages_release_candidate_flagged():
+    errs = scan(
+        "docs/development/docs-publishing.md",
+        "Prepared release source | Victor 0.29.2 promotion candidate",
+        "0.30.0",
+        24,
+    )
+    assert any("Pages promotion 0.29.2 != 0.30.0" in e for e in errs)
 
 
 def test_historical_release_references_are_not_broadly_flagged():

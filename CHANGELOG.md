@@ -5,9 +5,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.29.2] - 2026-11-15
+## [0.30.0] - 2026-11-16
 
-Prepared package version: **0.29.2**. This source candidate is not yet released.
+Prepared package version: **0.30.0**. This source candidate is not yet released.
+
+### Changed
+
+- Pin the published `sandhi-gateway==0.20.0` binding across the project manifest
+  and root, API, and CPU-embeddings deployment locks. The official Linux wheel,
+  native module, immutable Linux proxy archive and extracted release binary are
+  digest-qualified; 48 binding/contract tests and 16 real public Agent/tool-loop
+  cases pass against the published artifacts. Hierarchical rolling budget windows
+  remain owned by Sandhi, and no managed-service upgrade or live provider call is
+  claimed here.
+- Add the FEP-0046 RL `outcome_category` schema migration (core schema v10).
+  Historical rows are deterministically backfilled, task outcomes remain separate
+  from learner-internal checks, metrics/export rows preserve outcome provenance,
+  and unversioned stores fail closed until migrated.
+- Publish structured shell and graph-tool outcomes through the owned RL signal
+  channel. Shell failures and graph diagnostics retain typed categories without
+  mutating model-visible results, and the signal holder is drained after tool
+  emission so metadata cannot leak into an unrelated call.
+- Add server-owned scope, reservation, lease, connection, turn, revocation and
+  restart-epoch admission to the internal web session store. Exact-scope lookup
+  and denial happen before session publication; wire-route ownership changes
+  remain separate.
+- Make gateway activation explicit. `SANDHI_GATEWAY_URL` no longer activates a
+  gateway by itself; nested `${SANDHI_GATEWAY_URL}` references expand recursively,
+  missing references fail closed, and partial gateway credentials or mode without a
+  URL refuse instead of silently selecting direct-provider dispatch.
+
+### Fixed
+
+- Gate auto-commit, workspace-snapshot and UI `/commit` Git workflows through one
+  admitted launch decision per logical operation. Required-unavailable and
+  unreadable policies refuse before Git, model or file effects; required+available
+  wraps every child operation.
+- Make documentation release drift, strict MkDocs construction and built-site
+  link/anchor checks deployment prerequisites, and reconcile the public 0.29.2
+  delivery state. Local and installed release evidence remain separate gates.
+- Replace environment-specific doctor examples with generic, non-revealing
+  examples.
+
+## [0.29.2] - Published 2026-11-15
+
+Published package version: **0.29.2**.
 
 ### Changed
 
