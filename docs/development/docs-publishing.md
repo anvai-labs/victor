@@ -7,8 +7,9 @@ MkDocs Material supplies navigation, search, API rendering and Mermaid diagrams.
 
 | Deployment fact | Current value |
 | --- | --- |
-| Last verified successful Pages source | `main` `353d5e8871444bdc5ce3ce7729b129b1c2b630e5`, 2026-11-15; Victor 0.29.2 promotion |
-| Workflow run | [43729659516](https://github.com/anvai-labs/victor/actions/runs/43729659516) succeeded |
+| Last verified successful Pages source | `main` `0c0da40dac0312810e305e3011c924e4e3b68c7a`, 2026-11-16; Victor 0.29.2 corrected-documentation promotion |
+| Workflow run | [43801742742](https://github.com/anvai-labs/victor/actions/runs/43801742742) build and deploy succeeded |
+| Live verification | Home `Published baseline` and roadmap current section both identify Victor AI 0.29.2; stale 0.12.0 current markers are gone |
 | Develop preview | Built in pull-request CI; published after the next main promotion |
 
 !!! tip "Page shape"

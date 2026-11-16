@@ -67,6 +67,21 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **PROMOTION-028 — MERGED** (2026-11-16), owner: Codex framework-review
+  continuation and release owner. PR
+  [#1858](https://github.com/anvai-labs/victor/pull/1858) merged `develop`
+  `79aa8b2a8` to `main` as `0c0da40da` after the complete promotion battery,
+  including the repaired RL schema-version contract from #1861. The promotion
+  published the corrected Victor 0.29.2 home/roadmap/install/tech-stack/Pages
+  records and made release-drift checks, strict MkDocs builds, and blocking
+  built-site link checks Pages prerequisites. Documentation workflow
+  [43801742742](https://github.com/anvai-labs/victor/actions/runs/43801742742)
+  completed build and deployment for the exact main head. Live verification
+  confirmed the home published baseline and roadmap current section identify
+  Victor AI 0.29.2 and no longer present 0.12.0 as current. This was a source
+  and Pages promotion only: no new tag, package publication, release, provider
+  soak, or managed deployment is claimed.
+
 - **VAS-05ag — MERGED** (2026-11-15), owner: Codex framework-review continuation;
   branch `fix/slash-commit-policy-gate`, baseline `8dbb6ab1a`. Next action:
   PR [#1855](https://github.com/anvai-labs/victor/pull/1855) merged as squash
