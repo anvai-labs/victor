@@ -13,7 +13,7 @@
     - Framework APIs delegate to service-owned runtime behavior.
     - `AgentOrchestrator` composes and delegates; it is not a second service layer.
     - Admitted provider families execute through one typed Sandhi boundary; native-only
-      protocol adapters are explicit exceptions.
+      protocol and execution models are explicit exceptions.
     - Providers, tools, storage, and core utilities supply infrastructure.
     - External vertical definitions depend on `victor_contracts` only.
 
