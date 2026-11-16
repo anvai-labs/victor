@@ -894,6 +894,11 @@ RELATED_TESTS = {
         "tests/unit/commands/test_slash_commands.py",
         "tests/unit/commands/test_slash_registry_collisions.py",
     ),
+    "victor/ui/slash/commands/navigation.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
+        "tests/unit/commands/test_commit_command_policy.py",
+    ),
     "victor/ui/slash/commands/status.py": (
         "tests/unit/commands/test_slash_commands.py",
         "tests/unit/commands/test_slash_registry_collisions.py",
