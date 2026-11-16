@@ -1083,14 +1083,15 @@ def test_resolve_provider_gateway_env_fallback_per_provider_then_global(monkeypa
     assert base["gateway"]["virtual_key"] == "vk_global"
 
 
-def test_resolve_provider_gateway_rejects_credentials_without_url(monkeypatch):
+def test_resolve_provider_gateway_drops_credentials_without_url(monkeypatch):
+    """Gateway credentials without URL → direct mode (gateway dropped)."""
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
     settings = {"gateway": {"virtual_key": "vk_test"}}
-    with pytest.raises(ValueError, match="gateway URL"):
-        resolve_provider_gateway(settings, "openai")
-    assert settings["gateway"]["virtual_key"] == "vk_test"
+    resolve_provider_gateway(settings, "openai")
+    # Gateway is dropped because there's no URL — direct mode
+    assert "gateway" not in settings
 
 
 def test_resolve_provider_gateway_drops_only_empty_block_without_url(monkeypatch):
@@ -1626,15 +1627,18 @@ def test_gateway_root_normalization_strips_v1_and_v1beta():
     assert _normalize_gateway_root("http://gw:8600/somev1") == "http://gw:8600/somev1"
 
 
-def test_resolve_provider_gateway_uses_url_env_fallback(monkeypatch):
+def test_resolve_provider_gateway_ignores_env_var_without_explicit_url(monkeypatch):
+    """Env var SANDHI_GATEWAY_URL is NOT auto-used — must be explicitly referenced."""
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.setenv("SANDHI_GATEWAY_URL", "https://env-gw:8600")
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY", raising=False)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_ACME", raising=False)
+    # Gateway block with virtual_key but no URL → direct mode (env var ignored)
     settings: dict = {"gateway": {"virtual_key": "vk_x"}}
     resolve_provider_gateway(settings, "acme")
-    assert settings["gateway"]["url"] == "https://env-gw:8600"
+    # Gateway is dropped because there's no explicit URL
+    assert "gateway" not in settings
 
 
 def test_resolve_provider_gateway_canonicalizes_v1_suffix(monkeypatch):
@@ -1646,19 +1650,20 @@ def test_resolve_provider_gateway_canonicalizes_v1_suffix(monkeypatch):
     assert settings["gateway"]["url"] == "https://gw:8600"
 
 
-def test_env_only_gateway_config_materializes_a_block(monkeypatch):
-    """SANDHI_GATEWAY_URL + virtual key, no per-provider YAML block at all."""
+def test_env_only_gateway_config_does_not_activate_gateway(monkeypatch):
+    """Env vars alone (without explicit config) do NOT activate gateway mode.
+    
+    The SANDHI_GATEWAY_URL env var must be explicitly referenced in config
+    (e.g., ``url: ${SANDHI_GATEWAY_URL}``) to activate gateway mode.
+    """
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.setenv("SANDHI_GATEWAY_URL", "https://env-gw:8600")
     monkeypatch.setenv("SANDHI_GATEWAY_VIRTUAL_KEY", "vk_env")
     settings: dict = {}
     resolve_provider_gateway(settings, "acme")
-    assert settings["gateway"] == {
-        "url": "https://env-gw:8600",
-        "virtual_key": "vk_env",
-        "auth_mode": "tokens",
-    }
+    # No gateway block → direct mode (env vars are not auto-used)
+    assert "gateway" not in settings
 
 
 def test_no_gateway_anywhere_leaves_settings_untouched(monkeypatch):

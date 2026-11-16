@@ -422,50 +422,51 @@ def _normalize_gateway_root(url: str) -> str:
 
 
 def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> None:
-    """Normalize and env-resolve a per-provider Sandhi gateway block in place.
+    """Normalize a per-provider Sandhi gateway block in place.
 
     The ``gateway`` block (loaded from ``profiles.yaml`` providers section as a
     ``ProviderGatewayConfig``) is normalized to a plain dict retaining its credential and grant
     so it can flow through ``**kwargs`` into the provider's ``extra_config`` and be
-    read by the Sandhi transport. The URL falls back to ``SANDHI_GATEWAY_URL`` when
-    the block omits it, and is canonicalized to the proxy ROOT (a trailing ``/v1``
-    or ``/v1beta`` is accepted and stripped — the transport derives the per-family
-    prefix). The virtual key is resolved from the block, else from a per-provider
-    env var (``SANDHI_GATEWAY_VIRTUAL_KEY_<PROVIDER>``), else the global
-    ``SANDHI_GATEWAY_VIRTUAL_KEY``. An empty block with no URL is dropped; explicit credentials or scope without
-    a URL are rejected. A URL without credentials selects starter mode; supplied
-    malformed credentials remain errors. Explicit OIDC or none mode suppresses
-    environment virtual-key fallback. The normalized block retains its resolved
-    auth_mode so omission cannot erase configured authentication intent.
+    read by the Sandhi transport. The URL is canonicalized to the proxy ROOT
+    (a trailing ``/v1`` or ``/v1beta`` is accepted and stripped — the transport
+    derives the per-family prefix). The virtual key is resolved from the block,
+    else from a per-provider env var (``SANDHI_GATEWAY_VIRTUAL_KEY_<PROVIDER>``),
+    else the global ``SANDHI_GATEWAY_VIRTUAL_KEY``.
+
+    Gateway resolution modes:
+    - ``gateway: null`` in profile → explicitly lib mode (in-process sandhi)
+    - No gateway block at all → lib mode (env var is NOT auto-used; reference it
+      explicitly in config as ``${SANDHI_GATEWAY_URL}`` if needed)
+    - Explicit gateway block with URL → gateway mode (external sandhi process)
+    - Explicit gateway block without URL → lib mode (gateway credentials are
+      meaningless without a URL, so they're silently dropped)
+
+    The ``SANDHI_GATEWAY_URL`` env var is only used when explicitly referenced
+    in the config file (e.g., ``url: ${SANDHI_GATEWAY_URL}``). It is NOT used
+    as an automatic fallback to prevent accidental gateway activation.
     """
     gateway = base_settings.get("gateway")
+    
     if gateway is not None and not isinstance(gateway, dict):
         if hasattr(gateway, "model_dump"):
             gateway = gateway.model_dump(exclude_unset=True)
         else:
             raise ValueError("gateway must be a configuration mapping")
+    
     if gateway is None:
-        # No block at all: gateway mode is off unless the env supplies a URL.
-        # Materialize a block from SANDHI_GATEWAY_URL so env-only configs
-        # (SANDHI_GATEWAY_URL + SANDHI_GATEWAY_VIRTUAL_KEY) work without any
-        # per-provider YAML.
-        if not os.environ.get("SANDHI_GATEWAY_URL", "").strip():
-            return
-        gateway = {}
+        # No gateway block (or explicitly null) → lib mode
+        return
+    
     if isinstance(gateway, dict):
         url = str(gateway.get("url") or "").strip()
     else:
         url = str(getattr(gateway, "url", "") or "").strip()
+    
     if not url:
-        # Required-field validation aside, an explicit empty url also means
-        # "take the env".
-        url = os.environ.get("SANDHI_GATEWAY_URL", "").strip()
-    if not url:
-        # Only an intentionally empty block means direct mode. Presence is
-        # authentication intent even when a supplied value is null/invalid or
-        # an unknown field would otherwise be discarded before validation.
-        if gateway:
-            raise ValueError("Gateway configuration requires an explicit gateway URL")
+        # No URL → lib mode (in-process sandhi, direct to provider).
+        # virtual_key and oidc are gateway-specific credentials — they're meaningless
+        # without a gateway URL, so we silently drop them. The provider's api_key
+        # (if any) flows through separately for direct provider authentication.
         base_settings.pop("gateway", None)
         return
     from victor.providers.gateway_contract import gateway_auth_mode, gateway_config
@@ -580,7 +581,10 @@ class ProviderConfigRegistry:
             if profile_overrides:
                 gateway_settings.update(profile_overrides)
                 if "base_url" in profile_overrides and "gateway" not in profile_overrides:
-                    gateway_settings.pop("gateway", None)
+                    # Profile wants direct connection — set gateway to None explicitly
+                    # so resolve_provider_gateway knows it was intentionally suppressed
+                    # (vs just not set, which would fall back to env var)
+                    gateway_settings["gateway"] = None
             resolve_provider_gateway(gateway_settings, resolved)
             if gateway_settings.get("gateway") is not None:
                 from victor.providers.gateway_contract import validate_gateway_auth
@@ -610,7 +614,7 @@ class ProviderConfigRegistry:
                 # provider-level gateway.  A profile that wants both a custom base_url
                 # AND a gateway must set gateway explicitly.
                 if "base_url" in profile_overrides and "gateway" not in profile_overrides:
-                    base_settings.pop("gateway", None)
+                    base_settings["gateway"] = None
 
             # Gateway mode was resolved once before direct credentials. Avoid
             # re-reading environment configuration after the account callback.

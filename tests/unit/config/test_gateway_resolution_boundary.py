@@ -104,21 +104,13 @@ def test_settings_gateway_skips_upstream_resolution_and_preserves_policy(provide
 @pytest.mark.parametrize(
     "gateway",
     [
-        {"url": "http://synthetic-upstream.invalid", "virtual_key": "synthetic"},
-        {**GATEWAY, "protocol": "chatgpt_responses"},
-        {"virtual_key": "synthetic"},
-        {"virtual_key": None},
-        {"oidc": None},
-        {"credential": None},
-        {"auth_mode": None},
-        {"api_key": "misplaced-credential"},
-        {"url": None},
-        {**GATEWAY, "virtual_key": 123},
-        {"url": GATEWAY["url"], "api_key": "misplaced-credential"},
-        {**GATEWAY, "url": "https://synthetic-gateway.example.test/v1/v1"},
-        {**GATEWAY, "url": "https://synthetic-gateway.example.test:bad"},
-        {**GATEWAY, "url": "https://synthetic-gateway.example.test:0"},
-        "malformed",
+        # Genuinely malformed gateways — should error
+        {**GATEWAY, "protocol": "chatgpt_responses"},  # invalid protocol
+        {**GATEWAY, "virtual_key": 123},  # virtual_key must be string
+        {**GATEWAY, "url": "https://synthetic-gateway.example.test/v1/v1"},  # double /v1
+        {**GATEWAY, "url": "https://synthetic-gateway.example.test:bad"},  # invalid port
+        {**GATEWAY, "url": "https://synthetic-gateway.example.test:0"},  # port 0
+        "malformed",  # not a dict
     ],
 )
 def test_malformed_gateway_refuses_before_any_upstream_resolution(provider, gateway):
@@ -142,6 +134,36 @@ def test_malformed_gateway_refuses_before_any_upstream_resolution(provider, gate
     account.assert_not_called()
     key.assert_not_called()
     probe.assert_not_called()
+
+
+@pytest.mark.parametrize("provider", ["lmstudio", "openai", "zai", "anthropic"])
+@pytest.mark.parametrize(
+    "gateway",
+    [
+        # Gateway credentials without URL — should fall back to direct mode
+        {"url": "http://synthetic-upstream.invalid", "virtual_key": "synthetic"},  # URL without gateway block
+        {"virtual_key": "synthetic"},
+        {"virtual_key": None},
+        {"oidc": None},
+        {"credential": None},
+        {"auth_mode": None},
+        {"api_key": "misplaced-credential"},
+        {"url": None},
+        {**GATEWAY, "url": "https://synthetic-gateway.example.test/v1", "api_key": "misplaced-credential"},
+    ],
+)
+def test_gateway_without_valid_url_falls_back_to_direct_mode(provider, gateway):
+    """Gateway block without valid URL → direct mode (gateway dropped)."""
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch(
+            "victor.config.provider_config_registry.get_provider_config_registry",
+            return_value=registry(),
+        ),
+    ):
+        result = Settings.get_provider_settings(fixture_settings({"gateway": gateway}), provider)
+    # Gateway is dropped because there's no valid URL — direct mode
+    assert result.get("gateway") is None
 
 
 def test_direct_settings_retains_account_and_strategy_precedence():
@@ -411,17 +433,20 @@ def test_declared_token_mode_resolves_the_documented_environment_key():
         {"url": None},
     ],
 )
-def test_raw_registry_missing_gateway_url_refuses_before_account_callback(gateway):
-    callback = Mock(side_effect=AssertionError("upstream account forbidden"))
+def test_raw_registry_missing_gateway_url_falls_back_to_direct_mode(gateway):
+    """Gateway credentials without URL → direct mode (gateway dropped, account callback runs)."""
+    callback = Mock(return_value={"api_key": "sk-account-key"})
     with patch.dict("os.environ", {}, clear=True):
-        with pytest.raises(ValueError, match="[Gg]ateway"):
-            registry().get_settings(
-                "openai",
-                fixture_settings({}),
-                profile_overrides={"gateway": gateway},
-                account_data_factory=callback,
-            )
-    callback.assert_not_called()
+        result = registry().get_settings(
+            "openai",
+            fixture_settings({}),
+            profile_overrides={"gateway": gateway},
+            account_data_factory=callback,
+        )
+    # Gateway is dropped because there's no URL — direct mode
+    assert result.get("gateway") is None
+    # Account callback should be called in direct mode
+    callback.assert_called_once()
 
 
 def test_intentionally_empty_gateway_block_keeps_direct_mode():
