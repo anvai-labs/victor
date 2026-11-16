@@ -41,10 +41,13 @@ async def test_explicit_member_gateway_needs_no_upstream_credential(monkeypatch)
     monkeypatch.setenv("SANDHI_GATEWAY_VIRTUAL_KEY_ZAI", "vk-test")
     key = MagicMock(side_effect=AssertionError("must not resolve upstream key"))
     monkeypatch.setattr("victor.config.api_keys.get_api_key", key)
+    parent_settings = SimpleNamespace(
+        providers={"zai": {"gateway": {"url": "http://127.0.0.1:18788/v1", "auth_mode": "tokens"}}}
+    )
     with patch(
         "victor.providers.factory.ManagedProviderFactory.create", new_callable=AsyncMock
     ) as create:
-        parent = SubAgentOrchestrator(SimpleNamespace(model="glm-5.3"))
+        parent = SubAgentOrchestrator(SimpleNamespace(model="glm-5.3", settings=parent_settings))
         await parent._resolve_override_provider("zai", "glm-5.3")
         assert create.call_args.kwargs["gateway"] == {
             "url": "http://127.0.0.1:18788",
@@ -55,17 +58,32 @@ async def test_explicit_member_gateway_needs_no_upstream_credential(monkeypatch)
         key.assert_not_called()
 
 
-async def test_invalid_member_gateway_cannot_inherit_parent(monkeypatch):
-    import pytest
+async def test_env_gateway_alone_does_not_activate_member_gateway(monkeypatch):
     from types import SimpleNamespace
 
     monkeypatch.setenv("SANDHI_GATEWAY_URL", "http://127.0.0.1:18788")
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_ZAI", raising=False)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY", raising=False)
-    with pytest.raises(ValueError, match="gateway resolution failed"):
+    with patch(
+        "victor.providers.factory.ManagedProviderFactory.create", new_callable=AsyncMock
+    ) as create:
         await SubAgentOrchestrator(SimpleNamespace(model="glm-5.3"))._resolve_override_provider(
             "zai", None
         )
+        assert "gateway" not in create.call_args.kwargs
+
+
+async def test_partial_member_gateway_cannot_inherit_parent(monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+
+    monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
+    parent = SimpleNamespace(
+        model="glm-5.3",
+        settings=SimpleNamespace(providers={"zai": {"gateway": {"virtual_key": "vk-member"}}}),
+    )
+    with pytest.raises(ValueError, match="Gateway configuration requires"):
+        await SubAgentOrchestrator(parent)._resolve_override_provider("zai", None)
 
 
 async def test_member_gateway_honors_provider_profile_block(monkeypatch):
