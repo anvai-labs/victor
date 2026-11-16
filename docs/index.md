@@ -8,9 +8,9 @@
     Victor is a contract-first agent framework for tool use, compiled workflows and
     multi-agent coordination across local and cloud providers.
 
-    **Published baseline:** Victor AI 0.29.2 (2026-11-15), which pinned
-    `sandhi-gateway==0.19.0`. **Development line:** post-release source now
-    qualifies and pins `sandhi-gateway==0.20.0` for the next prepared release.
+    **Prepared source candidate:** Victor AI 0.30.0 (2026-11-16), pinning the
+    qualified `sandhi-gateway==0.20.0` binding. **Published baseline:** Victor AI
+    0.29.2 (2026-11-15), which pinned `sandhi-gateway==0.19.0`.
 
 **Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.12+
 
@@ -72,12 +72,13 @@ flowchart TB
 
 ## Delivery State
 
-| Surface | Current post-0.29.2 source state | Remaining work |
+| Surface | Current 0.30.0 source-candidate state | Remaining work |
 | --- | --- | --- |
-| Release and artifacts | Victor AI 0.29.2, Victor native 0.29.2, native wheels, Docker images and release assets are published and verified | Registry publication is not live-provider or managed-service acceptance. |
-| Execution contract | Published 0.29.2 consumed `sandhi-gateway==0.19.0`; current source pins the qualified official `0.20.0` binding for the next release | A Victor version bump/release and separate deployment/provider-soak decisions remain open. |
+| Release and artifacts | Victor AI/native 0.30.0 source metadata is prepared; 0.29.2 remains the published artifact baseline | Protected release workflow, registry verification and installed-artifact smoke remain open. |
+| Execution contract | Current source pins the digest-qualified official `sandhi-gateway==0.20.0` binding | No managed-service upgrade, live provider call or unattended operation is claimed. |
 | Tool supply and teams | Unified turn pipeline, expanded formations, isolation and usage guards are included | Acceptance gaps remain tracked; this release does not certify every live formation. |
 | Runtime structure | Service-owned turn frame and lifecycle-owned retry are present; coordinator and policy work has advanced | Broader runtime inversion, general client routing, graph continuation and retained safety gaps remain open. |
+| RL measurement and sessions | Outcome-category schema v10, structured shell/graph diagnostics and server-owned scoped session admission are included | Broader learner/provider-routing optimization remains data-gated. |
 | Installation and verticals | Python 3.12/3.13 CI, Node 24 minimum, optional NumPy, Linux binaries, Docker publication and the Textual `tui` extra are current | Cross-vertical Black/mypy cleanup remains advisory tracked debt; data-analysis is clean. |
 
 !!! note
@@ -211,8 +212,8 @@ Contributions use conventional commits and the checks documented in the PR workf
 
 ## Current work and historical evidence
 
-The [roadmap](roadmap.md) distinguishes published 0.29.2 from subsequent develop
-changes and unfinished structural work. The
+The [roadmap](roadmap.md) distinguishes the prepared 0.30.0 source candidate,
+the published 0.29.2 artifact baseline, and unfinished structural work. The
 [Stage C reassessment](architecture/stage-c-reassessment.md) is a dated
 2026-10-04 snapshot, not the current release-status page.
 The [September co-design review](reviews/2026-09-03-codesign/README.md) preserves dated findings;

@@ -67,6 +67,26 @@ edit. A mock test is not live provider or C5 evidence.
 
 ## Current checkpoint
 
+- **VAS-20a — IN_REVIEW** (2026-11-16), owner: Codex framework-review continuation;
+  PR [#1877](https://github.com/anvai-labs/victor/pull/1877), branch
+  `chore/release-0.30.0`, final integration baseline `ba18718d4` after the
+  #1878 Foundations documentation/FEP integration.
+  Next action: full PR CI and clean review, then the protected promotion/release
+  sequence. Victor AI/native metadata synchronize at
+  0.30.0; Contracts, CodeGraph and vertical packages remain independent. The
+  changelog separates the 0.30.0 source candidate from the published 0.29.2
+  artifact baseline and records Sandhi 0.20, RL schema v10, shell/graph
+  diagnostics, scoped sessions and explicit gateway semantics. Docs distinguish
+  prepared versus published state and the release-drift gate covers prepared
+  candidates. Evidence: direct exact-head review plus dependency locks, make
+  format-check, version sync, docs
+  drift, strict MkDocs/built-site links, source mypy (2,263 files), repo
+  hygiene and diff checks pass; isolated wheel build produces
+  `victor_ai-0.30.0-py3-none-any.whl` with Sandhi 0.20; 40,793 tests collect
+  clean. Pages promotion #1873 merged with true merge `e2032d20` and workflow
+  43946651104 succeeded. No 0.30.0 protected promotion, tag, publication or live
+  acceptance is claimed.
+
 - **VAS-17a — MERGED** (2026-11-16), owner: Codex framework-review continuation;
   branch `feat/sandhi-0-20-pin`, final integration baseline `7c573abd9` after
   #1869. PR [#1872](https://github.com/anvai-labs/victor/pull/1872) merged as squash
@@ -3967,6 +3987,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-18 | Full mixed-team C5 verdict | VAS-17 | TODO | Six-Qwen/one-ZAI harness; unchanged deliverable/pytest/session/accounting gates; reviewed verdict on InferFlux #184 |
 | VAS-19 | Matched formation cohorts and remaining semantics | VAS-18 | TODO | Preserve ZAI reference, simpler explicitly labelled local tasks, all 12 formations + 3 policies; G72 opt-in strict hierarchy separately |
 | VAS-20 | OSS shared API/UI main promotion and release | VAS-16, VAS-17, VAS-14d | TODO | Full green promotion/release CI; publish server/SDK/VSIX/docs and compatibility matrix; verify installed artifacts |
+| VAS-20a | Prepare Victor 0.30.0 source release | VAS-17a, VAS-16, VAS-14d | IN_REVIEW | Owner: Codex framework-review continuation; PR [#1877](https://github.com/anvai-labs/victor/pull/1877), branch `chore/release-0.30.0`, final integration baseline `ba18718d4` after the #1878 Foundations documentation/FEP integration. Scope: version/changelog synchronization, current release-state docs, local version/docs/lint/type/packaging/collection gates, protected develop→main promotion and immutable v0.30.0 tagging. Local metadata/docs/packaging/collection gates and direct exact-head review pass; full PR CI and protected publication remain. No live acceptance is claimed |
 | VAS-21 | Cohesive product-family UI and reusable editor components across Victor, ProximaDB, Sandhi, Sandesha and AnvaiOps | VAS-00 | TODO | Parent stays open until shared token ownership, product adapters and cross-product acceptance pass; existing standalone OSS deployment remains supported |
 | VAS-21a | Review/version shared semantic token contract and publication boundary | VAS-00 | TODO | AnvaiOps source, Sandesha alignment, licenses/provenance, generated CSS adapters and drift check; no private checkout dependency |
 | VAS-21b | Align Sandhi dashboard with the family theme | VAS-21a | TODO | Sandhi-owned linked worktree/PR; adapt existing dashboard CSS/JS; preserve OIDC/key/public-read modes, protected controls, real data/empty/error states, responsive accessibility and standalone packaging |

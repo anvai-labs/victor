@@ -66,9 +66,13 @@ CANONICAL_VERSION_DOCS = frozenset(
 
 _VERSION_STAMP = re.compile(r"\*\*Version\*\*:\s*(\d+\.\d+\.\d+)")
 _CONF_RELEASE = re.compile(r'release\s*=\s*"(\d+\.\d+\.\d+)"')
+_PREPARED_BASELINE = re.compile(r"\*\*Prepared source candidate:\*\*\s*Victor AI\s+(\d+\.\d+\.\d+)")
 _PUBLISHED_BASELINE = re.compile(r"\*\*Published baseline:\*\*\s*Victor AI\s+(\d+\.\d+\.\d+)")
-_ROADMAP_NOW = re.compile(r"^## Now\b[^\n]*\bpublished\s+(\d+\.\d+\.\d+)", re.IGNORECASE)
-_PAGES_PROMOTION = re.compile(r"Victor\s+(\d+\.\d+\.\d+)\s+promotion", re.IGNORECASE)
+_ROADMAP_NOW = re.compile(r"^## Now\b.*?\b(?:prepared|published)\s+(\d+\.\d+\.\d+)", re.IGNORECASE)
+_PAGES_PROMOTION = re.compile(
+    r"Victor\s+(\d+\.\d+\.\d+)\s+(?:promotion(?:\s+candidate)?|source candidate)",
+    re.IGNORECASE,
+)
 # Public-facing minimum-version claims.  This deliberately does not match a
 # CI test matrix such as "Python 3.11, 3.12"—only a stated minimum such as
 # "Python 3.11+" or "requires Python >=3.11".
@@ -130,6 +134,7 @@ def scan_text(
     errors: List[str] = []
     check_version = label in CANONICAL_VERSION_DOCS
     python_minimum = python_minimum or expected_python_minimum()
+    has_prepared_baseline = bool(_PREPARED_BASELINE.search(text))
     for i, line in enumerate(text.splitlines(), 1):
         if check_version:
             for m in _VERSION_STAMP.finditer(line):
@@ -139,9 +144,14 @@ def scan_text(
                 if m.group(1) != version:
                     errors.append(f"{label}:{i} release {m.group(1)} != {version}")
             if label == "docs/index.md":
-                for m in _PUBLISHED_BASELINE.finditer(line):
+                baseline_matches = list(_PREPARED_BASELINE.finditer(line))
+                baseline_source = "prepared source candidate"
+                if not baseline_matches and not has_prepared_baseline:
+                    baseline_matches = list(_PUBLISHED_BASELINE.finditer(line))
+                    baseline_source = "published baseline"
+                for m in baseline_matches:
                     if m.group(1) != version:
-                        errors.append(f"{label}:{i} published baseline {m.group(1)} != {version}")
+                        errors.append(f"{label}:{i} {baseline_source} {m.group(1)} != {version}")
             if label == "docs/roadmap.md":
                 for m in _ROADMAP_NOW.finditer(line):
                     if m.group(1) != version:
