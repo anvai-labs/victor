@@ -260,8 +260,11 @@ edit. A mock test is not live provider or C5 evidence.
   scope/nonce/epoch token indexes. No wire route, public token format, or
   legacy compatibility behavior changes. Evidence: session-store owner 33
   passed; web-server boundary owner 6 passed; 40,797 tests collect clean;
-  Black, Ruff, mypy, repo-hygiene and diff checks clean. Next: independent
-  exact-head review, then PR and all applicable CI.
+  Black, Ruff, mypy, repo-hygiene and diff checks clean. Independent adversarial
+  exact-head review at implementation head `c3d4173b8` returned CLEAN: no
+  scope bypass, capacity race, stale token index, lock-held-across-work,
+  compatibility regression, test-realism, or tracker-scope finding. Next: PR
+  and all applicable CI.
 
 - **PROMOTION-026 — MERGED** (2026-11-14), owner: framework-review delivery
   session; PR [#1786](https://github.com/anvai-labs/victor/pull/1786) merged
@@ -3867,7 +3870,7 @@ VAS-17 released-foundation and C5 gates remain unchanged.
 | VAS-05j | Owner-scoped broadcast delivery (cross-owner denial) | VAS-05i | ✅ MERGED | [#1775](https://github.com/anvai-labs/victor/pull/1775), `5017f3511`. Branch `feat/owner-scoped-broadcast`, baseline `927b568ff`. RED: bob's tool-approval event delivered to alice's authenticated socket. Auth dep records `request.state.client_id`; `_broadcast_ws`/`_broadcast_agent_event` take explicit `owner_client_id`; tool/workflow/team routes bind it; execution state records owner at start; unbound internal broadcasts keep all-authenticated (guard test). API surface 275 passed; lint/type/collect clean. BackgroundAgentManager principal threading, cross-owner READ and scoped subscriptions remain open |
 | VAS-06 | Canonical session ownership and bounded admission | VAS-05b | TODO | Port/reuse web store semantics; scope by principal/workspace, concurrent-turn policy, pre-initialization admission and restart contract |
 | VAS-06a | Session ownership and bounded admission design gate | VAS-06 | ✅ MERGED | [#1814](https://github.com/anvai-labs/victor/pull/1814) squash `d6497ecb6`, baseline `af820b177`. Proposed ADR-034 defines immutable server-owned principal/workspace/session scope, scoped versioned tokens and store epoch, exact-scope acquisition, reservation-before-initialization, per-principal/global limits, bounded connections, one active turn, revocation and restart invalidation, plus VAS-06b–06d implementation gates and test matrix. Repo hygiene/diff/selector pass; all applicable CI green. No runtime/public-contract change or ADR acceptance claimed |
-| VAS-06b | Internal session scope and bounded admission contract | VAS-06a | LOCAL_PASS | Owner: Codex framework-review continuation; branch `feat/session-store-scope-admission`, task baseline `b86737ea0`, integration baseline `ed103d8e4`. RED collection failure retained on baseline; GREEN owner 33 + boundary 6, 40,797 collected, Black/Ruff/mypy/repo-hygiene/diff clean. Implements exact scope, reservations/leases, principal/global and connection bounds, one active turn, revocation and restart epoch without wire-route changes. Independent review/PR/CI remain |
+| VAS-06b | Internal session scope and bounded admission contract | VAS-06a | LOCAL_PASS | Owner: Codex framework-review continuation; branch `feat/session-store-scope-admission`, task baseline `b86737ea0`, integration baseline `ed103d8e4`; implementation head `c3d4173b8` reviewed CLEAN. RED collection failure retained on baseline; GREEN owner 33 + boundary 6, 40,797 collected, Black/Ruff/mypy/repo-hygiene/diff clean. Implements exact scope, reservations/leases, principal/global and connection bounds, one active turn, revocation and restart epoch without wire-route changes. PR/CI remain |
 | VAS-07 | Durable run admission, identity and status | VAS-06 | TODO | Reuse existing durable owners; same-key dedup/content conflict, reliable dispatch and honest recorded outcomes |
 | VAS-08 | Canonical FastAPI composition and web compatibility entry point | VAS-03, VAS-06, VAS-07 | TODO | One route/service owner; port web wire/session behavior, preserve supported old requests and startup entry points |
 | VAS-09 | Authoritative schemas and generated shared TS SDK | VAS-08 | TODO | OpenAPI/event schema generation, runtime boundary validation, deterministic generation and compatibility tests |
