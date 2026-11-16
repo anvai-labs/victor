@@ -58,3 +58,41 @@ def test_none_result_unchanged():
     hooks = _CaptureHooks()
     _emit(_make_executor(), hooks, success=False, result=None)
     assert hooks.events[0].success is False
+
+
+# --- RLM-2: structured outcome metadata drains into the event ----------------
+
+
+def test_emits_drained_tool_outcome_metadata():
+    """Fields attached by the tool land on the TOOL_EXECUTED event."""
+    from victor.tools.rl_signal import (
+        attach_tool_outcome_metadata,
+        drain_tool_outcome_metadata,
+        seed_tool_outcome_metadata,
+    )
+
+    seed_tool_outcome_metadata()
+    attach_tool_outcome_metadata(error_category="not_found", return_code=127, duration_ms=11.0)
+    hooks = _CaptureHooks()
+    _emit(_make_executor(), hooks, success=False, result="### ❌ ERROR\nfoo: command not found")
+
+    assert len(hooks.events) == 1
+    metadata = hooks.events[0].metadata
+    assert metadata["error_category"] == "not_found"
+    assert metadata["return_code"] == 127
+    assert metadata["duration_ms"] == 11.0
+    assert metadata["execution_time"] == 0.05
+    # Negative: the drain cleared the channel — nothing leaks to a later emit.
+    assert drain_tool_outcome_metadata() == {}
+
+
+def test_emits_without_attached_metadata_keeps_plain_event():
+    from victor.tools.rl_signal import drain_tool_outcome_metadata, seed_tool_outcome_metadata
+
+    seed_tool_outcome_metadata()  # seeded but nothing attached
+    hooks = _CaptureHooks()
+    _emit(_make_executor(), hooks, success=True, result={"success": True})
+
+    metadata = hooks.events[0].metadata
+    assert metadata == {"execution_time": 0.05}
+    assert drain_tool_outcome_metadata() == {}

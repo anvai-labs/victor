@@ -100,3 +100,74 @@ async def test_shell_tool_timebound_sync_background():
         # We expect the tool to detect pending task and return BackgroundTaskDef directly
         assert isinstance(result, BackgroundTaskDef)
         assert result.context == "shell_tool: sleep 1"
+
+
+# --- RLM-2: failure honesty (❌ marker for failed/blocked commands) -----------
+
+
+@pytest.mark.asyncio
+async def test_shell_tool_blocked_command_is_an_error_not_success():
+    """Negative regression: a blocked dangerous command used to render as
+    'Command executed successfully with no output.' — hiding the block from
+    the agent and from the RL signal (no ❌ marker → recorded as success)."""
+    with patch("victor.tools.unified.shell_tool.execute_bash", new_callable=AsyncMock) as mock_bash:
+        mock_bash.return_value = {
+            "success": False,
+            "error": "Dangerous command blocked: rm -rf /",
+            "stdout": "",
+            "stderr": "",
+            "return_code": -1,
+        }
+
+        result = await shell_tool('shell "rm -rf /"')
+
+        assert result.startswith("### ❌ ERROR")
+        assert "Dangerous command blocked" in result
+        assert "successfully" not in result
+
+
+@pytest.mark.asyncio
+async def test_shell_tool_nonzero_exit_renders_error_with_streams():
+    with patch("victor.tools.unified.shell_tool.execute_bash", new_callable=AsyncMock) as mock_bash:
+        mock_bash.return_value = {
+            "success": False,
+            "error": "Command failed with exit code 1: grep -q x file",
+            "stdout": "",
+            "stderr": "grep: no match",
+            "return_code": 1,
+        }
+
+        result = await shell_tool('shell "grep -q x file"')
+
+        assert result.startswith("### ❌ ERROR")
+        assert "exit code 1" in result
+        assert "### STDERR" in result
+        assert "grep: no match" in result
+
+
+@pytest.mark.asyncio
+async def test_shell_tool_failure_without_error_key_falls_back_to_exit_code():
+    with patch("victor.tools.unified.shell_tool.execute_bash", new_callable=AsyncMock) as mock_bash:
+        mock_bash.return_value = {"stdout": "partial", "stderr": "", "return_code": 3}
+
+        result = await shell_tool('shell "make build"')
+
+        assert result.startswith("### ❌ ERROR")
+        assert "exit code 3" in result
+        assert "### STDOUT" in result  # diagnostics preserved
+
+
+@pytest.mark.asyncio
+async def test_shell_tool_success_still_renders_streams_without_error_marker():
+    with patch("victor.tools.unified.shell_tool.execute_bash", new_callable=AsyncMock) as mock_bash:
+        mock_bash.return_value = {
+            "success": True,
+            "stdout": "all good",
+            "stderr": "",
+            "return_code": 0,
+        }
+
+        result = await shell_tool('shell "ls -la"')
+
+        assert "### ❌" not in result
+        assert "### STDOUT" in result
