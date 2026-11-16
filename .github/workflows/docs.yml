@@ -86,11 +86,13 @@ jobs:
       - name: Check family brand tokens
         run: python scripts/test_check_brand_tokens.py && python scripts/check_brand_tokens.py .
 
-      - name: Build documentation
-        run: mkdocs build
+      - name: Check documentation release drift
+        run: python scripts/ci/check_docs_drift.py
 
-      - name: Check built-site links and anchors (advisory)
-        continue-on-error: true
+      - name: Build documentation
+        run: mkdocs build --strict
+
+      - name: Check built-site links and anchors
         run: python scripts/ci/docs_link_check.py site
 
       - name: Upload artifact

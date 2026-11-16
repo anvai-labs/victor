@@ -46,6 +46,40 @@ def test_wrong_version_stamp_in_canonical_doc_flagged():
     assert any("version stamp 0.7.0 != 0.7.1" in e for e in errs)
 
 
+def test_wrong_published_baseline_flagged_on_home_page():
+    errs = scan(
+        "docs/index.md",
+        "**Published baseline:** Victor AI 0.12.0 (2026-10-04)",
+        "0.29.2",
+        24,
+    )
+    assert any("published baseline 0.12.0 != 0.29.2" in e for e in errs)
+
+
+def test_wrong_current_roadmap_release_flagged():
+    errs = scan(
+        "docs/roadmap.md",
+        "## Now — October 2026: published 0.12.0 and remaining Stage C",
+        "0.29.2",
+        24,
+    )
+    assert any("current roadmap release 0.12.0 != 0.29.2" in e for e in errs)
+
+
+def test_wrong_pages_promotion_release_flagged():
+    errs = scan(
+        "docs/development/docs-publishing.md",
+        "`main`, 2026-10-07; Victor 0.12.0 promotion",
+        "0.29.2",
+        24,
+    )
+    assert any("Pages promotion 0.12.0 != 0.29.2" in e for e in errs)
+
+
+def test_historical_release_references_are_not_broadly_flagged():
+    assert scan("docs/history.md", "Victor 0.12.0 was released in October", "0.29.2", 24) == []
+
+
 def test_wrong_python_minimum_flagged_anywhere():
     errs = scan("docs/anything.md", "Requires Python 3.10+", "0.7.1", 24, "3.11")
     assert any("Python minimum 3.10 != 3.11" in e for e in errs)
