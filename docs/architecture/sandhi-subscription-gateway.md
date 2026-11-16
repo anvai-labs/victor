@@ -2,8 +2,8 @@
 
 ## Coordinated execution-contract migration
 
-Victor **0.29.2** is the source candidate for published
-`sandhi-gateway==0.19.0`. This consumer pin does not imply a service upgrade.
+Victor's post-0.29.2 development line is the source candidate for published
+`sandhi-gateway==0.20.0`. This consumer pin does not imply a service upgrade.
 The user authorized a coordinated migration because Victor is the sole client;
 there is no requirement to retain a permissive Sandhi legacy mode.
 
@@ -19,9 +19,10 @@ An explicit transient provider rejection can still use the logical-call retry
 policy and keeps the same call identity across authorized attempts.
 
 Sandhi's four admitted typed streaming source families share source validation
-and actual token observation across embedded and accounted calls. Published 0.19.0
-includes the durable HTTP execution boundary, explicit gateway-peer contract and
-optional authentication profiles and model-scoped OIDC budgets. HTTP
+and actual token observation across embedded and accounted calls. Published 0.20.0
+retains the durable HTTP execution boundary, explicit gateway-peer contract,
+optional authentication profiles and model-scoped OIDC budgets, and adds
+hierarchical rolling budget windows. HTTP
 generation requires Sandhi's original file-backed durable ledger and paired accounting;
 Victor's embedded observation does not replace that server-owned execution contract.
 Portable/native delivery are separate contracts: meaningful native state must survive compatible native
@@ -29,18 +30,18 @@ delivery or be refused explicitly. Disjoint fresh/read/write/output token counts
 are evidence; cache policy and provider price schedules remain separate concerns.
 An embedded observation is not a gateway ledger receipt.
 
-The official published Sandhi 0.19.0 wheel is differentially qualified with this Victor source,
+The official published Sandhi 0.20.0 wheel is differentially qualified with this Victor source,
 including tool loops, cache splits, interrupted streams and refusal/no-replay paths.
 Keep Contracts and CodeGraph on their independent release lines. The matching
 Victor consumer remains subject to independent review, public-hosted CI and its
 own release gate. Deployment is a separate decision.
 
 The root, API and CPU-embeddings deployment locks carry the same exact Sandhi
-pin. The mandatory dependency resolves from the official PyPI 0.19.0 release.
-See the [published 0.19.0 consumer
-qualification](../reviews/sandhi-published-0.19.0-consumer-2026-11-15.md) for the
-wheel, native module and release-binary evidence. Earlier 0.17.x and 0.18.x
-records remain historical and do not substitute for this acceptance.
+pin. The mandatory dependency resolves from the official PyPI 0.20.0 release.
+See the [published 0.20.0 consumer
+qualification](../reviews/sandhi-published-0.20.0-consumer-2026-11-16.md) for the
+wheel, native module and release-binary evidence. The 0.17.x–0.19.x records
+remain historical and do not substitute for this acceptance.
 
 ### Explicit endpoint usage conventions
 
@@ -68,7 +69,7 @@ account headers and cache capabilities remain server owned.
 
 ### Independent gateway client dialect
 
-The Victor 0.29.2 candidate and published Sandhi 0.19.0 support a local
+The Victor post-0.29.2 candidate and published Sandhi 0.20.0 support a local
 starter with no client credential. A gateway URL deliberately selects that
 gateway before upstream account or API-key discovery:
 
@@ -79,11 +80,23 @@ providers:
       url: http://127.0.0.1:8600
 ```
 
-Alternatively set `SANDHI_GATEWAY_URL` to the local gateway and use the public
-`Agent.create(provider="openai", model="server-logical-alias")` API. Configure the
-backend and route on Sandhi first; its upstream credentials remain server-side.
-The starter uses one fixed server-owned identity and shared budget realm. Durable
-accounting, admission, cache compilation and token evidence still apply.
+Alternatively, reference `SANDHI_GATEWAY_URL` explicitly in provider
+configuration and use the public `Agent.create(provider="openai",
+model="server-logical-alias")` API:
+
+```yaml
+providers:
+  openai:
+    gateway:
+      url: ${SANDHI_GATEWAY_URL}
+```
+
+Configure the backend and route on Sandhi first; its upstream credentials remain
+server-side. Setting the environment variable alone does not activate gateway
+mode, and a referenced but unset variable is a configuration error rather than
+a silent direct-provider fallback. The starter uses one fixed server-owned
+identity and shared budget realm. Durable accounting, admission, cache
+compilation and token evidence still apply.
 
 Tokens and OIDC are optional selections. A supplied virtual key selects the
 client's token path; an OpenAI gateway `oidc` or `credential` configuration selects
@@ -99,7 +112,7 @@ Users do not create a fake key. The current binding requires a non-empty bearer,
 so Victor internally sends the fixed public `Bearer not-needed` marker in starter
 mode. It carries no identity or authority; a None-mode server ignores it and
 creates its own fixed principal. A protected server refuses it. Published Sandhi
-0.19.0 provides the starter server mode.
+0.20.0 provides the starter server mode.
 
 `gateway.protocol` accepts `chat_completions`, `anthropic_messages`, `responses`, or
 `gemini_generate_content`. It overrides the provider's direct protocol hint. With no
@@ -275,10 +288,54 @@ model: <model explicitly allowed on the virtual key>
 # gateway is passed in provider kwargs; a profile can use env resolution below
 ```
 
-Set `SANDHI_GATEWAY_URL` and `SANDHI_GATEWAY_VIRTUAL_KEY_OPENAI` only for that
-client process, or pass `gateway={url, virtual_key}` to `SandhiOpenAIProvider`.
-Do not set `OPENAI_API_KEY` to the subscription access token. Do not let global
-routing settings silently move message-hub's private triage to a cloud provider.
+For that client process, set `SANDHI_GATEWAY_URL`, explicitly reference it in
+the provider gateway URL, and optionally set
+`SANDHI_GATEWAY_VIRTUAL_KEY_OPENAI`; alternatively pass
+`gateway={url, virtual_key}` to `SandhiOpenAIProvider`. Do not set
+`OPENAI_API_KEY` to the subscription access token. Do not let global routing
+settings silently move message-hub's private triage to a cloud provider.
+
+## Gateway resolution modes
+
+Victor resolves gateway configuration in the following precedence order:
+
+| Configuration | Mode | Behavior |
+|---------------|------|----------|
+| No `gateway` block | Lib/Direct | Sandhi in-process, talks directly to provider |
+| `gateway: null` | Lib/Direct (explicit) | Same as above, env vars ignored |
+| All-empty `gateway` block | Lib/Direct (explicit) | Empty/null values carry no gateway intent |
+| Non-empty `gateway.url` | Gateway | Routes through external sandhi process |
+| Gateway credentials/mode without URL | Configuration error | Partial intent cannot select direct-provider dispatch |
+
+**Key insight:** `virtual_key` and `oidc` are gateway-specific credentials that
+authenticate with the gateway, not the provider. Without a gateway URL they are
+meaningless, and supplying them is a configuration error rather than permission to
+use a direct provider account. A top-level provider `api_key` flows through
+separately for direct provider authentication.
+
+**Environment variables:** `SANDHI_GATEWAY_URL` is only used when explicitly
+referenced in config (e.g., `url: ${SANDHI_GATEWAY_URL}`). It does not
+auto-activate gateway mode. This prevents accidental routing through external
+gateways when profiles intend direct provider access. A referenced but unset or
+empty variable is also a configuration error; it cannot become the literal string
+`${SANDHI_GATEWAY_URL}` or silently select direct mode.
+
+**Config example:**
+
+```yaml
+# Lib/direct mode (default) — no gateway block needed
+providers:
+  openai:
+    base_url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+
+# Gateway mode — explicit URL required
+providers:
+  openai:
+    gateway:
+      url: ${SANDHI_GATEWAY_URL}
+      virtual_key: ${SANDHI_GATEWAY_VIRTUAL_KEY}
+```
 
 ## Missing upstream recovery
 
@@ -626,8 +683,8 @@ host UID/GID, a read-only binary and CA, and a private writable state directory.
 Hostname and TLS verification stay enabled. Containers and the disposable IDM
 database are removed on exit. No live identity service or global DNS is changed.
 
-The released Sandhi 0.19.0 wheel and Victor's exact consumed pin have completed
-[separate published-artifact qualification](../reviews/sandhi-published-0.19.0-consumer-2026-11-15.md).
+The released Sandhi 0.20.0 wheel and Victor's exact consumed pin have completed
+[separate published-artifact qualification](../reviews/sandhi-published-0.20.0-consumer-2026-11-16.md).
 The local fixture records the actual release binary, IDM source and installed SDK
 hashes independently. Local acceptance, independent review, merged code and live
 deployment remain separate gates. This co-design does not publish Victor or
