@@ -269,14 +269,15 @@ def test_oidc_unsupported_provider_fails_before_secret_fallback():
         )
 
 
-def test_oidc_missing_gateway_url_cannot_disable_gateway(monkeypatch):
+def test_oidc_without_gateway_url_results_in_direct_mode(monkeypatch):
+    """OIDC credentials without a gateway URL → direct mode (gateway dropped)."""
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
-    with pytest.raises(ValueError, match="gateway URL"):
-        resolve_provider_gateway(
-            {"gateway": {"oidc": {"token_file": "/private/access.json"}}}, "openai"
-        )
+    settings = {"gateway": {"oidc": {"token_file": "/private/access.json"}}}
+    resolve_provider_gateway(settings, "openai")
+    # Gateway is dropped because there's no URL — direct mode
+    assert "gateway" not in settings
 
 
 @pytest.mark.asyncio
@@ -310,14 +311,19 @@ async def test_expired_oidc_prevents_public_inference_dispatch(monkeypatch, stre
 @pytest.mark.parametrize(
     "gateway", [{"virtual_key": "vk_test"}, {"virtual_key": ""}, {"grant": "owner"}]
 )
-def test_explicit_gateway_scope_without_url_fails_closed(monkeypatch, gateway):
+def test_explicit_gateway_credentials_without_url_results_in_direct_mode(monkeypatch, gateway):
+    """Gateway credentials without a URL → direct mode (gateway dropped).
+
+    virtual_key, oidc, and grant are gateway-specific credentials — they're
+    meaningless without a gateway URL, so they're silently dropped.
+    """
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
     settings = {"gateway": gateway}
-    with pytest.raises(ValueError, match="gateway URL"):
-        resolve_provider_gateway(settings, "openai")
-    assert settings["gateway"] == gateway
+    resolve_provider_gateway(settings, "openai")
+    # Gateway is dropped because there's no URL — direct mode
+    assert "gateway" not in settings
 
 
 def test_profile_base_url_suppresses_inherited_gateway():
