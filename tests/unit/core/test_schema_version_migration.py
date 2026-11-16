@@ -75,7 +75,7 @@ def test_legacy_db_migrates_and_persists_version():
     conn.execute(Schema.SYS_METADATA)
     conn.execute("CREATE TABLE _db_metadata (key TEXT, value TEXT)")
     conn.execute(
-        "CREATE TABLE rl_outcomes (id INTEGER PRIMARY KEY, created_at TEXT, repo_id TEXT, vertical TEXT)"
+        "CREATE TABLE rl_outcomes (id INTEGER PRIMARY KEY, learner_id TEXT NOT NULL, task_type TEXT, metadata TEXT, created_at TEXT, repo_id TEXT, vertical TEXT)"
     )
 
     _manager()._run_schema_version_migrations(conn)
@@ -201,7 +201,7 @@ def test_nested_migration_does_not_commit_caller_and_rolls_back_with_it():
         conn.execute("BEGIN")
         migrate(conn, "global")
         assert conn.in_transaction
-        assert _schema_version(conn) == "9"
+        assert _schema_version(conn) == str(CURRENT_SCHEMA_VERSION)
         conn.rollback()
         assert _schema_version(conn) == "7"
         assert (
@@ -267,11 +267,11 @@ def test_existing_column_requires_compatible_shape(column, passes):
     with sqlite3.connect(":memory:") as conn:
         _versioned(conn, "global", 3)
         conn.execute(
-            f"CREATE TABLE rl_outcome (created_at TEXT, repo_id TEXT, vertical TEXT, {column})"
+            f"CREATE TABLE rl_outcome (learner_id TEXT, task_type TEXT, metadata TEXT, created_at TEXT, repo_id TEXT, vertical TEXT, {column})"
         )
         if passes:
             migrate(conn, "global")
-            assert _schema_version(conn) == "9"
+            assert _schema_version(conn) == str(CURRENT_SCHEMA_VERSION)
         else:
             with pytest.raises(ValueError, match="Incompatible existing column"):
                 migrate(conn, "global")
@@ -333,7 +333,7 @@ def test_legacy_metadata_reconciliation(case):
         conn.commit()
         if case in {"new", "equal"}:
             migrate(conn, "global")
-            assert _schema_version(conn) == "9"
+            assert _schema_version(conn) == str(CURRENT_SCHEMA_VERSION)
             assert (
                 conn.execute("SELECT value FROM sys_metadata WHERE key='custom'").fetchone()[0]
                 == "kept"
@@ -397,12 +397,9 @@ def test_project_initialization_upgrades_before_current_indexes(tmp_path):
         conn.execute(LEGACY_DELTA)
     manager = ProjectDatabaseManager(tmp_path)
     try:
-        assert (
-            manager.get_connection()
-            .execute("SELECT value FROM _project_metadata WHERE key='schema_version'")
-            .fetchone()[0]
-            == "9"
-        )
+        assert manager.get_connection().execute(
+            "SELECT value FROM _project_metadata WHERE key='schema_version'"
+        ).fetchone()[0] == str(CURRENT_SCHEMA_VERSION)
         assert (
             manager.get_connection()
             .execute("SELECT name FROM sqlite_master WHERE name='idx_local_classifier_delta_type'")
@@ -432,7 +429,9 @@ def test_final_index_failure_rolls_back_schema_and_can_retry(monkeypatch):
             row[1] for row in conn.execute("PRAGMA table_info(local_classifier_delta)")
         }
         migrate(conn, "project", initialize=True)
-        assert conn.execute("SELECT value FROM _project_metadata").fetchone()[0] == "9"
+        assert conn.execute("SELECT value FROM _project_metadata").fetchone()[0] == str(
+            CURRENT_SCHEMA_VERSION
+        )
 
 
 def test_sql_block_parser_preserves_quoted_semicolons_comments_and_trigger():
@@ -515,9 +514,9 @@ def test_concurrent_migrators_reread_version_after_writer_admission(tmp_path, mo
             release.set()
         first.result(timeout=10)
         second.result(timeout=10)
-    assert calls == [(8, 9), (9, 9)]
+    assert calls == [(8, CURRENT_SCHEMA_VERSION), (CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION)]
     with sqlite3.connect(path) as conn:
-        assert _schema_version(conn) == "9"
+        assert _schema_version(conn) == str(CURRENT_SCHEMA_VERSION)
 
 
 @pytest.mark.parametrize(
@@ -615,3 +614,121 @@ def test_unversioned_target_rejects_invalid_legacy_version(versions):
             is None
         )
         assert conn.execute("SELECT value FROM _db_metadata").fetchall() == [(v,) for v in versions]
+
+
+# --- FEP-0046: v10 outcome_category migration --------------------------------
+
+_LEGACY_RL_OUTCOME = """
+CREATE TABLE rl_outcome (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    learner_id TEXT NOT NULL,
+    provider TEXT,
+    model TEXT,
+    task_type TEXT,
+    vertical TEXT DEFAULT '',
+    repo_id TEXT DEFAULT NULL,
+    success INTEGER,
+    quality_score REAL,
+    metadata TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+)
+"""
+
+
+def _legacy_outcome_row(
+    learner_id: str, metadata: str | None, success: int = 0, task_type: str = "code_generation"
+):
+    return (
+        learner_id,
+        "zai",
+        "glm-5.2",
+        task_type,
+        "coding",
+        None,
+        success,
+        0.5,
+        metadata,
+        None,
+    )
+
+
+def test_v10_adds_and_backfills_outcome_category():
+    """The backfill is deterministic: metadata.event_type first (an internal
+    event on a task-level learner wins), then learner_id, then 'task'."""
+    from victor.core.migrations import migrate
+
+    with sqlite3.connect(":memory:") as conn:
+        _versioned(conn, "global", 9)
+        conn.execute(_LEGACY_RL_OUTCOME)
+        conn.executemany(
+            "INSERT INTO rl_outcome (learner_id, provider, model, task_type, vertical,"
+            " repo_id, success, quality_score, metadata, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                # (a) internal event on the internal learner
+                _legacy_outcome_row("grounding_threshold", '{"event_type": "grounding_check"}'),
+                # (b) internal event recorded under a task-level learner — the
+                # historical pollution shape (tool_selected placeholder rows)
+                _legacy_outcome_row("tool_selector", '{"event_type": "tool_selected"}'),
+                # (c) no event metadata, internal learner identity
+                _legacy_outcome_row("model_selector", None),
+                # (d) no event metadata, task-level learner
+                _legacy_outcome_row("tool_selector", None, success=1),
+                # (e) malformed JSON metadata must not abort the migration
+                _legacy_outcome_row("tool_selector", "not-json{", success=1),
+                # (f) session_summary pseudo-bucket under tool_selector (no
+                # event_type) — deterministic marker closes that conflation too
+                _legacy_outcome_row(
+                    "tool_selector", '{"total_sessions": 3}', task_type="session_summary"
+                ),
+            ],
+        )
+        conn.commit()
+
+        migrate(conn, "global")
+
+        assert _schema_version(conn) == "10"
+        categories = [
+            row[0] for row in conn.execute("SELECT outcome_category FROM rl_outcome ORDER BY id")
+        ]
+        assert categories == [
+            "learner_internal",  # (a)
+            "learner_internal",  # (b) event_type beats task-level learner
+            "learner_internal",  # (c) learner identity
+            "task",  # (d)
+            "task",  # (e) malformed JSON falls through safely
+            "learner_internal",  # (f) session_summary pseudo-bucket
+        ]
+
+
+def test_v10_rerun_is_noop():
+    from victor.core.migrations import migrate
+
+    with sqlite3.connect(":memory:") as conn:
+        _versioned(conn, "global", 9)
+        conn.execute(_LEGACY_RL_OUTCOME)
+        conn.execute("INSERT INTO rl_outcome (learner_id) VALUES ('grounding_threshold')")
+        conn.commit()
+
+        migrate(conn, "global")
+        migrate(conn, "global")  # version-gated: must not re-ALTER or re-backfill
+
+        categories = [row[0] for row in conn.execute("SELECT outcome_category FROM rl_outcome")]
+        assert categories == ["learner_internal"]
+
+
+def test_v10_skips_when_rl_outcome_absent():
+    """The table= guard makes an absent rl_outcome a deliberate no-op."""
+    from victor.core.migrations import migrate
+
+    with sqlite3.connect(":memory:") as conn:
+        _versioned(conn, "global", 9)
+        conn.commit()
+
+        migrate(conn, "global")
+
+        assert _schema_version(conn) == "10"
+        assert (
+            conn.execute("SELECT name FROM sqlite_master WHERE name='rl_outcome'").fetchone()
+            is None
+        )

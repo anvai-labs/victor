@@ -199,7 +199,8 @@ class CrossVerticalLearner(BaseLearner):
         """
         cursor = self.db.cursor()
 
-        # Query for task types with consistent behavior across verticals
+        # Query for task types with consistent behavior across verticals.
+        # FEP-0046: task-level aggregation — exclude learner-internal check rows.
         cursor.execute(
             f"""
             SELECT
@@ -210,6 +211,7 @@ class CrossVerticalLearner(BaseLearner):
                 GROUP_CONCAT(DISTINCT vertical) as source_verticals
             FROM {Tables.RL_OUTCOME}
             WHERE quality_score IS NOT NULL
+              AND outcome_category = 'task'
             GROUP BY task_type
             HAVING vertical_count >= ? AND sample_count >= ?
             ORDER BY avg_quality DESC
@@ -351,13 +353,14 @@ class CrossVerticalLearner(BaseLearner):
         Returns:
             RLRecommendation with cross-vertical insights
         """
-        # Check if target vertical has enough data
+        # Check if target vertical has enough data (task outcomes only, FEP-0046)
         cursor = self.db.cursor()
         cursor.execute(
             f"""
             SELECT COUNT(*)
             FROM {Tables.RL_OUTCOME}
             WHERE vertical = ? AND task_type = ?
+              AND outcome_category = 'task'
         """,
             (target_vertical, task_type),
         )
@@ -720,6 +723,7 @@ class CrossVerticalLearner(BaseLearner):
                 FROM {Tables.RL_OUTCOME}
                 WHERE vertical = ?
                   AND quality_score IS NOT NULL
+                  AND outcome_category = 'task'
                 GROUP BY task_type
                 HAVING cnt >= ?
                 """,

@@ -31,6 +31,8 @@ from victor.tools.code_search_tool import _get_or_build_index
 from victor.tools.context import ToolExecutionContext
 from victor.tools.decorators import tool
 
+from victor_coding.tools.graph_diagnostics import attach_graph_rl_diagnostics
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -3704,10 +3706,18 @@ async def _graph_tool_entry(*args: Any, **kwargs: Any) -> Dict[str, Any]:
     """Public ``graph`` tool entry point.
 
     Single seam over every ``_graph_impl`` return path: it bounds the result via
-    ``_bound_graph_result`` so no mode can emit an unbounded payload into context.
+    ``_bound_graph_result`` so no mode can emit an unbounded payload into context,
+    and publishes structured RL diagnostics (error category, timing, counts)
+    through the per-execution signal channel (RLM-3 instrumentation) — the
+    result dict itself is returned unchanged.
     """
+    start = time.monotonic()
     result = await _graph_impl(*args, **kwargs)
-    return _bound_graph_result(result)
+    bounded = _bound_graph_result(result)
+    # The executor's RL event carries the true called tool name (graph vs a
+    # focused alias like graph_search); diagnostics here stay seam-level.
+    attach_graph_rl_diagnostics(bounded, (time.monotonic() - start) * 1000.0)
+    return bounded
 
 
 # Present the wrapper to the @tool decorator (and the LLM schema) exactly as the

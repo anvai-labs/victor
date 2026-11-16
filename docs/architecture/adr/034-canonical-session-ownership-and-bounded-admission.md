@@ -228,7 +228,7 @@ shutdown, or provider close.
 
 ## References
 
-- [FEP-0039: Unified agent-service API](../../feps/fep-0039-unified-agent-service-api.md)
+- [FEP-0039: Unified agent-service API](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0039-unified-agent-service-api.md)
 - [Victor agent-service tracker](../victor-agent-service-plan.md)
 - `web/server/session_store.py`
 - `web/server/main.py`

@@ -894,6 +894,11 @@ RELATED_TESTS = {
         "tests/unit/commands/test_slash_commands.py",
         "tests/unit/commands/test_slash_registry_collisions.py",
     ),
+    "victor/ui/slash/commands/navigation.py": (
+        "tests/unit/commands/test_slash_commands.py",
+        "tests/unit/commands/test_slash_registry_collisions.py",
+        "tests/unit/commands/test_commit_command_policy.py",
+    ),
     "victor/ui/slash/commands/status.py": (
         "tests/unit/commands/test_slash_commands.py",
         "tests/unit/commands/test_slash_registry_collisions.py",
@@ -1179,6 +1184,19 @@ RELATED_TESTS = {
         "tests/unit/tools/test_tool_executor_unit.py",
         "tests/unit/agent/test_tool_pipeline.py",
         "tests/unit/agent/services/test_tool_retry.py",
+    ),
+    "victor/agent/auto_commit.py": (
+        "tests/unit/agent/test_auto_commit.py",
+        "tests/unit/agent/test_auto_commit_policy.py",
+    ),
+    "victor/agent/snapshot_store.py": (
+        "tests/unit/state/test_snapshots.py",
+        "tests/unit/security/test_snapshot_policy.py",
+    ),
+    "victor/runtime/policy_snapshot.py": (
+        "tests/unit/runtime/test_policy_snapshot.py",
+        "tests/unit/agent/test_auto_commit_policy.py",
+        "tests/unit/security/test_snapshot_policy.py",
     ),
     "victor/agent/factory/coordination_builders.py": (
         "tests/unit/framework/policies/test_builder_wiring.py",

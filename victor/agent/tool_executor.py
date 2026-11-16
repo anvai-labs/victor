@@ -61,6 +61,7 @@ from victor.core.retry import (
 from victor.tools.base import BaseTool, ToolResult, ToolValidationResult
 from victor.tools.enums import AccessMode, ExecutionCategory
 from victor.tools.registry import Hook, HookError, ToolRegistry
+from victor.tools.rl_signal import drain_tool_outcome_metadata, seed_tool_outcome_metadata
 from victor.tools.tool_names import get_canonical_name
 
 # RL hook integration (lazy import to avoid circular dependencies)
@@ -925,6 +926,11 @@ class ToolExecutor:
             self._complete_tool_call(call_id, False, error=result.error)
             return result
 
+        # Structured RL outcome channel (RLM-2): seed the contextvar holder so
+        # the tool can attach outcome metadata (error_category, return_code,
+        # timings) that _emit_rl_tool_event drains into the TOOL_EXECUTED event.
+        seed_tool_outcome_metadata()
+
         # Execute with retry
         result, success, error, retries, error_info, tool_images = await self._execute_with_retry(
             tool, normalized_args, exec_context
@@ -1180,6 +1186,10 @@ class ToolExecutor:
                 vertical=context.get("vertical", DEFAULT_VERTICAL),
                 metadata={
                     "execution_time": execution_time,
+                    # Structured tool-provided outcome fields (RLM-2): empty
+                    # for tools that do not attach them. Draining also clears
+                    # the holder so nothing leaks into a later event.
+                    **drain_tool_outcome_metadata(),
                 },
             )
 

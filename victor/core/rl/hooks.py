@@ -142,6 +142,69 @@ class RLEventType(str, Enum):
     Thompson posterior. Triggers: prompt_optimizer"""
 
 
+# --- Outcome category taxonomy (FEP-0046) -----------------------------------
+#
+# ``rl_outcome.success`` conflates two meanings: for task-level events it
+# records an outcome in the world (tool ran, workflow finished); for every
+# other event it records a learner's internal judgment (threshold check,
+# selection, cache hit). Tagging rows with ``outcome_category`` separates
+# them so task-level metrics stop counting learner-internal checks.
+
+OUTCOME_CATEGORY_TASK = "task"
+"""Outcome row describes an observable task-level effect."""
+
+OUTCOME_CATEGORY_LEARNER_INTERNAL = "learner_internal"
+"""Outcome row describes a learner-internal check or decision."""
+
+TASK_LEVEL_EVENTS: "frozenset[RLEventType]" = frozenset(
+    {
+        RLEventType.TOOL_EXECUTED,
+        RLEventType.WORKFLOW_STEP,
+        RLEventType.WORKFLOW_COMPLETED,
+        RLEventType.TEAM_COMPLETED,
+    }
+)
+"""Events whose ``success``/``quality_score`` describe an outcome in the world.
+
+The two sets partition ``RLEventType`` exactly; a test enforces the partition
+so every newly added event type forces a conscious classification."""
+
+LEARNER_INTERNAL_EVENTS: "frozenset[RLEventType]" = frozenset(
+    {
+        RLEventType.GROUNDING_CHECK,
+        RLEventType.QUALITY_ASSESSED,
+        RLEventType.SEMANTIC_MATCH,
+        RLEventType.CONTINUATION_ATTEMPT,
+        RLEventType.CONTINUATION_PROMPT,
+        RLEventType.CACHE_ACCESS,
+        RLEventType.TOOL_SELECTED,
+        RLEventType.MODEL_SELECTED,
+        # Placeholder-success bookkeeping: ``success=True`` is hardcoded at the
+        # emit site (mode_controller), not an observed outcome.
+        RLEventType.MODE_TRANSITION,
+        RLEventType.VERTICAL_SWITCH,
+        RLEventType.PROMPT_USED,
+        RLEventType.GEPA_EVOLUTION,
+        RLEventType.PROMPT_CANDIDATE_USED,
+    }
+)
+"""Events whose ``success`` describes a learner's internal state or decision."""
+
+
+def classify_event_category(event_type: RLEventType) -> str:
+    """Classify an event type into an ``outcome_category`` value.
+
+    Args:
+        event_type: The event type to classify.
+
+    Returns:
+        ``OUTCOME_CATEGORY_TASK`` or ``OUTCOME_CATEGORY_LEARNER_INTERNAL``.
+    """
+    if event_type in LEARNER_INTERNAL_EVENTS:
+        return OUTCOME_CATEGORY_LEARNER_INTERNAL
+    return OUTCOME_CATEGORY_TASK
+
+
 # Register domain event mapping with canonical EventType taxonomy
 def _register_rl_event_taxonomy() -> None:
     try:
@@ -411,6 +474,7 @@ class RLHookRegistry:
                 **event.metadata,
             },
             vertical=event.vertical,
+            outcome_category=classify_event_category(event.type),
         )
 
         # Record outcome via coordinator

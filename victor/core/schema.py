@@ -321,7 +321,8 @@ class Schema:
             success INTEGER,
             quality_score REAL,
             metadata TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
+            created_at TEXT DEFAULT (datetime('now')),
+            outcome_category TEXT DEFAULT 'task'
         )
     """
 
@@ -1283,7 +1284,94 @@ class Schema:
 #   fail/partial/pass). Redefined to one row per (decision_type, feature_hash,
 #   label) + a feature_spec_version guard. Only empty legacy tables may be
 #   replaced automatically; populated incompatible tables require reconciliation.
-CURRENT_SCHEMA_VERSION = 9
+# Version 10: FEP-0046 RL measurement integrity — outcome_category on rl_outcome
+#   separating observable task outcomes from learner-internal checks, plus a
+#   deterministic backfill (metadata.event_type first, then learner_id).
+CURRENT_SCHEMA_VERSION = 10
+
+
+# --- FEP-0046: shared v10 migration SQL --------------------------------------
+# Single source of truth for the versioned migration steps below AND the
+# coordinator's lazy guard (unversioned-modern stores skip versioned steps);
+# both paths must stay byte-identical.
+
+RL_OUTCOME_CATEGORY_INTERNAL_EVENT_TYPES: tuple[str, ...] = (
+    "grounding_check",
+    "quality_assessed",
+    "semantic_match",
+    "continuation_attempt",
+    "continuation_prompt",
+    "cache_access",
+    "tool_selected",
+    "model_selected",
+    "mode_transition",
+    "vertical_switch",
+    "prompt_used",
+    "gepa_evolution",
+    "prompt_candidate_used",
+)
+"""``RLEventType`` values whose outcomes are learner-internal (FEP-0046).
+
+Mirrors ``victor.core.rl.hooks.LEARNER_INTERNAL_EVENTS`` in plain SQL form; a
+unit test asserts the two stay in sync."""
+
+RL_OUTCOME_CATEGORY_INTERNAL_LEARNER_IDS: tuple[str, ...] = (
+    "grounding_threshold",
+    "quality_weights",
+    "semantic_threshold",
+    "continuation_patience",
+    "continuation_prompts",
+    "cache_eviction",
+    "model_selector",
+    "prompt_template",
+    "prompt_optimizer",
+    "mode_transition",
+    "context_pruning",
+)
+"""Learner ids whose outcomes are learner-internal (FEP-0046 tier-3 fallback).
+
+Mirrors ``victor.framework.rl.coordinator.LEARNER_INTERNAL_LEARNERS``; a unit
+test asserts the two stay in sync."""
+
+RL_OUTCOME_CATEGORY_COLUMN_DDL = (
+    f"ALTER TABLE {Tables.RL_OUTCOME} ADD COLUMN outcome_category TEXT DEFAULT 'task'"
+)
+
+RL_OUTCOME_CATEGORY_INTERNAL_PREDICATE_SQL = f"""(
+        (CASE WHEN metadata IS NULL OR json_valid(metadata) = 0 THEN NULL
+              ELSE json_extract(metadata, '$.event_type') END)
+        IN ({", ".join(f"'{v}'" for v in RL_OUTCOME_CATEGORY_INTERNAL_EVENT_TYPES)})
+        OR learner_id IN ({", ".join(f"'{v}'" for v in RL_OUTCOME_CATEGORY_INTERNAL_LEARNER_IDS)})
+        OR task_type = 'session_summary'
+    )"""
+"""Rows matching this predicate are learner-internal regardless of learner.
+
+``task_type = 'session_summary'`` is the deterministic marker of the usage
+analytics pseudo-bucket: aggregation artifacts recorded under ``tool_selector``
+without an ``event_type`` (FEP-0046 closes that conflation instance too).
+
+SQLite's ``ADD COLUMN ... DEFAULT`` fills existing rows at read time with the
+default (never NULL), so the backfill must match on the default-filled value,
+not on NULL. ``IS NOT`` is the null-safe inequality."""
+
+RL_OUTCOME_CATEGORY_BACKFILL_INTERNAL_SQL = f"""
+    UPDATE {Tables.RL_OUTCOME} SET outcome_category = 'learner_internal'
+    WHERE outcome_category IS NOT 'learner_internal'
+      AND {RL_OUTCOME_CATEGORY_INTERNAL_PREDICATE_SQL}
+"""
+
+RL_OUTCOME_CATEGORY_BACKFILL_TASK_SQL = (
+    f"UPDATE {Tables.RL_OUTCOME} SET outcome_category = 'task' " f"WHERE outcome_category IS NULL"
+)
+
+RL_OUTCOME_CATEGORY_PENDING_CHECK_SQL = f"""
+    SELECT 1 FROM {Tables.RL_OUTCOME}
+    WHERE outcome_category IS NULL
+       OR (outcome_category IS NOT 'learner_internal'
+           AND {RL_OUTCOME_CATEGORY_INTERNAL_PREDICATE_SQL})
+    LIMIT 1
+"""
+"""Cheap existence probe: does any row still need a backfill pass?"""
 
 
 MigrationScope = Literal["global", "project"]
@@ -1478,6 +1566,31 @@ def get_migration_steps(from_version: int, to_version: int) -> List[MigrationSte
                 table=Tables.LOCAL_CLASSIFIER_DELTA,
             ),
             MigrationStep("project", Schema.LOCAL_CLASSIFIER_DELTA),
+        ],
+        # Version 10 (FEP-0046): RL measurement integrity. Tag every rl_outcome
+        # row 'task' or 'learner_internal' so task-level metrics stop counting
+        # learner-internal checks. Backfill is deterministic from
+        # metadata.event_type first (tool_selector legitimately holds both
+        # task and internal event rows), then learner_id. All three steps are
+        # guarded no-ops on absent/absent-column tables via the table= flag and
+        # the IS NULL predicates; unversioned-modern stores rely on the
+        # coordinator's lazy guard instead (see RL_OUTCOME_CATEGORY_* above).
+        10: [
+            MigrationStep(
+                "global",
+                RL_OUTCOME_CATEGORY_COLUMN_DDL,
+                table=Tables.RL_OUTCOME,
+            ),
+            MigrationStep(
+                "global",
+                RL_OUTCOME_CATEGORY_BACKFILL_INTERNAL_SQL,
+                table=Tables.RL_OUTCOME,
+            ),
+            MigrationStep(
+                "global",
+                RL_OUTCOME_CATEGORY_BACKFILL_TASK_SQL,
+                table=Tables.RL_OUTCOME,
+            ),
         ],
     }
 

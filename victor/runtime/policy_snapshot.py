@@ -44,6 +44,25 @@ def run_policy_context(snapshot: RunPolicySnapshot) -> Iterator[None]:
         _current_run_policy_snapshot.reset(token)
 
 
+def resolve_admitted_sandbox_settings(run_policy_snapshot: Any = None) -> Any:
+    """Return explicit, current-run, or mutable-global sandbox settings.
+
+    Explicit admitted snapshots win over the current context, which wins over
+    a fresh global-settings read. Read failures propagate to the launch owner,
+    which must convert them into its typed policy-unavailable refusal.
+    """
+    if run_policy_snapshot is not None:
+        return run_policy_snapshot.to_sandbox_settings()
+
+    admitted_snapshot = current_run_policy_snapshot()
+    if admitted_snapshot is not None:
+        return admitted_snapshot.to_sandbox_settings()
+
+    from victor.config.settings import get_settings
+
+    return get_settings().sandbox
+
+
 @dataclass(frozen=True)
 class RunPolicySnapshot:
     """Typed immutable copy of the admitted sandbox policy.

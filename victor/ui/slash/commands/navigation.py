@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 from pathlib import Path
 
 from rich.panel import Panel
@@ -27,6 +28,48 @@ from victor.ui.slash.protocol import BaseSlashCommand, CommandContext, CommandMe
 from victor.ui.slash.registry import register_command
 
 logger = logging.getLogger(__name__)
+
+
+class CommitPolicyRefusal(RuntimeError):
+    """The UI commit command could not obtain an enforceable launch policy."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+def _resolve_commit_launch(settings: object):
+    """Resolve one policy decision for the complete UI commit operation."""
+    from victor.config.sandbox_settings import SandboxSettings
+    from victor.tools.sandbox import resolve_required_launch
+
+    try:
+        raw_settings = getattr(settings, "sandbox", None)
+        if raw_settings is None:
+            sandbox_settings = SandboxSettings()
+        else:
+            sandbox_settings = SandboxSettings.model_validate(raw_settings.model_dump())
+    except Exception as exc:
+        raise CommitPolicyRefusal(
+            "policy_unavailable",
+            f"Commit policy unavailable ({exc}); refusing git and model work.",
+        ) from exc
+
+    decision = resolve_required_launch(sandbox_settings)
+    if decision.refuse:
+        raise CommitPolicyRefusal(
+            "sandbox_required",
+            f"{decision.reason}; refusing UI commit git launch.",
+        )
+    return decision
+
+
+def _run_git(argv: list[str], *, decision, workspace_root: Path, **kwargs):
+    """Run one UI-commit git child through the shared launch decision."""
+    command = list(argv)
+    if decision.required_active and decision.backend is not None:
+        command = decision.backend.wrap_argv(command, workspace_root)
+    return subprocess.run(command, **kwargs)
 
 
 @register_command
@@ -366,17 +409,25 @@ class CommitCommand(BaseSlashCommand):
         if not self._require_agent(ctx):
             return
 
-        import subprocess
-
         from victor.core.attribution import append_victor_commit_attribution
+
+        try:
+            launch_decision = _resolve_commit_launch(ctx.settings)
+        except CommitPolicyRefusal as exc:
+            ctx.console.print(f"[red]Commit policy unavailable:[/] {exc}")
+            return
+
+        workspace_root = Path.cwd()
 
         # Check for staged changes
         try:
-            result = subprocess.run(
+            result = _run_git(
                 ["git", "status", "--porcelain"],
+                decision=launch_decision,
+                workspace_root=workspace_root,
                 capture_output=True,
                 text=True,
-                cwd=Path.cwd(),
+                cwd=workspace_root,
             )
             changes = result.stdout.strip()
 
@@ -397,11 +448,13 @@ class CommitCommand(BaseSlashCommand):
             ctx.console.print("[dim]Generating commit message...[/]")
 
             # Get diff for AI
-            diff_result = subprocess.run(
+            diff_result = _run_git(
                 ["git", "diff", "--staged", "--stat"],
+                decision=launch_decision,
+                workspace_root=workspace_root,
                 capture_output=True,
                 text=True,
-                cwd=Path.cwd(),
+                cwd=workspace_root,
             )
             diff_stat = diff_result.stdout[:1000]
 
@@ -426,24 +479,37 @@ class CommitCommand(BaseSlashCommand):
         commit_message = append_victor_commit_attribution(commit_message)
 
         # Stage all changes
-        subprocess.run(["git", "add", "-A"], cwd=Path.cwd())
+        stage_result = _run_git(
+            ["git", "add", "-A"],
+            decision=launch_decision,
+            workspace_root=workspace_root,
+            cwd=workspace_root,
+        )
+        if stage_result.returncode != 0:
+            stderr = getattr(stage_result, "stderr", "") or "unknown error"
+            ctx.console.print(f"[red]Stage failed:[/] {stderr}")
+            return
 
         # Commit
-        result = subprocess.run(
+        result = _run_git(
             ["git", "commit", "-m", commit_message],
+            decision=launch_decision,
+            workspace_root=workspace_root,
             capture_output=True,
             text=True,
-            cwd=Path.cwd(),
+            cwd=workspace_root,
         )
 
         if result.returncode == 0:
             ctx.console.print("[green]Committed successfully![/]")
             # Show short commit hash
-            hash_result = subprocess.run(
+            hash_result = _run_git(
                 ["git", "rev-parse", "--short", "HEAD"],
+                decision=launch_decision,
+                workspace_root=workspace_root,
                 capture_output=True,
                 text=True,
-                cwd=Path.cwd(),
+                cwd=workspace_root,
             )
             ctx.console.print(f"[dim]Commit: {hash_result.stdout.strip()}[/]")
         else:

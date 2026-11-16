@@ -65,6 +65,62 @@ def _correlation_for_outcome(outcome: Any) -> tuple:
         return (None, None)
 
 
+LEARNER_INTERNAL_LEARNERS: "frozenset[str]" = frozenset(
+    {
+        "grounding_threshold",
+        "quality_weights",
+        "semantic_threshold",
+        "continuation_patience",
+        "continuation_prompts",
+        "cache_eviction",
+        "model_selector",
+        "prompt_template",
+        "prompt_optimizer",
+        "mode_transition",
+        "context_pruning",
+    }
+)
+"""Learners whose recorded outcomes describe internal checks/decisions (FEP-0046).
+
+Tier-3 fallback of the category resolution chain; the authoritative source is
+``victor.core.rl.hooks.LEARNER_INTERNAL_EVENTS`` (metadata ``event_type``).
+Keep in sync with the v10 backfill migration in ``victor/core/schema.py``.
+"""
+
+
+def _resolve_outcome_category(learner_name: str, outcome: Any) -> str:
+    """Resolve the ``outcome_category`` for a row about to be persisted.
+
+    Precedence (FEP-0046):
+      1. ``outcome.outcome_category`` when the producer set it explicitly;
+      2. ``metadata['event_type']`` mapped through the event taxonomy —
+         catches event-shaped rows regardless of the learner they landed on
+         (e.g. historical ``tool_selected`` rows recorded under
+         ``tool_selector``);
+      3. learner-identity default via ``LEARNER_INTERNAL_LEARNERS``;
+      4. ``'task'`` (backward-compatible default for task-outcome learners).
+    """
+    from victor.core.rl.hooks import LEARNER_INTERNAL_EVENTS, OUTCOME_CATEGORY_TASK, RLEventType
+
+    explicit = getattr(outcome, "outcome_category", None)
+    if explicit:
+        return str(explicit)
+
+    meta = getattr(outcome, "metadata", None) or {}
+    event_type_value = meta.get("event_type")
+    if event_type_value:
+        try:
+            if RLEventType(event_type_value) in LEARNER_INTERNAL_EVENTS:
+                return "learner_internal"
+        except ValueError:
+            pass  # Unknown/legacy event_type string falls through to tier 3.
+
+    if learner_name in LEARNER_INTERNAL_LEARNERS:
+        return "learner_internal"
+
+    return OUTCOME_CATEGORY_TASK
+
+
 def _insert_outcome_row(cursor: Any, learner_name: str, outcome: Any, repo_id: Any) -> None:
     """Insert one ``rl_outcome`` row; the single writer for every record path.
 
@@ -74,14 +130,20 @@ def _insert_outcome_row(cursor: Any, learner_name: str, outcome: Any, repo_id: A
     """
     meta = outcome.metadata or {}
     helpful = meta.get("helpful")
+    category = _resolve_outcome_category(learner_name, outcome)
+    # Publish the resolution so the learner, the row, and telemetry agree.
+    try:
+        outcome.outcome_category = category  # type: ignore[attr-defined]
+    except AttributeError:
+        pass  # Duck-typed outcome objects tolerate a missing attribute.
     cursor.execute(
         f"""
         INSERT INTO {Tables.RL_OUTCOME} (
             learner_id, provider, model, task_type, vertical,
             repo_id, success, quality_score, metadata,
             feedback_source, user_feedback, helpful, correction,
-            session_id, turn_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            session_id, turn_id, outcome_category
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             learner_name,  # Maps to learner_id column
@@ -98,6 +160,7 @@ def _insert_outcome_row(cursor: Any, learner_name: str, outcome: Any, repo_id: A
             1 if helpful is True else (0 if helpful is False else None),
             meta.get("correction"),
             *_correlation_for_outcome(outcome),
+            category,
         ),
     )
 
@@ -573,6 +636,9 @@ class RLCoordinator:
         # Migrate schema: add Phase 1 columns (feedback_source, session_id, etc.)
         self._migrate_add_phase1_columns()
 
+        # Migrate schema: outcome_category + backfill (FEP-0046)
+        self._migrate_add_outcome_category()
+
         # Auto-register default learners
         self._register_default_learners()
 
@@ -602,6 +668,7 @@ class RLCoordinator:
         self._ensure_core_tables()
         self._migrate_add_repo_id()
         self._migrate_add_phase1_columns()
+        self._migrate_add_outcome_category()
 
     def _ensure_core_tables(self) -> None:
         """Create core tables for telemetry and cross-learner analysis."""
@@ -687,6 +754,45 @@ class RLCoordinator:
                 logger.info("RL: Migrated rl_outcome — added columns: %s", added)
         except Exception as e:
             logger.debug("RL: Phase 1 migration skipped: %s", e)
+
+    def _migrate_add_outcome_category(self) -> None:
+        """Ensure ``rl_outcome.outcome_category`` exists and is backfilled (FEP-0046).
+
+        Unversioned-modern stores are stamped at ``CURRENT_SCHEMA_VERSION``
+        without replaying versioned steps, so this lazy guard is the only
+        protection for them; without the column, every ``_insert_outcome_row``
+        call would fail (and be silently swallowed by ``record_outcome``).
+        DDL and backfill SQL are shared with the versioned v10 migration via
+        ``victor.core.schema`` — both paths stay byte-identical.
+        """
+        from victor.core.schema import (
+            RL_OUTCOME_CATEGORY_BACKFILL_INTERNAL_SQL,
+            RL_OUTCOME_CATEGORY_BACKFILL_TASK_SQL,
+            RL_OUTCOME_CATEGORY_COLUMN_DDL,
+            RL_OUTCOME_CATEGORY_PENDING_CHECK_SQL,
+        )
+
+        try:
+            cursor = self.db.cursor()
+            cursor.execute(f"PRAGMA table_info({Tables.RL_OUTCOME})")
+            columns = {row[1] for row in cursor.fetchall()}
+            added_column = False
+            if "outcome_category" not in columns:
+                cursor.execute(RL_OUTCOME_CATEGORY_COLUMN_DDL)
+                added_column = True
+            # Close classification gaps idempotently: SQLite fills existing
+            # rows with the column DEFAULT at read time (never NULL), so the
+            # probe matches default-filled/mis-classified rows, not just NULLs.
+            cursor.execute(RL_OUTCOME_CATEGORY_PENDING_CHECK_SQL)
+            needs_backfill = cursor.fetchone() is not None
+            if needs_backfill:
+                cursor.execute(RL_OUTCOME_CATEGORY_BACKFILL_INTERNAL_SQL)
+                cursor.execute(RL_OUTCOME_CATEGORY_BACKFILL_TASK_SQL)
+            if added_column or needs_backfill:
+                self.db.commit()
+                logger.info("RL: Migrated rl_outcome — outcome_category ensured/backfilled")
+        except Exception as e:
+            logger.warning("RL: outcome_category migration failed: %s", e)
 
     def set_session_provider(self, provider: str, model: str, base_url: str = "") -> None:
         """Set the session-scoped provider/model for GEPA reflection.

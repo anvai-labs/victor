@@ -7,8 +7,8 @@ MkDocs Material supplies navigation, search, API rendering and Mermaid diagrams.
 
 | Deployment fact | Current value |
 | --- | --- |
-| Last verified successful Pages source (2026-10-07 audit) | `main` `f9515e98e`, 2026-10-07; post-v0.12.0 source |
-| Workflow run | [37570194010](https://github.com/anvai-labs/victor/actions/runs/37570194010); deployment `6901486002` succeeded at 04:12:21 UTC |
+| Last verified successful Pages source | `main` `353d5e8871444bdc5ce3ce7729b129b1c2b630e5`, 2026-11-15; Victor 0.29.2 promotion |
+| Workflow run | [43729659516](https://github.com/anvai-labs/victor/actions/runs/43729659516) succeeded |
 | Develop preview | Built in pull-request CI; published after the next main promotion |
 
 !!! tip "Page shape"
@@ -28,7 +28,7 @@ From the repository root, in a virtual environment:
 
 ```bash
 pip install -r mkdocs-requirements.txt
-mkdocs build
+mkdocs build --strict
 python scripts/ci/docs_link_check.py site
 mkdocs serve
 ```
@@ -72,12 +72,10 @@ against the artifact as well. It makes no network requests, so it does not
 verify external URLs or the availability of the published site. Browser-generated
 diagram anchors are outside its scope.
 
-The checker returns a nonzero exit code for missing destinations or anchors.
-The workflow initially treats this step as advisory with `continue-on-error`,
-while the site build remains required for deployment. Review any findings in the
-Actions log; do not interpret a successful workflow as proof that advisory checks
-passed. Once the existing-site baseline is consistently clean, a separate change
-can make the link check blocking.
+The checker returns a nonzero exit code for missing destinations or anchors, and
+the workflow treats both the strict build and this check as deployment
+prerequisites. A successful workflow therefore includes a clean built-site link
+and anchor audit.
 
 ## Deploy to Pages
 

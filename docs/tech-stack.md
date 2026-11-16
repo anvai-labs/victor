@@ -3,7 +3,7 @@
 > Canonical reference for technology choices. System ownership and import rules live in
 > [Architecture](architecture.md); work status lives in the [Roadmap](roadmap.md).
 
-**Version**: {{ victor_version }} | **Last reviewed**: 2026-09-17
+**Version**: {{ victor_version }} | **Last reviewed**: 2026-11-15
 
 ## Technology stack
 
@@ -13,18 +13,18 @@ not a claim that these are the newest upstream releases. Optional extras remain 
 | Concern | Technology / declared dependency | Implementation |
 | --- | --- | --- |
 | Runtime | Python 3.12+, asyncio | `victor/` |
-| Contracts | `victor-contracts>=0.9.2,<1.0`; separately released SDK | `victor-contracts/` |
+| Contracts | `victor-contracts>=0.17.0,<1.0`; separately released SDK | `victor-contracts/` |
 | Models and settings | Pydantic and pydantic-settings >=2.0 | `victor/config/` |
-| Typed provider transport | `sandhi-gateway==0.13.0` | `victor/providers/` |
+| Typed provider transport | `sandhi-gateway==0.19.0` | `victor/providers/` |
 | Python HTTP interfaces | `httpx>=0.27`, `aiohttp>=3.14.3` | Provider and integration adapters |
-| CLI | `typer>=0.15,<0.28`, `rich>=13.7`, prompt-toolkit | `victor/ui/cli.py`, `victor/ui/` |
+| CLI | `typer>=0.27.3,<0.29`, `rich>=13.7`, prompt-toolkit | `victor/ui/cli.py`, `victor/ui/` |
 | Interactive TUI | `textual>=0.89` | `victor/ui/tui/` |
 | Token counting | `tiktoken>=0.7`, optional native `BpeTokenizer` | `victor/processing/`, `rust/` |
 | YAML and Git | `pyyaml>=6.0`, system Git executable | Workflow loading and subprocess-based Git operations |
-| Code analysis | `tree-sitter>=0.23`, optional language grammars | `victor-codegraph/`, `victor/core/` |
-| Numeric support | `numpy>=1.24,<2.5` | Processing and retrieval helpers |
+| Code analysis | `tree-sitter>=0.26.0`, optional language grammars | `victor-codegraph/`, `victor/core/` |
+| Numeric support | `numpy>=1.24,<2.6` | Processing and retrieval helpers |
 | Semantic index | Optional `lancedb>=0.6.0` | `victor/storage/` |
-| ProximaDB integration | Optional `proximadb>=0.3,<0.4` | `victor/storage/graph/`, `victor/storage/vector_stores/` |
+| ProximaDB integration | Optional `proximadb>=0.4.1,<0.6` | `victor/storage/graph/`, `victor/storage/vector_stores/` |
 
 ### Providers and surfaces
 
