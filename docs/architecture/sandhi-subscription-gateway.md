@@ -280,6 +280,45 @@ client process, or pass `gateway={url, virtual_key}` to `SandhiOpenAIProvider`.
 Do not set `OPENAI_API_KEY` to the subscription access token. Do not let global
 routing settings silently move message-hub's private triage to a cloud provider.
 
+## Gateway resolution modes
+
+Victor resolves gateway configuration in the following precedence order:
+
+| Configuration | Mode | Behavior |
+|---------------|------|----------|
+| No `gateway` block | Lib/Direct | Sandhi in-process, talks directly to provider |
+| `gateway: null` | Lib/Direct (explicit) | Same as above, env vars ignored |
+| `gateway.url` set | Gateway | Routes through external sandhi process |
+| Gateway credentials without URL | Lib/Direct | Credentials silently dropped |
+
+**Key insight:** `virtual_key` and `oidc` are gateway-specific credentials that
+authenticate with the gateway, not the provider. Without a gateway URL they are
+meaningless and silently dropped. The provider's `api_key` flows through separately
+for direct provider authentication.
+
+**Environment variables:** `SANDHI_GATEWAY_URL` is only used when explicitly
+referenced in config (e.g., `url: ${SANDHI_GATEWAY_URL}`). It does not
+auto-activate gateway mode. This prevents accidental routing through external
+gateways when profiles intend direct provider access.
+
+**Config example:**
+
+```yaml
+# Lib/direct mode (default) — no gateway block needed
+providers:
+  openai:
+    base_url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+
+# Gateway mode — explicit URL required
+providers:
+  openai:
+    base_url: ${SANDHI_GATEWAY_URL}/v1
+    gateway:
+      url: ${SANDHI_GATEWAY_URL}
+      virtual_key: ${SANDHI_GATEWAY_VIRTUAL_KEY}
+```
+
 ## Missing upstream recovery
 
 `502: no upstream registered for this key` means Sandhi resolved the client
