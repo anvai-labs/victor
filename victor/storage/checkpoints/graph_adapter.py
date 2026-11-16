@@ -34,8 +34,9 @@ Design notes (FEP-0047):
 
 import copy
 import logging
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, List, Optional
 
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
 from victor.storage.checkpoints.backends.sqlite_backend import SQLiteCheckpointBackend
@@ -95,16 +96,40 @@ class GraphSQLiteCheckpointer(CheckpointerProtocol):
 
     Satisfies the framework's three-method protocol while delegating all
     persistence (schema, compression, checksums, fork columns, cleanup) to the
-    existing conversation-checkpoint store. Opt-in at this layer (FOU-D1);
-    durable-by-default injection at the composition roots is FOU-D2.
+    existing conversation-checkpoint store.
+
+    Retention (FEP-0047):
+    - ``max_per_thread`` prunes the thread to its newest N checkpoints on every
+      save (per-thread disk bound).
+    - ``retention_days`` runs a one-time-per-instance sweep that deletes aged
+      ``wf::`` rows (global disk bound — thread ids are per-run, so per-thread
+      retention alone does not bound total rows). Scoped to the workflow
+      keyspace; conversation checkpoints are never touched.
     """
 
-    def __init__(self, backend: SQLiteCheckpointBackend):
+    def __init__(
+        self,
+        backend: SQLiteCheckpointBackend,
+        max_per_thread: Optional[int] = None,
+        retention_days: Optional[int] = None,
+    ):
         self._backend = backend
+        self._max_per_thread = max_per_thread
+        self._retention_days = retention_days
+        self._ttl_swept = False
 
     @property
     def backend(self) -> SQLiteCheckpointBackend:
         return self._backend
+
+    async def _sweep_aged_checkpoints(self) -> None:
+        if self._ttl_swept or not self._retention_days or self._retention_days <= 0:
+            return
+        self._ttl_swept = True
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self._retention_days)
+        deleted = await self._backend.purge_aged_checkpoints(WORKFLOW_SESSION_PREFIX, cutoff)
+        if deleted:
+            logger.info(f"Workflow checkpoint TTL sweep removed {deleted} aged rows")
 
     async def save(self, checkpoint: WorkflowCheckpoint) -> None:
         session_id, state_data, metadata = _checkpoint_to_row(checkpoint)
@@ -116,6 +141,9 @@ class GraphSQLiteCheckpointer(CheckpointerProtocol):
             state_data=copy.deepcopy(state_data),
             metadata=metadata,
         )
+        if self._max_per_thread and self._max_per_thread > 0:
+            await self._backend.cleanup_old_checkpoints(session_id, keep_count=self._max_per_thread)
+        await self._sweep_aged_checkpoints()
 
     async def load(self, thread_id: str) -> Optional[WorkflowCheckpoint]:
         session_id = _namespaced_session(thread_id)
@@ -147,3 +175,75 @@ class GraphSQLiteCheckpointer(CheckpointerProtocol):
             offset += _LIST_PAGE_SIZE
         result.reverse()
         return result
+
+
+_factory_warning_logged = False
+
+
+def _warn_memory_degradation_once(reason: Exception) -> None:
+    """One loud warning when durability degrades to in-memory (FEP-0047).
+
+    Durable-by-default must not silently lie: a deployment without the
+    optional ``aiosqlite`` dependency keeps working but is told, once, that
+    its workflow checkpoints are volatile.
+    """
+    global _factory_warning_logged
+    if _factory_warning_logged:
+        return
+    _factory_warning_logged = True
+    logger.warning(
+        "Durable graph checkpointing unavailable (%s). Falling back to "
+        "in-memory checkpoints for this process — workflow state will NOT "
+        "survive restarts. Install with: pip install 'victor-ai[checkpoints]'",
+        reason,
+    )
+
+
+def get_default_graph_checkpointer(settings: Any = None) -> Optional[Any]:
+    """Settings-driven default checkpointer for production compile sites.
+
+    Composition-root policy (FEP-0047, FOU-D2):
+    - ``workflow_checkpoints_enabled=False`` (or a settings snapshot without a
+      checkpoint group) returns ``None`` — the framework default (in-memory)
+      is preserved and ``StateGraph.compile()`` signatures stay untouched.
+    - A missing ``aiosqlite`` extra also returns ``None`` (the framework
+      in-memory default) with a one-time loud warning — never failing agent
+      construction, never silently claiming durability.
+    - Otherwise returns a ``GraphSQLiteCheckpointer`` with per-thread
+      retention and the TTL sweep wired from settings.
+
+    The only framework symbols this module imports are the
+    ``CheckpointerProtocol``/``WorkflowCheckpoint`` abstractions (DIP); the
+    degradation path returns ``None`` rather than referencing the framework's
+    concrete in-memory checkpointer.
+
+    ``settings`` is duck-typed (``.checkpoint`` group) so tests can pass a
+    stand-in; production resolves the cached snapshot via ``load_settings()``.
+    """
+    if settings is None:
+        from victor.config.settings import load_settings
+
+        settings = load_settings()
+
+    checkpoint_settings = getattr(settings, "checkpoint", None)
+    if checkpoint_settings is None:
+        return None
+    if not checkpoint_settings.workflow_checkpoints_enabled:
+        return None
+
+    db_path = getattr(checkpoint_settings, "workflow_checkpoint_db_path", None)
+    try:
+        if db_path:
+            path = Path(db_path)
+            backend = SQLiteCheckpointBackend(storage_path=path.parent, db_name=path.name)
+        else:
+            backend = SQLiteCheckpointBackend()
+    except RuntimeError as exc:  # aiosqlite missing — documented degradation
+        _warn_memory_degradation_once(exc)
+        return None
+
+    return GraphSQLiteCheckpointer(
+        backend,
+        max_per_thread=getattr(checkpoint_settings, "workflow_checkpoint_max_per_thread", None),
+        retention_days=getattr(checkpoint_settings, "workflow_checkpoint_retention_days", None),
+    )

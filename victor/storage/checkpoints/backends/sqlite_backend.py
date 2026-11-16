@@ -406,6 +406,42 @@ class SQLiteCheckpointBackend(CheckpointManagerProtocol):
             logger.error(f"Failed to get checkpoint metadata: {e}")
             raise CheckpointStorageError(f"Failed to get metadata: {e}") from e
 
+    async def purge_aged_checkpoints(self, session_prefix: str, cutoff: datetime) -> int:
+        """Delete checkpoints whose session id starts with ``session_prefix``
+        and whose timestamp is older than ``cutoff``.
+
+        Global disk bound for namespaced keyspaces whose thread ids are
+        per-run (workflow checkpoints, FEP-0047): per-thread retention does
+        not bound total rows when every run uses a fresh thread. Scoped by
+        prefix so other keyspaces (conversation checkpoints) are untouched.
+
+        Returns:
+            Number of rows deleted.
+        """
+        await self._ensure_initialized()
+
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                cursor = await db.execute(
+                    """
+                    DELETE FROM checkpoints
+                    WHERE session_id LIKE ? || '%' AND timestamp < ?
+                    """,
+                    (session_prefix, cutoff.isoformat()),
+                )
+                await db.commit()
+                deleted = cursor.rowcount or 0
+                if deleted:
+                    logger.info(
+                        f"Purged {deleted} aged checkpoints (prefix={session_prefix!r}, "
+                        f"cutoff={cutoff.isoformat()})"
+                    )
+                return deleted
+
+        except Exception as e:
+            logger.error(f"Failed to purge aged checkpoints: {e}")
+            return 0
+
     async def cleanup_old_checkpoints(
         self,
         session_id: str,

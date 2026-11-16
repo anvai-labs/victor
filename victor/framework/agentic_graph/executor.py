@@ -125,6 +125,25 @@ class LoopResult:
         )
 
 
+def _resolve_default_checkpointer():
+    """Durable-by-default graph checkpointing (FEP-0047, FOU-D2).
+
+    Composition-root seam: resolves the settings-driven checkpointer from the
+    storage layer. The import is local so importing this module never pulls
+    storage infrastructure; any unexpected resolution failure warns and keeps
+    the framework's in-memory default rather than failing agent construction.
+    """
+    try:
+        from victor.storage.checkpoints.graph_adapter import (
+            get_default_graph_checkpointer,
+        )
+
+        return get_default_graph_checkpointer()
+    except Exception as exc:  # pragma: no cover - defensive: never block agents
+        logger.warning("Default graph checkpointer unavailable (%s)", exc)
+        return None
+
+
 class AgenticLoopGraphExecutor:
     """Executes the agentic loop using StateGraph.
 
@@ -197,7 +216,10 @@ class AgenticLoopGraphExecutor:
         # per-iteration LoopResult data from GraphExecutionResult.state_history
         # (see LoopResult.from_graph_result below) — the one production
         # consumer of state_history, which is opt-in elsewhere (item 11).
-        self.compiled: CompiledGraph = self.graph.compile(record_state_history=True)
+        self.compiled: CompiledGraph = self.graph.compile(
+            record_state_history=True,
+            checkpointer=_resolve_default_checkpointer(),
+        )
 
     async def run(
         self,
