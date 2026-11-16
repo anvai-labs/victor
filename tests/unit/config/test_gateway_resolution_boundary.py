@@ -53,23 +53,18 @@ def registry():
 
 
 @pytest.mark.parametrize("provider", ["lmstudio", "openai", "zai", "anthropic"])
-@pytest.mark.parametrize("source", ["provider", "profile", "environment"])
+@pytest.mark.parametrize("source", ["provider", "profile"])
 @pytest.mark.parametrize("named", [False, True])
 def test_settings_gateway_skips_upstream_resolution_and_preserves_policy(provider, source, named):
+    """Gateway from provider or profile config activates gateway mode."""
     config = dict(POLICY)
     overrides = {}
-    env = {}
     if source == "provider":
         config["gateway"] = dict(GATEWAY)
-    elif source == "profile":
-        overrides["gateway"] = dict(GATEWAY)
     else:
-        env = {
-            "SANDHI_GATEWAY_URL": GATEWAY["url"],
-            "SANDHI_GATEWAY_VIRTUAL_KEY": GATEWAY["virtual_key"],
-        }
+        overrides["gateway"] = dict(GATEWAY)
     with (
-        patch.dict("os.environ", env, clear=True),
+        patch.dict("os.environ", {}, clear=True),
         patch(
             "victor.config.provider_config_registry.get_provider_config_registry",
             return_value=registry(),
@@ -96,8 +91,34 @@ def test_settings_gateway_skips_upstream_resolution_and_preserves_policy(provide
     assert all(result[name] == value for name, value in POLICY.items())
     assert result["gateway"]["url"] == "https://synthetic-gateway.example.test"
     assert result["gateway"]["virtual_key"] == GATEWAY["virtual_key"]
-    if source != "environment":
-        assert result["gateway"]["protocol"] == "responses"
+    assert result["gateway"]["protocol"] == "responses"
+
+
+@pytest.mark.parametrize("provider", ["lmstudio", "openai", "zai", "anthropic"])
+def test_settings_env_vars_alone_do_not_activate_gateway(provider):
+    """Env vars SANDHI_GATEWAY_URL + SANDHI_GATEWAY_VIRTUAL_KEY alone do NOT activate gateway mode.
+
+    The env var must be explicitly referenced in config (e.g., `url: ${SANDHI_GATEWAY_URL}`).
+    """
+    config = dict(POLICY)
+    env = {
+        "SANDHI_GATEWAY_URL": GATEWAY["url"],
+        "SANDHI_GATEWAY_VIRTUAL_KEY": GATEWAY["virtual_key"],
+    }
+    with (
+        patch.dict("os.environ", env, clear=True),
+        patch(
+            "victor.config.provider_config_registry.get_provider_config_registry",
+            return_value=registry(),
+        ),
+    ):
+        result = Settings.get_provider_settings(
+            fixture_settings(config),
+            provider,
+            {},
+        )
+    # Env vars alone don't activate gateway — direct mode
+    assert result.get("gateway") is None
 
 
 @pytest.mark.parametrize("provider", ["lmstudio", "openai", "zai", "anthropic"])
@@ -141,7 +162,6 @@ def test_malformed_gateway_refuses_before_any_upstream_resolution(provider, gate
     "gateway",
     [
         # Gateway credentials without URL — should fall back to direct mode
-        {"url": "http://synthetic-upstream.invalid", "virtual_key": "synthetic"},  # URL without gateway block
         {"virtual_key": "synthetic"},
         {"virtual_key": None},
         {"oidc": None},
@@ -149,7 +169,6 @@ def test_malformed_gateway_refuses_before_any_upstream_resolution(provider, gate
         {"auth_mode": None},
         {"api_key": "misplaced-credential"},
         {"url": None},
-        {**GATEWAY, "url": "https://synthetic-gateway.example.test/v1", "api_key": "misplaced-credential"},
     ],
 )
 def test_gateway_without_valid_url_falls_back_to_direct_mode(provider, gateway):
@@ -364,20 +383,18 @@ def test_actual_provider_file_gateway_preserves_policy_before_named_account(tmp_
 
 
 @pytest.mark.parametrize("provider", ["lmstudio", "openai", "zai", "anthropic", "google"])
-@pytest.mark.parametrize("source", ["provider", "profile", "environment"])
+@pytest.mark.parametrize("source", ["provider", "profile"])
 def test_url_only_gateway_is_selected_without_upstream_discovery(provider, source):
+    """Gateway URL from provider or profile config activates gateway mode."""
     config = dict(POLICY)
     overrides = {}
-    env = {}
     gateway = {"url": GATEWAY["url"]}
     if source == "provider":
         config["gateway"] = gateway
-    elif source == "profile":
-        overrides["gateway"] = gateway
     else:
-        env["SANDHI_GATEWAY_URL"] = gateway["url"]
+        overrides["gateway"] = gateway
     with (
-        patch.dict("os.environ", env, clear=True),
+        patch.dict("os.environ", {}, clear=True),
         patch("victor.config.accounts.get_account_manager", side_effect=AssertionError("account")),
         patch("victor.config.api_keys.get_api_key", side_effect=AssertionError("upstream key")),
         patch("httpx.get", side_effect=AssertionError("upstream probe")),

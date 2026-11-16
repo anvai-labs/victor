@@ -313,7 +313,7 @@ async def test_expired_oidc_prevents_public_inference_dispatch(monkeypatch, stre
 )
 def test_explicit_gateway_credentials_without_url_results_in_direct_mode(monkeypatch, gateway):
     """Gateway credentials without a URL → direct mode (gateway dropped).
-    
+
     virtual_key, oidc, and grant are gateway-specific credentials — they're
     meaningless without a gateway URL, so they're silently dropped.
     """

@@ -446,22 +446,22 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
     as an automatic fallback to prevent accidental gateway activation.
     """
     gateway = base_settings.get("gateway")
-    
+
     if gateway is not None and not isinstance(gateway, dict):
         if hasattr(gateway, "model_dump"):
             gateway = gateway.model_dump(exclude_unset=True)
         else:
             raise ValueError("gateway must be a configuration mapping")
-    
+
     if gateway is None:
         # No gateway block (or explicitly null) → lib mode
         return
-    
+
     if isinstance(gateway, dict):
         url = str(gateway.get("url") or "").strip()
     else:
         url = str(getattr(gateway, "url", "") or "").strip()
-    
+
     if not url:
         # No URL → lib mode (in-process sandhi, direct to provider).
         # virtual_key and oidc are gateway-specific credentials — they're meaningless

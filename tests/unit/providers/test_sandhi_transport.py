@@ -1652,7 +1652,7 @@ def test_resolve_provider_gateway_canonicalizes_v1_suffix(monkeypatch):
 
 def test_env_only_gateway_config_does_not_activate_gateway(monkeypatch):
     """Env vars alone (without explicit config) do NOT activate gateway mode.
-    
+
     The SANDHI_GATEWAY_URL env var must be explicitly referenced in config
     (e.g., ``url: ${SANDHI_GATEWAY_URL}``) to activate gateway mode.
     """
