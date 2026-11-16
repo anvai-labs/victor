@@ -3707,15 +3707,17 @@ async def _graph_tool_entry(*args: Any, **kwargs: Any) -> Dict[str, Any]:
 
     Single seam over every ``_graph_impl`` return path: it bounds the result via
     ``_bound_graph_result`` so no mode can emit an unbounded payload into context,
-    and stamps structured RL diagnostics (error category, timing, counts) onto
-    the result (RLM-3 instrumentation).
+    and publishes structured RL diagnostics (error category, timing, counts)
+    through the per-execution signal channel (RLM-3 instrumentation) — the
+    result dict itself is returned unchanged.
     """
     start = time.monotonic()
     result = await _graph_impl(*args, **kwargs)
     bounded = _bound_graph_result(result)
     # The executor's RL event carries the true called tool name (graph vs a
     # focused alias like graph_search); diagnostics here stay seam-level.
-    return attach_graph_rl_diagnostics(bounded, (time.monotonic() - start) * 1000.0)
+    attach_graph_rl_diagnostics(bounded, (time.monotonic() - start) * 1000.0)
+    return bounded
 
 
 # Present the wrapper to the @tool decorator (and the LLM schema) exactly as the

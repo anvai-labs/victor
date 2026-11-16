@@ -16,9 +16,11 @@
 
 The classifier must (a) assign every failure mode observed in the tool's error
 paths a stable category, (b) never raise on malformed input — the classifier
-becoming a new failure mode would defeat its purpose, and (c) stamp the
-diagnostics at the single ``_graph_tool_entry`` seam without changing what
-searches return.
+becoming a new failure mode would defeat its purpose — and (c) publish
+diagnostics through the per-execution RL signal channel at the single
+``_graph_tool_entry`` seam while returning the result dict UNCHANGED (an
+earlier revision stamped a result key; that leaked into model-visible
+serialized output — pinned here as a negative test).
 """
 
 from __future__ import annotations
@@ -27,6 +29,11 @@ from typing import Any, Dict
 
 import pytest
 
+from victor.tools.rl_signal import (
+    attach_tool_outcome_metadata,
+    drain_tool_outcome_metadata,
+    seed_tool_outcome_metadata,
+)
 from victor_coding.tools.graph_diagnostics import (
     CATEGORY_DEPENDENCY_MISSING,
     CATEGORY_EXECUTION_ERROR,
@@ -38,7 +45,6 @@ from victor_coding.tools.graph_diagnostics import (
     CATEGORY_TIMEOUT,
     CATEGORY_UNKNOWN,
     CATEGORY_UNRESOLVED_NODE,
-    RL_DIAGNOSTICS_KEY,
     attach_graph_rl_diagnostics,
     classify_graph_result,
 )
@@ -48,6 +54,13 @@ def _error_result(error: str, **extra: Any) -> Dict[str, Any]:
     result: Dict[str, Any] = {"success": False, "mode": "search", "error": error}
     result.update(extra)
     return result
+
+
+@pytest.fixture(autouse=True)
+def _clean_channel():
+    drain_tool_outcome_metadata()  # clear anything leaked from a prior test
+    yield
+    drain_tool_outcome_metadata()
 
 
 class TestClassifyGraphResult:
@@ -156,48 +169,82 @@ class TestClassifyGraphResultDefensive:
 
 
 class TestAttachGraphRlDiagnostics:
-    def test_stamps_namespace_key(self) -> None:
+    """Diagnostics publish through the channel; the result dict is untouched."""
+
+    def test_publishes_to_seeded_channel(self) -> None:
+        seed_tool_outcome_metadata()
         result = attach_graph_rl_diagnostics({"success": True, "matches": []}, 12.34)
-        assert result[RL_DIAGNOSTICS_KEY] == {
+        assert drain_tool_outcome_metadata() == {
             "error_category": CATEGORY_NO_RESULTS,
             "duration_ms": 12.3,
             "result_count": 0,
         }
+        # Negative (leak guard): the result dict carries no diagnostics key.
+        assert "rl" not in result
+        assert result == {"success": True, "matches": []}
 
-    def test_overwrites_stale_diagnostics(self) -> None:
-        result = {"success": True, "matches": [{"id": 1}], RL_DIAGNOSTICS_KEY: {"stale": True}}
-        attach_graph_rl_diagnostics(result, 5.0)
-        assert "stale" not in result[RL_DIAGNOSTICS_KEY]
-        assert result[RL_DIAGNOSTICS_KEY]["error_category"] == CATEGORY_NONE
+    def test_unseeded_channel_is_silent_noop(self) -> None:
+        result = attach_graph_rl_diagnostics({"success": True, "matches": [{"id": 1}]}, 5.0)
+        assert drain_tool_outcome_metadata() == {}
+        assert result == {"success": True, "matches": [{"id": 1}]}
 
-    def test_non_dict_passthrough_unchanged(self) -> None:
-        assert attach_graph_rl_diagnostics("plain", 1.0) == "plain"
+    def test_none_valued_fields_are_not_attached(self) -> None:
+        # result_count is None when not derivable — the channel must omit it.
+        seed_tool_outcome_metadata()
+        attach_graph_rl_diagnostics({"success": True, "modes": ["search"]}, 5.0)
+        drained = drain_tool_outcome_metadata()
+        assert drained["error_category"] == CATEGORY_NONE
+        assert "result_count" not in drained
 
-    def test_duration_rounding(self) -> None:
-        result = attach_graph_rl_diagnostics({"success": True}, 100.0)
-        assert result[RL_DIAGNOSTICS_KEY]["duration_ms"] == 100.0
+    def test_channel_accumulates_across_attaches(self) -> None:
+        seed_tool_outcome_metadata()
+        attach_tool_outcome_metadata(tool_name="graph")
+        attach_graph_rl_diagnostics(_error_result("database is empty"), 3.0)
+        drained = drain_tool_outcome_metadata()
+        assert drained == {
+            "tool_name": "graph",
+            "error_category": CATEGORY_NO_INDEX,
+            "duration_ms": 3.0,
+        }
+
+    def test_non_dict_result_still_publishes(self) -> None:
+        seed_tool_outcome_metadata()
+        attach_graph_rl_diagnostics("plain string result", 1.0)
+        assert drain_tool_outcome_metadata() == {
+            "error_category": CATEGORY_UNKNOWN,
+            "duration_ms": 1.0,
+        }
 
 
 class TestGraphToolSeam:
-    """The ``_graph_tool_entry`` seam stamps diagnostics on every return path."""
+    """The ``_graph_tool_entry`` seam publishes via the channel on every path."""
 
     @pytest.mark.asyncio
-    async def test_seam_stamps_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_seam_publishes_success_and_returns_result_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from victor_coding.tools import graph_tool
 
+        impl_result = {"success": True, "mode": "search", "matches": [{"id": "n1"}, {"id": "n2"}]}
+
         async def fake_impl(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-            return {"success": True, "mode": "search", "matches": [{"id": "n1"}, {"id": "n2"}]}
+            return dict(impl_result)
 
         monkeypatch.setattr(graph_tool, "_graph_impl", fake_impl)
+        seed_tool_outcome_metadata()
         result = await graph_tool._graph_tool_entry(mode="search", query="x")
-        assert result["success"] is True
-        assert result["matches"] == [{"id": "n1"}, {"id": "n2"}]
-        assert result[RL_DIAGNOSTICS_KEY]["error_category"] == CATEGORY_NONE
-        assert result[RL_DIAGNOSTICS_KEY]["result_count"] == 2
-        assert result[RL_DIAGNOSTICS_KEY]["duration_ms"] >= 0.0
+        drained = drain_tool_outcome_metadata()
+
+        # Result unchanged (negative: no diagnostics key leaked into it).
+        assert result == impl_result
+        assert "rl" not in result
+        # Channel carries the structured outcome.
+        assert drained["error_category"] == CATEGORY_NONE
+        assert drained["result_count"] == 2
+        assert drained["duration_ms"] >= 0.0
 
     @pytest.mark.asyncio
-    async def test_seam_stamps_empty_database_failure(
+    async def test_seam_publishes_empty_database_failure(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from victor_coding.tools import graph_tool
@@ -210,5 +257,19 @@ class TestGraphToolSeam:
             }
 
         monkeypatch.setattr(graph_tool, "_graph_impl", fake_impl)
+        seed_tool_outcome_metadata()
         result = await graph_tool._graph_tool_entry(mode="search", query="x")
-        assert result[RL_DIAGNOSTICS_KEY]["error_category"] == CATEGORY_NO_INDEX
+        assert drain_tool_outcome_metadata()["error_category"] == CATEGORY_NO_INDEX
+        assert "rl" not in result
+
+    @pytest.mark.asyncio
+    async def test_seam_without_seed_does_not_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from victor_coding.tools import graph_tool
+
+        async def fake_impl(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+            return {"success": True, "mode": "search", "matches": [{"id": "n1"}]}
+
+        monkeypatch.setattr(graph_tool, "_graph_impl", fake_impl)
+        result = await graph_tool._graph_tool_entry(mode="search", query="x")
+        assert result["success"] is True
+        assert drain_tool_outcome_metadata() == {}

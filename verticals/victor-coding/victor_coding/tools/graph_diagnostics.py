@@ -17,19 +17,17 @@
 RL analysis (2026-11) measured ``graph_search`` at 36.4% success and ``graph``
 at 87.6%, but failures carried no structured error information, so the failure
 modes were undiagnosable. This module classifies every graph tool result into a
-small error taxonomy and stamps it onto the result dict under a namespaced
-``rl`` key:
+small error taxonomy and publishes it through the per-execution RL signal
+channel (``victor.tools.rl_signal``), which the tool executor drains into
+``RLEvent.metadata`` (RLM-2 wiring):
 
 - at the tool seam (``_graph_tool_entry``) so every graph mode and every
   focused tool (``graph_search``, ``graph_query``, ...) is covered;
 - defensively — a missing/malformed field classifies as ``unknown``/``none``,
   never raises (the classifier must not become a new failure mode);
-- with zero behavior change to what searches return beyond the added
-  diagnostics key.
-
-The ``rl`` payload is designed to flow into ``RLEvent.metadata`` once the
-tool-executor emit path gains a result-metadata passthrough (tracked by
-RLM-2); until then it serves result-level diagnosis and testing.
+- with zero change to what searches return: the result dict is NOT modified
+  (an earlier revision stamped a result key; that leaked into model-visible
+  serialized output).
 
 Categories:
 - ``none``: success with results.
@@ -50,8 +48,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-RL_DIAGNOSTICS_KEY = "rl"
-"""Namespaced result key carrying graph tool diagnostics."""
+from victor.tools.rl_signal import attach_tool_outcome_metadata
 
 CATEGORY_NONE = "none"
 CATEGORY_NO_INDEX = "no_index"
@@ -64,6 +61,17 @@ CATEGORY_TIMEOUT = "timeout"
 CATEGORY_EXECUTION_ERROR = "execution_error"
 CATEGORY_UNKNOWN = "unknown"
 
+_RESULT_LIST_KEYS = (
+    "matches",
+    "nodes",
+    "edges",
+    "relationships",
+    "potential_relationships",
+    "results",
+    "components",
+    "paths",
+)
+
 _EMPTY_DATABASE_MARKERS = (
     "database is empty",
     "database is unavailable",
@@ -74,17 +82,6 @@ _TIMEOUT_MARKERS = (
     "timeout",
     "asyncio.timeouterror",
     "TimeoutError",
-)
-
-_RESULT_LIST_KEYS = (
-    "matches",
-    "nodes",
-    "edges",
-    "relationships",
-    "potential_relationships",
-    "results",
-    "components",
-    "paths",
 )
 
 
@@ -109,10 +106,10 @@ def classify_graph_result(result: Any) -> str:
     """
     try:
         if not isinstance(result, dict):
-            return CATEGORY_UNKNOWN
+            return "unknown"
 
         if result.get("unavailable"):
-            return CATEGORY_DEPENDENCY_MISSING
+            return "dependency_missing"
 
         error = result.get("error")
         error_text = str(error) if error else ""
@@ -120,55 +117,55 @@ def classify_graph_result(result: Any) -> str:
         if result.get("success") is False:
             lowered = error_text.lower()
             if any(marker in lowered for marker in _EMPTY_DATABASE_MARKERS):
-                return CATEGORY_NO_INDEX
+                return "no_index"
             if error_text.startswith("Could not resolve graph node"):
-                return CATEGORY_UNRESOLVED_NODE
+                return "unresolved_node"
             # Exact builder shapes — loose substring matching here would
             # misclassify unrelated errors that happen to contain "requires".
             if error_text.startswith("Unsupported graph mode") or (
                 error_text.startswith("The '") and "requires a 'node' parameter" in lowered
             ):
-                return CATEGORY_QUERY_FORMAT
+                return "query_format"
             if any(marker in lowered for marker in _TIMEOUT_MARKERS):
-                return CATEGORY_TIMEOUT
-            return CATEGORY_EXECUTION_ERROR
+                return "timeout"
+            return "execution_error"
 
         # Success-shaped results: distinguish "found nothing" from "found".
         if "threshold_used" in result:
             discovered = result.get("total_discovered")
             if isinstance(discovered, int) and discovered == 0:
-                return CATEGORY_THRESHOLD_FILTERED
-            return CATEGORY_NONE
+                return "threshold_filtered"
+            return "none"
         count = _result_count(result)
         if count == 0:
-            return CATEGORY_NO_RESULTS
-        return CATEGORY_NONE
+            return "no_results"
+        return "none"
     except Exception:  # classifier must never become a failure mode
-        return CATEGORY_UNKNOWN
+        return "unknown"
 
 
 def attach_graph_rl_diagnostics(
     result: Any, duration_ms: float, *, tool_name: Optional[str] = None
 ) -> Any:
-    """Stamp classification + timing onto a graph tool result dict.
+    """Publish classification + timing via the RL signal channel.
 
-    Non-dict results (defensive: bounding/serialization edge cases) are
-    returned unchanged. Existing diagnostics are overwritten so the value
-    always describes the current call (results may be cached downstream).
+    Returns ``result`` unchanged — the result dict is never modified (it is
+    serialized into model-visible output). Attaching is a no-op when the
+    executor has not seeded the channel (direct calls, tests).
     """
     try:
         category = classify_graph_result(result)
+        fields: Dict[str, Any] = {
+            "error_category": category,
+            "duration_ms": round(float(duration_ms), 1),
+        }
+        if tool_name:
+            fields["tool_name"] = tool_name
         if isinstance(result, dict):
-            diagnostics: Dict[str, Any] = {
-                "error_category": category,
-                "duration_ms": round(float(duration_ms), 1),
-            }
-            if tool_name:
-                diagnostics["tool_name"] = tool_name
             count = _result_count(result)
             if count is not None:
-                diagnostics["result_count"] = count
-            result[RL_DIAGNOSTICS_KEY] = diagnostics
-        return result
+                fields["result_count"] = count
+        attach_tool_outcome_metadata(**fields)
     except Exception:
-        return result
+        pass  # diagnostics must never become a failure mode
+    return result
