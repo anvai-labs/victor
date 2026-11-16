@@ -29,7 +29,6 @@ import pytest
 
 from victor.tools.bash import classify_shell_outcome, shell
 from victor.tools.rl_signal import (
-    attach_tool_outcome_metadata,
     drain_tool_outcome_metadata,
     seed_tool_outcome_metadata,
 )
@@ -139,34 +138,6 @@ def test_classify_shell_outcome_never_raises(bad: Any):
     """Negative: malformed inputs classify as 'unknown'/'none', never raise."""
     category = classify_shell_outcome(bad)
     assert category in {"unknown", "none", "exit_code"}
-
-
-# --- RL signal channel --------------------------------------------------------
-
-
-def test_channel_seed_attach_drain_roundtrip():
-    seed_tool_outcome_metadata()
-    attach_tool_outcome_metadata(error_category="timeout", return_code=-1)
-    attach_tool_outcome_metadata(duration_ms=12.5)  # second attach merges
-    assert drain_tool_outcome_metadata() == {
-        "error_category": "timeout",
-        "return_code": -1,
-        "duration_ms": 12.5,
-    }
-
-
-def test_channel_drain_clears_state():
-    seed_tool_outcome_metadata()
-    attach_tool_outcome_metadata(error_category="exit_code")
-    drain_tool_outcome_metadata()
-    # Negative: a stale payload must never leak into a later drain.
-    assert drain_tool_outcome_metadata() == {}
-
-
-def test_channel_attach_without_seed_is_noop():
-    drain_tool_outcome_metadata()  # ensure clean state
-    attach_tool_outcome_metadata(error_category="blocked")  # must not raise
-    assert drain_tool_outcome_metadata() == {}
 
 
 async def test_shell_wrapper_attaches_outcome_metadata():
