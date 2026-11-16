@@ -991,12 +991,24 @@ RELATED_TESTS = {
             "victor/providers/cerebras_provider.py",
             "victor/providers/groq_provider.py",
             "victor/providers/sandhi_openai_compat_policy.py",
-            "victor/providers/sandhi_transport.py",
         ),
         (
             "tests/unit/providers/test_sandhi_openai_compat_policy.py",
             "tests/unit/providers/test_provider_stream_aclosing.py",
         ),
+    ),
+    "victor/providers/sandhi_transport.py": (
+        "tests/unit/providers/test_sandhi_pin_alignment.py",
+        "tests/unit/providers/test_sandhi_consumed_contract_pin.py",
+        "tests/unit/providers/test_sandhi_binding_construction.py",
+        "tests/unit/providers/test_sandhi_openai_compat_policy.py",
+        "tests/unit/providers/test_provider_stream_aclosing.py",
+        "tests/unit/providers/test_sandhi_transport.py",
+    ),
+    "victor/providers/openai_compat_model_policy.py": (
+        "tests/unit/providers/test_sandhi_pin_alignment.py",
+        "tests/unit/providers/test_sandhi_openai_compat_policy.py",
+        "tests/unit/providers/test_sandhi_descriptor_drift_guard.py",
     ),
     # The timeout-slot inventory is pinned in one place, not per-provider.
     "victor/providers/timeout_profile.py": (
@@ -1233,6 +1245,33 @@ RELATED_TESTS = {
     "victor/agent/mcp_connector.py": (
         "tests/unit/agent/test_mcp_connector.py",
         "tests/unit/security/test_mcp_policy_boundary.py",
+    ),
+    "pyproject.toml": (
+        "tests/unit/config/test_dependencies.py",
+        "tests/unit/providers/test_sandhi_pin_alignment.py",
+    ),
+    "requirements.txt": (
+        "tests/unit/config/test_dependencies.py",
+        "tests/unit/providers/test_sandhi_pin_alignment.py",
+    ),
+    "requirements/api/requirements.txt": (
+        "tests/unit/config/test_dependencies.py",
+        "tests/unit/providers/test_sandhi_pin_alignment.py",
+    ),
+    "requirements/embeddings-cpu/requirements.txt": (
+        "tests/unit/config/test_dependencies.py",
+        "tests/unit/providers/test_sandhi_pin_alignment.py",
+    ),
+    **dict.fromkeys(
+        (
+            "docs/index.md",
+            "docs/tech-stack.md",
+            "docs/roadmap.md",
+            "docs/architecture.md",
+            "docs/architecture/sandhi-subscription-gateway.md",
+            "docs/reviews/sandhi-published-0.20.0-consumer-2026-11-16.md",
+        ),
+        ("tests/unit/providers/test_sandhi_pin_alignment.py",),
     ),
     "victor/agent/tool_registrar.py": (
         "tests/unit/tools/test_tool_registrar.py",
@@ -1515,12 +1554,12 @@ def select(changed: list[str]) -> list[str]:
                 if (ROOT / target).exists()
             )
             continue
-        if not p.endswith(".py"):
-            continue
         existing_related = tuple(
             target for target in RELATED_TESTS.get(p, ()) if (ROOT / target).exists()
         )
         targets.update(existing_related)
+        if not p.endswith(".py"):
+            continue
         path = Path(p)
         name = path.name
         # Changed test file -> run it directly.
