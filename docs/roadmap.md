@@ -14,21 +14,22 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ---
 
-## Now — November 2026: published 0.29.2 and the post-release source checkpoint
+## Now — November 2026: prepared 0.30.0 source candidate and published 0.29.2 foundation
 
 !!! info "Reconciled 2026-11-15"
 
+    **Prepared source candidate:** Victor AI/native 0.30.0, 2026-11-16, with the
+    digest-qualified Sandhi `0.20.0` binding, RL outcome-category schema v10,
+    structured shell/graph diagnostics and scoped session admission.
     **Published:** [Victor AI 0.29.2](https://github.com/anvai-labs/victor/releases/tag/v0.29.2),
-    2026-11-15, from protected main `353d5e8871444bdc5ce3ce7729b129b1c2b630e5`.
-    The release publishes Victor AI/native 0.29.2 and pinned the separately
-    published `sandhi-gateway==0.19.0`. Current develop qualifies and pins
-    Sandhi `0.20.0` for the next prepared Victor release. Source merge,
-    artifact publication and live-service acceptance remain distinct milestones.
+    2026-11-15, which pinned `sandhi-gateway==0.19.0`. Source preparation,
+    protected promotion, artifact publication and live-service acceptance remain
+    distinct milestones.
 
 | Work | Current status | Acceptance owner |
 | --- | --- | --- |
-| Release evidence | Victor 0.29.2 workflow, package registries, native wheels, Docker and release assets verified | Release records; registry verification is not runtime soak |
-| Sandhi execution contract | Published 0.29.2 used `0.19.0`; post-release develop qualifies and pins official `0.20.0` artifacts | [Sandhi consumer qualification](architecture/sandhi-subscription-gateway.md) |
+| Release evidence | 0.30.0 source metadata and changelog are prepared; 0.29.2 workflow, package registries, native wheels, Docker and release assets remain the published baseline | Protected promotion/release workflow and installed-artifact verification |
+| Sandhi execution contract | Prepared 0.30.0 source pins official `0.20.0` artifacts | [Sandhi consumer qualification](architecture/sandhi-subscription-gateway.md); deployment/provider soak remain separate |
 | Workflow engine and unified chat-loop cleanup | Complete (#1041–#1043) | ADR-030 / FEP-0007; item 23 |
 | Chat runtime inversion and policy boundaries | Partial; service-owned turn frame, lifecycle retry and multiple policy gates landed; broader state/factories/shims remain | FEP-0031; item 27; VAS tracker |
 | Client routing | REPL still streams through an agent; completions still calls the provider directly | Item 32 |
