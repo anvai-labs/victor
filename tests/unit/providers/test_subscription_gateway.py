@@ -269,15 +269,15 @@ def test_oidc_unsupported_provider_fails_before_secret_fallback():
         )
 
 
-def test_oidc_without_gateway_url_results_in_direct_mode(monkeypatch):
-    """OIDC credentials without a gateway URL → direct mode (gateway dropped)."""
+def test_oidc_without_gateway_url_refuses_direct_mode(monkeypatch):
+    """OIDC credentials without a gateway URL cannot select direct mode."""
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
     settings = {"gateway": {"oidc": {"token_file": "/private/access.json"}}}
-    resolve_provider_gateway(settings, "openai")
-    # Gateway is dropped because there's no URL — direct mode
-    assert "gateway" not in settings
+    with pytest.raises(ValueError, match="Gateway configuration requires"):
+        resolve_provider_gateway(settings, "openai")
+    assert "gateway" in settings
 
 
 @pytest.mark.asyncio
@@ -311,19 +311,20 @@ async def test_expired_oidc_prevents_public_inference_dispatch(monkeypatch, stre
 @pytest.mark.parametrize(
     "gateway", [{"virtual_key": "vk_test"}, {"virtual_key": ""}, {"grant": "owner"}]
 )
-def test_explicit_gateway_credentials_without_url_results_in_direct_mode(monkeypatch, gateway):
-    """Gateway credentials without a URL → direct mode (gateway dropped).
+def test_explicit_gateway_credentials_without_url_refuses_direct_mode(monkeypatch, gateway):
+    """Gateway credentials without a URL fail closed.
 
-    virtual_key, oidc, and grant are gateway-specific credentials — they're
-    meaningless without a gateway URL, so they're silently dropped.
+    virtual_key and grant are gateway-specific credentials. Dropping them could
+    accidentally dispatch through a direct provider account, so partial gateway
+    intent remains a configuration error.
     """
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
     settings = {"gateway": gateway}
-    resolve_provider_gateway(settings, "openai")
-    # Gateway is dropped because there's no URL — direct mode
-    assert "gateway" not in settings
+    with pytest.raises(ValueError, match="Gateway configuration requires"):
+        resolve_provider_gateway(settings, "openai")
+    assert settings["gateway"] == gateway
 
 
 def test_profile_base_url_suppresses_inherited_gateway():

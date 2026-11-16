@@ -122,6 +122,83 @@ def test_settings_env_vars_alone_do_not_activate_gateway(provider):
 
 
 @pytest.mark.parametrize("provider", ["lmstudio", "openai", "zai", "anthropic"])
+def test_actual_provider_file_expands_nested_gateway_url_reference(tmp_path, provider):
+    """An explicit nested environment reference activates the configured gateway."""
+    import yaml
+
+    (tmp_path / "profiles.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "providers": {
+                    provider: {
+                        "gateway": {
+                            "url": "${SANDHI_GATEWAY_URL}",
+                            "virtual_key": "synthetic-virtual-key",
+                            "protocol": "responses",
+                        }
+                    }
+                }
+            }
+        )
+    )
+    settings = Settings()
+    with (
+        patch.dict(
+            "os.environ",
+            {"SANDHI_GATEWAY_URL": "https://synthetic-gateway.example.test/v1"},
+            clear=True,
+        ),
+        patch.object(Settings, "get_config_dir", return_value=tmp_path),
+        patch.object(Settings, "_central_config_layers", return_value=[]),
+        patch("victor.config.accounts.get_account_manager") as account,
+        patch("victor.config.api_keys.get_api_key") as key,
+        patch("httpx.get") as probe,
+    ):
+        result = settings.get_provider_settings(provider)
+
+    assert result["gateway"]["url"] == "https://synthetic-gateway.example.test"
+    assert result["gateway"]["virtual_key"] == "synthetic-virtual-key"
+    account.assert_not_called()
+    key.assert_not_called()
+    probe.assert_not_called()
+
+
+def test_missing_nested_gateway_url_reference_refuses_without_direct_fallback(tmp_path):
+    """A referenced but unset environment variable cannot become literal/direct mode."""
+    import yaml
+
+    (tmp_path / "profiles.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "providers": {
+                    "openai": {
+                        "gateway": {
+                            "url": "${SANDHI_GATEWAY_URL}",
+                            "virtual_key": "synthetic-virtual-key",
+                        }
+                    }
+                }
+            }
+        )
+    )
+    settings = Settings()
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch.object(Settings, "get_config_dir", return_value=tmp_path),
+        patch.object(Settings, "_central_config_layers", return_value=[]),
+        patch("victor.config.accounts.get_account_manager") as account,
+        patch("victor.config.api_keys.get_api_key") as key,
+        patch("httpx.get") as probe,
+    ):
+        with pytest.raises(ValueError, match="SANDHI_GATEWAY_URL"):
+            settings.get_provider_settings("openai")
+
+    account.assert_not_called()
+    key.assert_not_called()
+    probe.assert_not_called()
+
+
+@pytest.mark.parametrize("provider", ["lmstudio", "openai", "zai", "anthropic"])
 @pytest.mark.parametrize(
     "gateway",
     [
@@ -161,18 +238,16 @@ def test_malformed_gateway_refuses_before_any_upstream_resolution(provider, gate
 @pytest.mark.parametrize(
     "gateway",
     [
-        # Gateway credentials without URL — should fall back to direct mode
-        {"virtual_key": "synthetic"},
+        # All-empty values carry no gateway intent and select direct mode.
         {"virtual_key": None},
         {"oidc": None},
         {"credential": None},
         {"auth_mode": None},
-        {"api_key": "misplaced-credential"},
         {"url": None},
     ],
 )
-def test_gateway_without_valid_url_falls_back_to_direct_mode(provider, gateway):
-    """Gateway block without valid URL → direct mode (gateway dropped)."""
+def test_empty_gateway_configuration_selects_direct_mode(provider, gateway):
+    """Only an absent, null, or all-empty gateway block selects direct mode."""
     with (
         patch.dict("os.environ", {}, clear=True),
         patch(
@@ -183,6 +258,43 @@ def test_gateway_without_valid_url_falls_back_to_direct_mode(provider, gateway):
         result = Settings.get_provider_settings(fixture_settings({"gateway": gateway}), provider)
     # Gateway is dropped because there's no valid URL — direct mode
     assert result.get("gateway") is None
+
+
+@pytest.mark.parametrize(
+    "gateway",
+    [
+        {"virtual_key": "synthetic"},
+        {"oidc": {"token_file": "/private/access.json"}},
+        {"credential": object(), "audience": "synthetic"},
+        {"grant": "owner"},
+        {"protocol": "responses"},
+        {"auth_mode": "tokens"},
+        {"api_key": "misplaced-credential"},
+        {"url": "", "virtual_key": "synthetic"},
+        {"url": None, "virtual_key": "synthetic"},
+    ],
+)
+def test_partial_gateway_credentials_without_url_refuse_direct_fallback(gateway):
+    """Explicit gateway intent cannot silently bypass the gateway/provider boundary."""
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch(
+            "victor.config.provider_config_registry.get_provider_config_registry",
+            return_value=registry(),
+        ),
+        patch("victor.config.accounts.get_account_manager") as account,
+        patch("victor.config.api_keys.get_api_key") as key,
+        patch("httpx.get") as probe,
+    ):
+        with pytest.raises(
+            ValueError,
+            match="Gateway configuration (requires|contains unsupported)",
+        ):
+            Settings.get_provider_settings(fixture_settings({"gateway": gateway}), "openai")
+
+    account.assert_not_called()
+    key.assert_not_called()
+    probe.assert_not_called()
 
 
 def test_direct_settings_retains_account_and_strategy_precedence():
@@ -446,12 +558,11 @@ def test_declared_token_mode_resolves_the_documented_environment_key():
         {"oidc": None},
         {"credential": None},
         {"auth_mode": None},
-        {"api_key": "misplaced-credential"},
         {"url": None},
     ],
 )
-def test_raw_registry_missing_gateway_url_falls_back_to_direct_mode(gateway):
-    """Gateway credentials without URL → direct mode (gateway dropped, account callback runs)."""
+def test_raw_registry_all_empty_gateway_selects_direct_mode(gateway):
+    """All-empty gateway values carry no intent and allow the direct account path."""
     callback = Mock(return_value={"api_key": "sk-account-key"})
     with patch.dict("os.environ", {}, clear=True):
         result = registry().get_settings(

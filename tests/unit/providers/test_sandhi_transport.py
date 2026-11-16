@@ -1083,15 +1083,15 @@ def test_resolve_provider_gateway_env_fallback_per_provider_then_global(monkeypa
     assert base["gateway"]["virtual_key"] == "vk_global"
 
 
-def test_resolve_provider_gateway_drops_credentials_without_url(monkeypatch):
-    """Gateway credentials without URL → direct mode (gateway dropped)."""
+def test_resolve_provider_gateway_refuses_credentials_without_url(monkeypatch):
+    """Gateway credentials without URL cannot silently select direct mode."""
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.delenv("SANDHI_GATEWAY_URL", raising=False)
     settings = {"gateway": {"virtual_key": "vk_test"}}
-    resolve_provider_gateway(settings, "openai")
-    # Gateway is dropped because there's no URL — direct mode
-    assert "gateway" not in settings
+    with pytest.raises(ValueError, match="Gateway configuration requires"):
+        resolve_provider_gateway(settings, "openai")
+    assert settings["gateway"] == {"virtual_key": "vk_test"}
 
 
 def test_resolve_provider_gateway_drops_only_empty_block_without_url(monkeypatch):
@@ -1628,17 +1628,28 @@ def test_gateway_root_normalization_strips_v1_and_v1beta():
 
 
 def test_resolve_provider_gateway_ignores_env_var_without_explicit_url(monkeypatch):
-    """Env var SANDHI_GATEWAY_URL is NOT auto-used — must be explicitly referenced."""
+    """Env var SANDHI_GATEWAY_URL is NOT auto-used; partial credentials fail closed."""
     from victor.config.provider_config_registry import resolve_provider_gateway
 
     monkeypatch.setenv("SANDHI_GATEWAY_URL", "https://env-gw:8600")
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY", raising=False)
     monkeypatch.delenv("SANDHI_GATEWAY_VIRTUAL_KEY_ACME", raising=False)
-    # Gateway block with virtual_key but no URL → direct mode (env var ignored)
+    # A gateway credential is explicit gateway intent. With no explicit URL it
+    # must not silently select direct-provider dispatch.
     settings: dict = {"gateway": {"virtual_key": "vk_x"}}
-    resolve_provider_gateway(settings, "acme")
-    # Gateway is dropped because there's no explicit URL
-    assert "gateway" not in settings
+    with pytest.raises(ValueError, match="Gateway configuration requires"):
+        resolve_provider_gateway(settings, "acme")
+    assert settings["gateway"] == {"virtual_key": "vk_x"}
+
+
+def test_resolve_provider_gateway_empty_block_selects_direct_mode(monkeypatch):
+    from victor.config.provider_config_registry import resolve_provider_gateway
+
+    monkeypatch.setenv("SANDHI_GATEWAY_URL", "https://env-gw:8600")
+    for gateway in (None, {}, {"url": None}, {"virtual_key": None}):
+        settings: dict = {"gateway": gateway}
+        resolve_provider_gateway(settings, "acme")
+        assert "gateway" not in settings
 
 
 def test_resolve_provider_gateway_canonicalizes_v1_suffix(monkeypatch):

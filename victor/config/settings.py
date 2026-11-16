@@ -458,8 +458,9 @@ class ProviderGatewayConfig(BaseModel):
         description=(
             "Sandhi proxy ROOT, e.g. http://localhost:8600 — a trailing /v1 or "
             "/v1beta is accepted and stripped (the transport derives the "
-            "client-dialect prefix). May be omitted entirely when "
-            "SANDHI_GATEWAY_URL is set."
+            "client-dialect prefix). The environment does not implicitly supply "
+            "this URL; reference it explicitly with ${SANDHI_GATEWAY_URL} in "
+            "provider configuration."
         ),
     )
     virtual_key: Optional[SecretStr] = Field(
@@ -2555,6 +2556,25 @@ class Settings(BaseSettings):
         Returns:
             ProviderConfig or None
         """
+
+        def expand_environment_references(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: expand_environment_references(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [expand_environment_references(item) for item in value]
+            if (
+                isinstance(value, str)
+                and value.startswith("${")
+                and value.endswith("}")
+                and value[2:-1].isidentifier()
+            ):
+                name = value[2:-1]
+                resolved = os.environ.get(name)
+                if resolved is None or resolved == "":
+                    raise ValueError(f"Required environment variable {name} is not set")
+                return resolved
+            return value
+
         central_provider = cls._merge_central_section(
             cls._central_config_layers(), "providers"
         ).get(provider)
@@ -2574,11 +2594,7 @@ class Settings(BaseSettings):
         if isinstance(user_provider, dict):
             provider_data.update(user_provider)
         if provider_data:
-            # Expand environment variables
-            for key, value in provider_data.items():
-                if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
-                    env_var = value[2:-1]
-                    provider_data[key] = os.getenv(env_var)
+            provider_data = expand_environment_references(provider_data)
 
             try:
                 return ProviderConfig(**provider_data)

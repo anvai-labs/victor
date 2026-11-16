@@ -435,11 +435,12 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
 
     Gateway resolution modes:
     - ``gateway: null`` in profile → explicitly lib mode (in-process sandhi)
-    - No gateway block at all → lib mode (env var is NOT auto-used; reference it
-      explicitly in config as ``${SANDHI_GATEWAY_URL}`` if needed)
+    - No gateway block or an all-empty block → lib mode (the URL env var is
+      NOT auto-used; reference it explicitly in config as
+      ``${SANDHI_GATEWAY_URL}`` if needed)
     - Explicit gateway block with URL → gateway mode (external sandhi process)
-    - Explicit gateway block without URL → lib mode (gateway credentials are
-      meaningless without a URL, so they're silently dropped)
+    - Explicit gateway credentials/mode without URL → configuration error;
+      partial gateway intent must never silently select direct-provider dispatch
 
     The ``SANDHI_GATEWAY_URL`` env var is only used when explicitly referenced
     in the config file (e.g., ``url: ${SANDHI_GATEWAY_URL}``). It is NOT used
@@ -454,7 +455,8 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
             raise ValueError("gateway must be a configuration mapping")
 
     if gateway is None:
-        # No gateway block (or explicitly null) → lib mode
+        # An absent or explicitly null block selects lib/direct mode.
+        base_settings.pop("gateway", None)
         return
 
     if isinstance(gateway, dict):
@@ -463,10 +465,30 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
         url = str(getattr(gateway, "url", "") or "").strip()
 
     if not url:
-        # No URL → lib mode (in-process sandhi, direct to provider).
-        # virtual_key and oidc are gateway-specific credentials — they're meaningless
-        # without a gateway URL, so we silently drop them. The provider's api_key
-        # (if any) flows through separately for direct provider authentication.
+        supported_fields = {
+            "url",
+            "virtual_key",
+            "oidc",
+            "grant",
+            "credential",
+            "audience",
+            "protocol",
+            "auth_mode",
+        }
+        unsupported_fields = sorted(set(gateway) - supported_fields)
+        if unsupported_fields:
+            raise ValueError(
+                "Gateway configuration contains unsupported fields: "
+                + ", ".join(unsupported_fields)
+            )
+        if any(key != "url" and value is not None for key, value in gateway.items()):
+            raise ValueError(
+                "Gateway configuration requires an explicit URL when gateway "
+                "credentials or mode are set"
+            )
+        # An intentionally empty block selects lib/direct mode. A top-level
+        # provider ``api_key`` (unlike a misplaced key inside this block) still
+        # flows through the normal direct-provider strategy.
         base_settings.pop("gateway", None)
         return
     from victor.providers.gateway_contract import gateway_auth_mode, gateway_config
