@@ -17,6 +17,7 @@ from __future__ import annotations
 """Bash command execution tool with readonly mode support."""
 
 import contextvars
+import functools
 import logging
 import os
 import platform
@@ -26,7 +27,7 @@ import shutil
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -1127,6 +1128,43 @@ def classify_shell_outcome(result: Dict[str, Any]) -> str:
         return "unknown"
 
 
+def _shell_outcome_fields(result: Any, duration_ms: float) -> Dict[str, Any]:
+    """Build the structured RL outcome payload for one shell result."""
+    is_dict = isinstance(result, dict)
+    return {
+        "error_category": classify_shell_outcome(result),
+        "return_code": result.get("return_code") if is_dict else None,
+        "timed_out": _is_timeout_result(result) if is_dict else False,
+        "duration_ms": round(duration_ms, 1),
+        "stdout_lines": (result.get("stdout_lines", 0) or 0) if is_dict else 0,
+        "stderr_lines": (result.get("stderr_lines", 0) or 0) if is_dict else 0,
+        "truncated": bool(result.get("truncated", False)) if is_dict else False,
+    }
+
+
+def _captures_shell_outcome(
+    fn: Callable[..., Awaitable[Dict[str, Any]]],
+) -> Callable[..., Awaitable[Dict[str, Any]]]:
+    """Attach structured RL outcome metadata around the wrapped shell function.
+
+    Applied UNDER ``@tool`` so the registry binds the wrapper while
+    ``functools.wraps`` keeps the real signature/annotations visible to
+    introspection. Generic ``*args``/``**kwargs`` forwarding — no signature
+    duplication between wrapper and impl (the duplication ratchet rejects it).
+    """
+
+    @functools.wraps(fn)
+    async def wrapper(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+        start = time.monotonic()
+        result = await fn(*args, **kwargs)
+        attach_tool_outcome_metadata(
+            **_shell_outcome_fields(result, (time.monotonic() - start) * 1000.0)
+        )
+        return result
+
+    return wrapper
+
+
 @tool(
     category="execution",
     priority=Priority.CRITICAL,  # Always available
@@ -1173,6 +1211,7 @@ def classify_shell_outcome(result: Dict[str, Any]) -> str:
         "sql",
     ],
 )
+@_captures_shell_outcome
 async def shell(
     cmd: str,
     cwd: str = ".",
@@ -1250,44 +1289,6 @@ async def shell(
     Returns:
         Dict with stdout, stderr, return_code keys
     """
-    start = time.monotonic()
-    result = await _shell_impl(
-        cmd=cmd,
-        cwd=cwd,
-        timeout=timeout,
-        dangerous=dangerous,
-        readonly=readonly,
-        action=action,
-        stdout_limit=stdout_limit,
-        stderr_limit=stderr_limit,
-        _exec_ctx=_exec_ctx,
-    )
-    # Structured RL outcome metadata (RLM-2): classify here, where every
-    # early-return and subprocess path has already produced its result dict.
-    attach_tool_outcome_metadata(
-        error_category=classify_shell_outcome(result),
-        return_code=result.get("return_code"),
-        timed_out=_is_timeout_result(result),
-        duration_ms=round((time.monotonic() - start) * 1000, 1),
-        stdout_lines=result.get("stdout_lines", 0) or 0,
-        stderr_lines=result.get("stderr_lines", 0) or 0,
-        truncated=bool(result.get("truncated", False)),
-    )
-    return result
-
-
-async def _shell_impl(
-    cmd: str,
-    cwd: str = ".",
-    timeout: Optional[int] = None,
-    dangerous: bool = False,
-    readonly: bool = False,
-    action: str = "read",
-    stdout_limit: Optional[int] = None,
-    stderr_limit: Optional[int] = None,
-    _exec_ctx: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Execute a shell command (implementation body; see ``shell``)."""
     if not cmd:
         return {
             "success": False,

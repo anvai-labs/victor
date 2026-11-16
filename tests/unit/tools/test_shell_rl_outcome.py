@@ -24,11 +24,9 @@ taxonomy, the executor<->tool side channel, and that shell() populates it.
 from __future__ import annotations
 
 from typing import Any, Dict
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from victor.tools import bash as bash_module
 from victor.tools.bash import classify_shell_outcome, shell
 from victor.tools.rl_signal import (
     attach_tool_outcome_metadata,
@@ -172,26 +170,23 @@ def test_channel_attach_without_seed_is_noop():
 
 
 async def test_shell_wrapper_attaches_outcome_metadata():
-    """The public shell() attaches classified metadata via the channel."""
-    canned = {
-        "success": False,
-        "error": "Command failed with exit code 127: definetly-not-a-command",
-        "stdout": "",
-        "stderr": "definetly-not-a-command: command not found",
-        "return_code": 127,
-        "stdout_lines": 0,
-        "stderr_lines": 1,
-        "truncated": False,
-    }
+    """The decorated public shell() attaches classified metadata (real run)."""
     seed_tool_outcome_metadata()
-    with patch.object(bash_module, "_shell_impl", new_callable=AsyncMock) as impl:
-        impl.return_value = canned
-        result = await shell(cmd="definetly-not-a-command")
-    assert result == canned  # result dict passes through unchanged
+    result = await shell(cmd="exit 3")
+    assert result["success"] is False
+    assert result["return_code"] == 3
     metadata = drain_tool_outcome_metadata()
-    assert metadata["error_category"] == "not_found"
-    assert metadata["return_code"] == 127
+    assert metadata["error_category"] == "exit_code"
+    assert metadata["return_code"] == 3
     assert metadata["timed_out"] is False
-    assert metadata["stderr_lines"] == 1
     assert "duration_ms" in metadata
     assert metadata["duration_ms"] >= 0
+
+
+def test_shell_signature_visible_through_decorator():
+    """The @tool decorator must still see the real signature (functools.wraps)."""
+    import inspect
+
+    params = list(inspect.signature(shell).parameters)
+    assert params[0] == "cmd"
+    assert "cwd" in params and "_exec_ctx" in params
