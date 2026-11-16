@@ -28,7 +28,7 @@ From the repository root, in a virtual environment:
 
 ```bash
 pip install -r mkdocs-requirements.txt
-mkdocs build
+mkdocs build --strict
 python scripts/ci/docs_link_check.py site
 mkdocs serve
 ```
@@ -72,12 +72,10 @@ against the artifact as well. It makes no network requests, so it does not
 verify external URLs or the availability of the published site. Browser-generated
 diagram anchors are outside its scope.
 
-The checker returns a nonzero exit code for missing destinations or anchors.
-The workflow initially treats this step as advisory with `continue-on-error`,
-while the site build remains required for deployment. Review any findings in the
-Actions log; do not interpret a successful workflow as proof that advisory checks
-passed. Once the existing-site baseline is consistently clean, a separate change
-can make the link check blocking.
+The checker returns a nonzero exit code for missing destinations or anchors, and
+the workflow treats both the strict build and this check as deployment
+prerequisites. A successful workflow therefore includes a clean built-site link
+and anchor audit.
 
 ## Deploy to Pages
 

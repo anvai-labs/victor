@@ -56,14 +56,19 @@ CANONICAL_VERSION_DOCS = frozenset(
         "docs/index.md",
         "docs/features.md",
         "docs/architecture.md",
+        "docs/roadmap.md",
         "docs/tech-stack.md",
         "docs/architecture/BLUEPRINT.md",
         "docs/conf.py",
+        "docs/development/docs-publishing.md",
     }
 )
 
 _VERSION_STAMP = re.compile(r"\*\*Version\*\*:\s*(\d+\.\d+\.\d+)")
 _CONF_RELEASE = re.compile(r'release\s*=\s*"(\d+\.\d+\.\d+)"')
+_PUBLISHED_BASELINE = re.compile(r"\*\*Published baseline:\*\*\s*Victor AI\s+(\d+\.\d+\.\d+)")
+_ROADMAP_NOW = re.compile(r"^## Now\b[^\n]*\bpublished\s+(\d+\.\d+\.\d+)", re.IGNORECASE)
+_PAGES_PROMOTION = re.compile(r"Victor\s+(\d+\.\d+\.\d+)\s+promotion", re.IGNORECASE)
 # Public-facing minimum-version claims.  This deliberately does not match a
 # CI test matrix such as "Python 3.11, 3.12"—only a stated minimum such as
 # "Python 3.11+" or "requires Python >=3.11".
@@ -110,7 +115,7 @@ def expected_provider_count() -> int:
     return len(files)
 
 
-def _first_int(match: re.Match) -> int:
+def _first_int(match: re.Match[str]) -> int:
     return int(next(g for g in match.groups() if g is not None))
 
 
@@ -133,6 +138,20 @@ def scan_text(
             for m in _CONF_RELEASE.finditer(line):
                 if m.group(1) != version:
                     errors.append(f"{label}:{i} release {m.group(1)} != {version}")
+            if label == "docs/index.md":
+                for m in _PUBLISHED_BASELINE.finditer(line):
+                    if m.group(1) != version:
+                        errors.append(f"{label}:{i} published baseline {m.group(1)} != {version}")
+            if label == "docs/roadmap.md":
+                for m in _ROADMAP_NOW.finditer(line):
+                    if m.group(1) != version:
+                        errors.append(
+                            f"{label}:{i} current roadmap release {m.group(1)} != {version}"
+                        )
+            if label == "docs/development/docs-publishing.md":
+                for m in _PAGES_PROMOTION.finditer(line):
+                    if m.group(1) != version:
+                        errors.append(f"{label}:{i} Pages promotion {m.group(1)} != {version}")
         for m in _PROVIDERS.finditer(line):
             if _first_int(m) != provider_count:
                 errors.append(f"{label}:{i} provider count {_first_int(m)} != {provider_count}")

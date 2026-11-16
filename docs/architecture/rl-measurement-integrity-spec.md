@@ -1,6 +1,6 @@
 # RL Measurement Integrity Spec
 
-**Status:** Superseded by [FEP-0046](../../feps/fep-0046-rl-outcome-category.md) (design of record; implemented)  
+**Status:** Superseded by [FEP-0046](https://github.com/anvai-labs/victor/blob/develop/feps/fep-0046-rl-outcome-category.md) (design of record; implemented)
 **Created:** 2026-11-15  
 **Author:** Victor RL Team  
 **Priority:** P0 (Critical)
