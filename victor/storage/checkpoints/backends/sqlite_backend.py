@@ -119,6 +119,12 @@ class SQLiteCheckpointBackend(CheckpointManagerProtocol):
 
         async with aiosqlite.connect(self.db_path) as db:
             await db.executescript(SCHEMA_SQL)
+            # Concurrent writers (workflow adapters + conversation manager on
+            # one db file, FEP-0047): WAL allows readers during a write and
+            # busy_timeout turns spurious "database is locked" into a short
+            # bounded wait. Idempotent for existing databases.
+            await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute("PRAGMA busy_timeout=5000")
             await db.commit()
 
         self._initialized = True

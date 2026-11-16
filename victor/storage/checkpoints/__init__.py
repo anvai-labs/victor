@@ -114,6 +114,8 @@ __all__ = [
     # Core manager
     "ConversationCheckpointManager",
     "SQLiteCheckpointBackend",
+    # Graph CheckpointerProtocol adapter (FEP-0047)
+    "GraphSQLiteCheckpointer",
     # Tree/Branch types
     "BranchStatus",
     "MergeStrategy",
@@ -136,4 +138,8 @@ def __getattr__(name: str):
         )
 
         return SQLiteCheckpointBackend
+    if name == "GraphSQLiteCheckpointer":
+        from victor.storage.checkpoints.graph_adapter import GraphSQLiteCheckpointer
+
+        return GraphSQLiteCheckpointer
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
