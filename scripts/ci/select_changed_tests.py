@@ -1081,7 +1081,13 @@ RELATED_TESTS = {
     ),
     "victor/agent/orchestrator_creation.py": ("tests/unit/agent/test_profile_reasoning.py",),
     "victor/core/model_parameters.py": ("tests/unit/framework/test_model_effort.py",),
+    "victor/config/settings.py": (
+        "tests/unit/config/test_gateway_resolution_boundary.py",
+        "tests/unit/config/test_settings_cache.py",
+        "tests/unit/config/test_settings_stratification.py",
+    ),
     "victor/config/provider_config_registry.py": (
+        "tests/unit/config/test_gateway_resolution_boundary.py",
         "tests/unit/providers/test_subscription_gateway.py",
         "tests/unit/providers/test_sandhi_transport.py",
     ),
