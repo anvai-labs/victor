@@ -88,6 +88,8 @@ async def test_run_request_block_short_circuits():
     orch = MagicMock()
     orch._message_policy_gate = gate
     orch._chunk_generator = chunk_gen
+    # Production orchestrators carry the resolved runtime context here.
+    orch._execution_context = SimpleNamespace(session_id="s-soak", services=MagicMock())
     # _create_stream_context must never be reached on a blocked request.
     runtime_owner = _runtime_owner_with_orch(orch)
     runtime_owner._create_stream_context = MagicMock(
@@ -125,7 +127,7 @@ def _live_act_executor(gate):
             ),
             sanitizer=SimpleNamespace(sanitize=lambda text: text, strip_markup=lambda text: text),
         ),
-        stream_lifecycle=SimpleNamespace(is_cancelled=lambda: False),
+        stream_lifecycle=MagicMock(is_cancelled=MagicMock(return_value=False)),
         tool_calls=SimpleNamespace(parse_and_validate=lambda calls, text: (calls, text)),
         completion=ChatCompletion(),
         conversation=ChatConversation(),
@@ -317,3 +319,72 @@ async def test_act_governs_candidate_before_history_and_delivery(policy, mode):
     executor._stream_provider_turn.assert_awaited_once()
     if mode == "recovered":
         assert provider_calls == [1]
+
+
+async def test_stategraph_executor_streams_instead_of_refusing(monkeypatch):
+    """FOU-D5f soak finding: the chat streaming wrapper kept a pre-loop
+    NotImplementedError for the StateGraph executor even after the loop's
+    run_streaming gained graph parity (FOU-D5c) — a third dormancy layer
+    (chat surface bypasses the loop, FEP-0041 lesson). The wrapper must let
+    the loop's graph streaming branch serve the run."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor, AgenticLoopSettings
+    from victor.providers.base import StreamChunk
+
+    gate = None
+    chunk_gen = MagicMock()
+    chunk_gen.generate_content_chunk = MagicMock(
+        side_effect=lambda content, is_final=False: StreamChunk(content=content, is_final=is_final)
+    )
+    orch = MagicMock()
+    orch._message_policy_gate = gate
+    orch._chunk_generator = chunk_gen
+    # Production orchestrators carry the resolved runtime context here.
+    orch._execution_context = SimpleNamespace(session_id="s-soak", services=MagicMock())
+    runtime_owner = _runtime_owner_with_orch(orch)
+    runtime_owner.services = SimpleNamespace(
+        delivery=runtime_owner.services.delivery,
+        governance=runtime_owner.services.governance,
+        planning=MagicMock(),
+        stream_lifecycle=MagicMock(is_cancelled=MagicMock(return_value=False)),
+        completion=MagicMock(),
+        conversation=MagicMock(),
+        intelligence=SimpleNamespace(executor_runtime=MagicMock(return_value=None)),
+        metrics=MagicMock(),
+        recovery=MagicMock(),
+        session=MagicMock(),
+        exploration=SimpleNamespace(max_exploration_iterations=3),
+        tool_calls=MagicMock(parse_and_validate=MagicMock(return_value=([], ""))),
+    )
+    runtime_owner._create_stream_context = AsyncMock(return_value=MagicMock())
+    runtime_owner._get_conversation_history = MagicMock(return_value=[])
+
+    exe = StreamingChatExecutor(runtime_owner=runtime_owner)
+    # The pre-loop seam this test targets: with the executor resolving to
+    # STATEGRAPH the wrapper used to raise before any loop existed.
+    orch.settings.agentic_loop = AgenticLoopSettings(executor=AgenticLoopExecutor.STATEGRAPH)
+
+    captured = {}
+
+    class FakeLoop:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        async def run_streaming(self, message, **kwargs):
+            yield StreamChunk(content="graph chunk")
+            yield StreamChunk(
+                content="",
+                is_final=True,
+                metadata={"agentic_loop_success": True, "agentic_loop_iterations": 1},
+            )
+
+    monkeypatch.setattr("victor.framework.agentic_loop.AgenticLoop", FakeLoop)
+
+    chunks = await _drain(exe.run_unified("hello"))
+    assert chunks[-1].is_final is True
+    assert chunks[-1].metadata["agentic_loop_success"] is True
+    # The graph executor's context handoff: the loop received the
+    # orchestrator's runtime execution context (services/session).
+    assert captured.get("execution_context") is not None

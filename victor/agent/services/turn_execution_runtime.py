@@ -538,11 +538,15 @@ class TurnExecutor:
     def require_supported_loop_executor(
         self, *, stategraph: bool | None = None
     ) -> AgenticLoopExecutor:
-        """Resolve once before admission and reject unqualified graph governance.
+        """Resolve the concrete executor once before admission.
 
         Direct graph callers pass their already selected mode explicitly. Ordinary
         service callers use the resolved session settings and pass the returned
         concrete selection through to the loop, never re-reading a global flag.
+        Governance is enforced at the surface (REQUEST gate at entry,
+        govern_response in the shared metered model turn) and verification runs
+        on the graph path (FOU-D5b) — neither gates admission here any more
+        (FOU-D5f soak finding: both refusals were stale).
         """
         from victor.framework.agentic_loop_executor import resolve_agentic_loop_executor
 
@@ -554,13 +558,11 @@ class TurnExecutor:
             selected = (
                 AgenticLoopExecutor.STATEGRAPH if stategraph else AgenticLoopExecutor.STANDARD
             )
-        if self._governance.gate is not None and selected is AgenticLoopExecutor.STATEGRAPH:
-            raise NotImplementedError("StateGraph execution does not support message governance")
-        if (
-            selected is AgenticLoopExecutor.STATEGRAPH
-            and getattr(self, "_verifier", None) is not None
-        ):
-            raise NotImplementedError("StateGraph execution does not support verification")
+        # FOU-D5f soak finding: the governance and verifier refusals here were
+        # stale. Message governance is applied at the surface (REQUEST gate at
+        # entry, govern_response in the shared metered model turn) —
+        # executor-agnostic by construction; verification parity landed with
+        # FOU-D5b. The parity suite pins stategraph+gate and stategraph+stream.
         return selected
 
     async def govern_response(self, response: CompletionResponse) -> CompletionResponse:

@@ -488,6 +488,15 @@ def inject_execution_context(
     Returns:
         State with ExecutionContext injected
     """
+    # FOU-D5f: never crash on a missing context — degrade loudly instead
+    # (service nodes will surface their own missing-service errors).
+    if execution_context is None:
+        logger.warning(
+            "inject_execution_context called with no execution context; "
+            "graph services will be unavailable for this run"
+        )
+        return state
+
     # Store in private attribute (not serialized)
     state._execution_context_private = execution_context
 

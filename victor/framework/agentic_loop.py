@@ -623,6 +623,7 @@ class AgenticLoop(TopologyPlanningMixin):
         exploration_settings: Optional[Any] = None,
         config: "Union[AgenticLoopConfig, Dict[str, Any], None]" = None,
         streaming_act_port: Optional["StreamingActProvider"] = None,
+        execution_context: Optional[Any] = None,
         rubric_complete_fn: Optional[Callable[[str], Awaitable[str]]] = None,
         verifier: Optional[Any] = None,
         max_verify_retries: int = 0,
@@ -648,6 +649,10 @@ class AgenticLoop(TopologyPlanningMixin):
         """
         self.orchestrator = orchestrator
         self.turn_executor = turn_executor
+        # FOU-D5f: the chat streaming surface constructs the loop with
+        # orchestrator=None; the StateGraph executor still needs the runtime
+        # execution context (services/session), which the surface passes here.
+        self.execution_context_override = execution_context
         self.memory_coordinator = memory_coordinator
         # FEP-0007 Addendum A: the streaming ACT seam run_streaming() drives. None until
         # wired at cutover, at which point run_streaming becomes the live UI loop body.
@@ -4247,6 +4252,10 @@ class AgenticLoop(TopologyPlanningMixin):
             _AgenticLoopGraphExecutor = _Executor
 
         execution_context = self._resolve_stategraph_execution_context()
+        if execution_context is None:
+            # FOU-D5f: streaming-loop construction has orchestrator=None; the
+            # surface-provided context (services/session) is the fallback.
+            execution_context = getattr(self, "execution_context_override", None)
         graph_executor = _AgenticLoopGraphExecutor(
             execution_context=execution_context,
             max_iterations=self.max_iterations,
