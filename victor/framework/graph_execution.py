@@ -307,12 +307,18 @@ class GraphCheckpointManager:
                 "there is nothing to resume — supply an initial state, or "
                 "pass an existing thread_id."
             )
-        # FOU-D5f-S6c note: deep-copying the input state fails when its
-        # context carries runtime handles (futures/tasks). The robust
-        # handle-preserving copy exists (graph_checkpoint.deepcopy_
-        # preserving_runtime_handles) but its live rollout is pending — the
-        # sanitized-memory fallback above covers the failure for now.
-        return copy.deepcopy(input_state), entry_point
+        # FOU-D5f-S6c: deep-copying the input state fails when run plumbing
+        # (run-policy snapshots, runtime overrides) carries futures/tasks.
+        # The sanitized-memory fallback above covers the failure for now;
+        # the handle-preserving copy
+        # (graph_checkpoint.deepcopy_preserving_runtime_handles) is the
+        # by-reference upgrade once its rollout is validated.
+        try:
+            return copy.deepcopy(input_state), entry_point
+        except Exception:
+            from victor.framework.graph_checkpoint import tolerant_deepcopy
+
+            return tolerant_deepcopy(input_state), entry_point
 
     @staticmethod
     def _resume_node(

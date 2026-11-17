@@ -2119,7 +2119,15 @@ class AgenticLoop(TopologyPlanningMixin):
                         _sg_guards.enforce()
                         iterations_seen += 1
                         action_result = getattr(iteration, "action_result", None)
-                        content = getattr(getattr(action_result, "response", None), "content", None)
+                        # FOU-D5f final seam: the graph ACT stores response
+                        # TEXT in the action_result dict; accept both shapes
+                        # (the legacy TurnResult-object shape stays supported).
+                        if isinstance(action_result, dict):
+                            content = action_result.get("response") or None
+                        else:
+                            content = getattr(
+                                getattr(action_result, "response", None), "content", None
+                            )
                         if content:
                             yield StreamChunk(content=content)
                     if not verify_stream:

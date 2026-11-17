@@ -1227,3 +1227,36 @@ class TestStategraphExecutorStreaming:
         assert final.is_final is True
         assert final.metadata["agentic_loop_success"] is False
         assert "verification retry budget exhausted" in final.metadata["agentic_loop_error"]
+
+
+class TestStategraphStreamingDictActionResult:
+    """FOU-D5f final seam: the graph ACT node stores response TEXT in the
+    action_result dict; the streaming branch must extract content from the
+    dict shape (it only read the legacy TurnResult-object shape and yielded
+    nothing — 'stream_response returned empty content')."""
+
+    async def test_dict_action_result_yields_content_chunk(self):
+        from unittest.mock import MagicMock
+
+        from victor.framework.agentic_loop import AgenticLoop, LoopIteration, LoopStage
+        from victor.config.agentic_loop_settings import AgenticLoopExecutor
+
+        kwargs.setdefault("enable_fulfillment_check", False) if False else None
+        loop = AgenticLoop(
+            orchestrator=MagicMock(spec=[]),
+            enable_fulfillment_check=False,
+        )
+        loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+
+        async def graph_stream(**kwargs):
+            yield LoopIteration(
+                iteration=1,
+                stage=LoopStage.ACT,
+                action_result={"response": "SOAK-OK", "tool_results": []},
+            )
+
+        loop._stream_with_stategraph = graph_stream
+
+        chunks = [chunk async for chunk in loop.run_streaming("task")]
+        assert [c.content for c in chunks if not c.is_final] == ["SOAK-OK"]
+        assert chunks[-1].is_final is True
