@@ -90,7 +90,11 @@ class TestInjectExecutionContext:
         result = inject_execution_context(state, mock_ctx)
 
         assert result._execution_context_private is mock_ctx
-        assert result.context.get("_execution_context") is mock_ctx
+        # FOU-D5f: the handle stays in the private attribute only —
+        # the context dict no longer carries runtime objects (they defeat
+        # checkpoint serialization and pickle).
+        assert "_execution_context" not in (result.context or {})
+        assert result._execution_context_private is mock_ctx
         assert result.context.get("session_id") == "test-session"
 
 

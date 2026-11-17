@@ -500,11 +500,12 @@ def inject_execution_context(
     # Store in private attribute (not serialized)
     state._execution_context_private = execution_context
 
-    # Also store reference in context for nodes that need it
+    # FOU-D5f: do NOT store the handle in the context dict — it carries
+    # futures/tasks that defeat serialization and pickle. Service nodes
+    # access it via ``state._execution_context_private`` (which the consumer
+    # at _resolve_execution_context prefers). Only serializable fields go
+    # into the context dict.
     context = dict(state.context or {})
-    context["_execution_context"] = execution_context
-
-    # Add session_id if available
     if execution_context.session_id:
         context["session_id"] = execution_context.session_id
 
