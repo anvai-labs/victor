@@ -168,12 +168,21 @@ class TestAgenticLoop:
     """Tests for AgenticLoop."""
 
     def _make_loop(self, orchestrator=None, **kwargs):
-        """Create AgenticLoop with mock orchestrator."""
+        """Create AgenticLoop with mock orchestrator.
+
+        Legacy-path tests (mocking ``_analyze_turn``/``_plan``/``_act``/
+        ``_evaluate``) pin the STANDARD executor explicitly: AUTO now resolves
+        to the StateGraph executor now that USE_STATEGRAPH_AGENTIC_LOOP
+        defaults to True. StateGraph-path tests override via ``executor=``.
+        """
         if orchestrator is None:
             orchestrator = MagicMock()
+        executor = kwargs.pop("executor", AgenticLoopExecutor.STANDARD)
+        config = kwargs.pop("config", None) or {}
         return AgenticLoop(
             orchestrator=orchestrator,
             enable_fulfillment_check=kwargs.pop("enable_fulfillment_check", False),
+            config={**config, "executor": executor},
             **kwargs,
         )
 
@@ -1928,6 +1937,7 @@ class TestStream:
             orchestrator=MagicMock(spec=[]),
             max_iterations=2,
             enable_fulfillment_check=False,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
 
         perception = _make_perception()
@@ -1952,6 +1962,7 @@ class TestStream:
             orchestrator=MagicMock(spec=[]),
             max_iterations=1,
             enable_fulfillment_check=False,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
 
         perception = _make_perception()
@@ -2239,6 +2250,7 @@ class TestAdaptiveIterations:
             max_iterations=2,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
         perception = _make_perception()
         perception.confidence = 0.6

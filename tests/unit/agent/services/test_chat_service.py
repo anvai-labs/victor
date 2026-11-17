@@ -1939,10 +1939,17 @@ class TestChatServiceCriteriaGateEndToEnd(BaseChatServiceTest):
 
         from victor.agent.services.turn_execution_runtime import TurnExecutor
         from victor.config.agentic_loop_settings import AgenticLoopSettings
+        from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 
         chat_context = _MagicMock()
         chat_context.settings = _MagicMock()
-        chat_context.settings.agentic_loop = AgenticLoopSettings()
+        # These end-to-end tests mock the legacy turn-executor seam
+        # (_execute_model_turn) and assert the criteria-gate downgrade path on
+        # the standard loop driver; pin the executor now that the flipped
+        # USE_STATEGRAPH_AGENTIC_LOOP default resolves AUTO to the StateGraph run.
+        chat_context.settings.agentic_loop = AgenticLoopSettings(
+            executor=AgenticLoopExecutor.STANDARD
+        )
         chat_context.settings.agent.effect_gated_completion = False
         chat_context.settings.exploration = None
         chat_context.settings.chat_max_iterations = 8

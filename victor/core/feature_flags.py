@@ -242,7 +242,7 @@ class FeatureFlag(Enum):
             FeatureFlag.USE_PROMPT_DICTIONARY_COMPRESSION,
             FeatureFlag.USE_PRIME_MEMORY_EVOLUTION,
             # Phase 15: Architecture Consolidation (opt-in for safety)
-            FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP,
+            # Phase 15: USE_STATEGRAPH_AGENTIC_LOOP graduated (FOU-D5f).
             # Phase 16: Stage Transition Coordination (opt-in for gradual rollout)
             FeatureFlag.USE_STAGE_TRANSITION_COORDINATOR,
             # Phase 17: Tiered Classification (opt-in, off by default)

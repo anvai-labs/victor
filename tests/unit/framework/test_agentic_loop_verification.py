@@ -44,7 +44,15 @@ def make_loop(verifier, retries, iterations=6):
         max_iterations=iterations,
         enable_fulfillment_check=False,
         enable_adaptive_iterations=False,
-        config={"enable_topology_routing": False, "disable_enhanced_completion": True},
+        config={
+            "enable_topology_routing": False,
+            "disable_enhanced_completion": True,
+            # These tests drive the LEGACY loop's evaluation/verification
+            # internals (_act/_evaluate/_score_history mocks). Pin the legacy
+            # executor so the USE_STATEGRAPH_AGENTIC_LOOP default flip does not
+            # silently re-route them through graph internals they never mock.
+            "executor": "standard",
+        },
     )
     loop._act = AsyncMock(return_value=turn)
     loop._evaluate = AsyncMock(
@@ -383,9 +391,12 @@ async def test_unsupported_mode_rejects_configured_deadline_before_execution(mon
     loop = make_loop(None, retries=0)
     loop.config.total_timeout = 1
     if mode == "stategraph":
+        from victor.config.agentic_loop_settings import AgenticLoopExecutor as Exec
         from victor.core.feature_flags import FeatureFlag
         from victor.framework.loop.guards import LoopSpinError
 
+        # AUTO consults the legacy flag; the fixture pins STANDARD explicitly.
+        loop.config.executor = Exec.AUTO
         monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
         # FOU-D5a: the guarded graph path converts a guard stop into the
         # legacy spin-guard FAIL contract (no NotImplementedError, no crash).
@@ -497,6 +508,9 @@ async def test_direct_loop_resolves_auto_each_run_without_mutating_config(monkey
     from victor.framework.agentic_loop import LoopResult
 
     loop = make_loop(None, retries=0)
+    # AUTO is the behavior under test: explicit resolution must come from the
+    # legacy flag each run, not from the fixture's STANDARD pin.
+    loop.config.executor = AgenticLoopExecutor.AUTO
     graph_result = LoopResult(success=True, iterations=[], final_state={}, total_duration=0)
     loop._run_with_stategraph = AsyncMock(return_value=graph_result)
     env = FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name()

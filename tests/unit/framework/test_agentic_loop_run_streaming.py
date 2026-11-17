@@ -30,6 +30,7 @@ import pytest
 from victor.agent.action_authorizer import ActionIntent
 from victor.agent.turn_policy import SpinDetector, TurnDecision, TurnEvaluationController
 from victor.framework.agentic_loop import AgenticLoop, AgenticLoopConfig
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.providers.base import StreamChunk
 
@@ -53,7 +54,9 @@ def _fake_port(turns):
 def _loop(port, *, evaluations, turn_executor=None):
     """A bare AgenticLoop with the run_streaming collaborators stubbed."""
     loop = AgenticLoop.__new__(AgenticLoop)
-    loop.config = AgenticLoopConfig()
+    # These tests pin the LEGACY streaming path; AUTO now resolves to the
+    # StateGraph executor since USE_STATEGRAPH_AGENTIC_LOOP defaulted on.
+    loop.config = AgenticLoopConfig(executor=AgenticLoopExecutor.STANDARD)
     loop.streaming_act_port = port
     loop.max_iterations = 5
     loop._progress_scores = []
@@ -673,7 +676,6 @@ async def test_run_streaming_accepts_plain_async_iterator_without_aclose():
 
 
 async def test_streaming_deadline_interrupts_act_and_preserves_partial_output():
-    from victor.framework.agentic_loop import AgenticLoopConfig
     from victor.framework.loop.guards import current_guards
 
     cleaned = asyncio.Event()
@@ -690,7 +692,7 @@ async def test_streaming_deadline_interrupts_act_and_preserves_partial_output():
                 cleaned.set()
 
     loop = _loop(Port(), evaluations=[])
-    loop.config = AgenticLoopConfig(total_timeout=0.03)
+    loop.config.total_timeout = 0.03
 
     async def consume():
         return [chunk async for chunk in loop.run_streaming("q")]
@@ -853,6 +855,8 @@ async def test_run_streaming_criteria_gate_downgrades_unmet_complete_then_budget
         streaming_act_port=Port(),
         config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
     )
+    # Legacy streaming path (AUTO now resolves to StateGraph).
+    loop.config.executor = AgenticLoopExecutor.STANDARD
     loop._analyze_turn = AsyncMock(
         return_value=Perception(
             intent=ActionIntent.WRITE_ALLOWED,
