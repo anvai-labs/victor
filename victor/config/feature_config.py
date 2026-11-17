@@ -74,7 +74,7 @@ DEFAULT_FEATURE_FLAGS = {
     "use_multi_hop_retrieval": False,
     "use_graph_enhanced_context": False,
     # Architecture consolidation (opt-in for safety)
-    "use_stategraph_agentic_loop": False,
+    "use_stategraph_agentic_loop": True,
     # Stage transition coordination (opt-in for gradual rollout)
     "use_stage_transition_coordinator": False,
 }

@@ -16,6 +16,7 @@ from victor.agent.action_authorizer import ActionIntent
 from victor.agent.decisions.schemas import DecisionType
 from victor.agent.turn_policy import SpinState
 from victor.framework.agentic_loop import AgenticLoop, LoopResult
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 from victor.framework.evaluation_nodes import (
     EvaluationDecision,
     EvaluationResult,
@@ -101,6 +102,7 @@ class TestFullPipelineIntegration:
             max_iterations=2,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
 
         result = await loop.run("What is 2+2?")
@@ -116,6 +118,7 @@ class TestFullPipelineIntegration:
             max_iterations=1,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
 
         history = [
@@ -356,6 +359,7 @@ class TestAdaptiveLoopIntegration:
             enable_adaptive_iterations=True,
             plateau_window=3,
             plateau_tolerance=0.05,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
 
         # Mock perception to return constant low confidence (simulates plateau)
@@ -380,6 +384,7 @@ class TestAdaptiveLoopIntegration:
             max_iterations=5,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=True,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
 
         perception = Perception(
@@ -443,7 +448,10 @@ class TestTurnResultEvaluation:
         return AgenticLoop(
             orchestrator=MagicMock(spec=[]),
             enable_fulfillment_check=False,
-            config={"disable_enhanced_completion": True},
+            config={
+                "disable_enhanced_completion": True,
+                "executor": AgenticLoopExecutor.STANDARD,
+            },
         )
 
     def _make_perception(self):
@@ -483,6 +491,7 @@ class TestTurnResultEvaluation:
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
             max_iterations=3,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
         loop._analyze_turn = AsyncMock(return_value=self._make_perception())
         loop._plan = AsyncMock(return_value={})
@@ -551,6 +560,7 @@ class TestTurnResultEvaluation:
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
             max_iterations=20,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
         loop._analyze_turn = AsyncMock(return_value=self._make_perception())
         loop._plan = AsyncMock(return_value={})
@@ -735,6 +745,7 @@ class TestNudgeInjection:
             max_iterations=4,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
 
         # Mock perception
@@ -795,6 +806,7 @@ class TestNudgeInjection:
             max_iterations=5,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
 
         perception = Perception(
@@ -826,6 +838,7 @@ class TestNudgeInjection:
             max_iterations=2,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
 
         perception = Perception(
