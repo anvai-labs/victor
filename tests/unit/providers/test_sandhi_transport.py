@@ -1436,7 +1436,7 @@ def test_handshake_accepts_current_known_minor(monkeypatch, caplog):
     the handshake reads it exactly and does not warn it is 'ahead'."""
     import types
 
-    assert st.KNOWN_CONTRACT_MINOR == 9
+    assert st.KNOWN_CONTRACT_MINOR == 14
     fake_sg = types.SimpleNamespace(
         wire_contract_version=lambda: "1", chat_contract_minor=lambda: 9
     )
@@ -1802,3 +1802,11 @@ async def test_sandhi_stream_idle_timeout_passes_through_chunks():
     assert len(chunks) == 2
     assert "hello" in chunks[0]
     assert "world" in chunks[1]
+
+
+def test_known_contract_minor_tracks_gateway_020():
+    """Handoff fix: sandhi-gateway 0.20.0 ships CHAT_CONTRACT_MINOR 14;
+    victor's known minor was 9, causing a contract-mismatch warning."""
+    from victor.providers.sandhi_transport import KNOWN_CONTRACT_MINOR
+
+    assert KNOWN_CONTRACT_MINOR == 14

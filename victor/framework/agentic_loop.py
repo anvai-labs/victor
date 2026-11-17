@@ -3640,12 +3640,15 @@ class AgenticLoop(TopologyPlanningMixin):
             turn: TurnResult = action_result
 
             # Q&A shortcut: model answered without tools on a question task
+            # BUT only if no tools were used earlier in the conversation
             if turn.is_qa_response and turn.has_content:
-                return EvaluationResult(
-                    decision=EvaluationDecision.COMPLETE,
-                    score=0.9,
-                    reason="Q&A shortcut: accepted direct answer",
-                )
+                had_prior_tools = getattr(self.spin_detector, "total_tool_calls", 0) > 0
+                if not had_prior_tools:
+                    return EvaluationResult(
+                        decision=EvaluationDecision.COMPLETE,
+                        score=0.9,
+                        reason="Q&A shortcut: accepted direct answer",
+                    )
 
             # Use shared SpinDetector for consistent detection
             spin_state = self.spin_detector.state
