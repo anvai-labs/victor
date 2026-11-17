@@ -277,17 +277,28 @@ async def _collect_deadline_stream(loop):
 
 @pytest.mark.parametrize("mode", ["stategraph", "iterations"])
 async def test_unsupported_mode_rejects_configured_deadline_before_execution(monkeypatch, mode):
+    """Iteration streaming still refuses deadlines uniformly. The buffered
+    StateGraph path honors them since FOU-D5a (guarded like the legacy loop),
+    so the stategraph leg asserts the guarded contract instead of the old
+    NotImplementedError refusal."""
     loop = make_loop(None, retries=0)
     loop.config.total_timeout = 1
-    loop._run_with_stategraph = AsyncMock()
     if mode == "stategraph":
         from victor.core.feature_flags import FeatureFlag
+        from victor.framework.loop.guards import LoopSpinError
 
         monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
-        with pytest.raises(NotImplementedError, match="deadlines"):
-            await loop.run("q")
-        loop._run_with_stategraph.assert_not_called()
+        # FOU-D5a: the guarded graph path converts a guard stop into the
+        # legacy spin-guard FAIL contract (no NotImplementedError, no crash).
+        loop._run_with_stategraph = AsyncMock(
+            side_effect=LoopSpinError("perception backstop exceeded")
+        )
+        result = await loop.run("q")
+        loop._run_with_stategraph.assert_awaited_once()
+        assert result.metadata.get("terminated_by") == "loop_spin_guard"
+        assert result.success is False
     else:
+        loop._run_with_stategraph = AsyncMock()
         with pytest.raises(NotImplementedError, match="deadlines"):
             await anext(loop.stream("q"))
     loop._act.assert_not_called()

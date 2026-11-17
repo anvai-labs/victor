@@ -6,6 +6,8 @@ components for PERCEIVE → PLAN → ACT → EVALUATE → DECIDE loops.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +25,7 @@ from victor.agent.topology_contract import (
     TopologyKind,
 )
 from victor.agent.topology_grounder import GroundedTopologyPlan
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 from victor.framework.agentic_loop import (
     AgenticLoop,
     LoopIteration,
@@ -2284,3 +2287,64 @@ class TestEnhancedTaskTypeMapping:
         perception.intent = ActionIntent.READ_ONLY
         result = loop._map_to_task_type(perception)
         assert result == TaskType.ANALYSIS
+
+
+class TestStategraphExecutorRunDeadline:
+    """FOU-D5a: total_timeout must hold under the StateGraph executor.
+
+    The legacy loop is guarded cooperatively by LoopGuards; the graph path
+    used to raise NotImplementedError for the same configuration, so a user
+    with a deadline could not use that executor at all. Parity: same guard,
+    same FAIL LoopResult contract (terminated_by='loop_spin_guard').
+    """
+
+    def _stategraph_loop(self, **kwargs):
+        kwargs.setdefault("enable_fulfillment_check", False)
+        loop = AgenticLoop(orchestrator=MagicMock(spec=[]), **kwargs)
+        loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+        return loop
+
+    async def test_total_timeout_returns_fail_spin_guard_result(self):
+
+        loop = self._stategraph_loop(config={"total_timeout": 0.05})
+
+        async def slow_graph_run(**kwargs):
+            await asyncio.sleep(5)
+            raise AssertionError("must be cancelled by the deadline")
+
+        loop._run_with_stategraph = slow_graph_run
+        start = time.monotonic()
+        result = await loop.run("task")
+        elapsed = time.monotonic() - start
+
+        assert result.success is False
+        assert result.metadata["terminated_by"] == "loop_spin_guard"
+        assert "error" in result.metadata
+        assert elapsed < 2.0, f"deadline not enforced (took {elapsed:.2f}s)"
+
+    async def test_no_deadline_passes_graph_result_through(self):
+        loop = self._stategraph_loop()
+
+        expected = LoopResult(success=True, iterations=[], final_state={}, total_duration=0.0)
+
+        async def fast_graph_run(**kwargs):
+            return expected
+
+        loop._run_with_stategraph = fast_graph_run
+        result = await loop.run("task")
+        assert result is expected
+
+    async def test_guard_error_is_not_swallowed_into_generic_graph_error(self):
+        """LoopSpinError from inside the graph path must reach run()'s spin
+        handler, not become a generic error LoopResult mid-path."""
+        from victor.framework.loop.guards import LoopSpinError
+
+        loop = self._stategraph_loop(config={"total_timeout": 0.05})
+
+        async def guarded_deadline_hit(**kwargs):
+            raise LoopSpinError("perception backstop exceeded")
+
+        loop._run_with_stategraph = guarded_deadline_hit
+        result = await loop.run("task")
+        assert result.success is False
+        assert result.metadata["terminated_by"] == "loop_spin_guard"
