@@ -1151,7 +1151,6 @@ class TestStategraphExecutorStreaming:
     async def test_run_streaming_under_deadline_emits_error_verdict(self):
         import asyncio
 
-
         loop = self._stategraph_loop(config={"total_timeout": 0.05})
 
         async def slow_stream(**kwargs):
