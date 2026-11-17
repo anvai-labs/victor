@@ -886,15 +886,34 @@ class AgenticLoop(TopologyPlanningMixin):
         if use_stategraph_executor(self.config.executor):
             if self.turn_executor is not None:
                 self.turn_executor.require_supported_loop_executor(stategraph=True)
-            if self.config.total_timeout is not None:
-                raise NotImplementedError("StateGraph execution does not support run deadlines")
             if getattr(self, "_verifier", None) is not None:
                 raise NotImplementedError("StateGraph execution does not support verification")
-            return await self._run_with_stategraph(
-                query=query,
-                context=context,
-                conversation_history=conversation_history,
-            )
+            # FOU-D5a: run-deadline parity with the legacy loop — the same
+            # cooperative LoopGuards wrap the graph path from outside.
+            from victor.framework.loop.guards import LoopGuards, LoopSpinError
+
+            _sg_guards = LoopGuards(total_timeout=self.config.total_timeout)
+            try:
+                return await _sg_guards.run(
+                    lambda: self._run_with_stategraph(
+                        query=query,
+                        context=context,
+                        conversation_history=conversation_history,
+                    )
+                )
+            except LoopSpinError as spin:
+                logger.warning("[AgenticLoop] stategraph run terminated by spin guard: %s", spin)
+                return LoopResult(
+                    success=False,
+                    iterations=[],
+                    final_state={},
+                    total_duration=_sg_guards.total_elapsed(),
+                    metadata={
+                        "error": str(spin),
+                        "terminated_by": "loop_spin_guard",
+                        "iterations_completed": 0,
+                    },
+                )
 
         # Buffered and token-streamed drivers share the same cooperative guard.
         from victor.framework.loop.guards import LoopGuards, LoopSpinError
@@ -4414,6 +4433,8 @@ class AgenticLoop(TopologyPlanningMixin):
         """
         import time
 
+        from victor.framework.loop.guards import LoopSpinError
+
         start_time = time.time()
 
         try:
@@ -4446,6 +4467,10 @@ class AgenticLoop(TopologyPlanningMixin):
             )
 
         except ProviderPolicyError:
+            raise
+        except LoopSpinError:
+            # FOU-D5a: a guard deadline is not a generic graph error —
+            # re-raise for run()'s spin handler (FAIL + loop_spin_guard).
             raise
         except Exception as e:
             logger.error(f"StateGraph executor error: {e}", exc_info=True)
