@@ -719,6 +719,29 @@ class CompiledGraph(Generic[StateType]):
             return []
         return await checkpointer.list(thread_id)
 
+    async def resume(self, thread_id: str) -> GraphExecutionResult[StateType]:
+        """Resume a checkpointed thread (FEP-0032 / FOU-D4).
+
+        The resume-at entry point: continues the thread from its checkpoint's
+        recorded position with no new input. Loud errors name the remedy:
+        no checkpointer, no checkpoint for the thread (a completed thread
+        resumes to its stored result and executes nothing).
+        """
+        checkpointer = self._config.checkpoint.checkpointer if self._config else None
+        if checkpointer is None:
+            raise ValueError(
+                "Cannot resume: this graph has no checkpointer configured. "
+                "Compile with checkpointer=... (durable-by-default at the "
+                "agentic-loop executor, FEP-0047)."
+            )
+        checkpoint = await checkpointer.load(thread_id)
+        if checkpoint is None:
+            raise ValueError(
+                f"Cannot resume thread {thread_id!r}: no checkpoint exists. "
+                "Start a run with invoke(state, thread_id=...) first."
+            )
+        return await self.invoke(None, thread_id=thread_id)
+
     async def replay_from(
         self,
         thread_id: str,

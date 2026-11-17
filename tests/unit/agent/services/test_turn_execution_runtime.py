@@ -2685,3 +2685,27 @@ async def test_recovery_response_without_provider_usage_has_no_usage_metadata():
     response = await executor._ensure_complete_response(None, ToolFailureContext())
 
     assert RECOVERY_USAGE_KEY not in (response.metadata or {})
+
+
+@pytest.mark.asyncio
+async def test_paused_loop_run_carries_resume_position_in_response_metadata():
+    """FEP-0032/FOU-D4: a graph-paused LoopResult surfaces its resume position
+    through response.metadata so the TaskResult layer can promote it."""
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=True)
+    final = TurnResult(response=CompletionResponse(content="partial"))
+    paused_loop_result = LoopResult(
+        success=True,
+        total_duration=0,
+        final_state={"action_result": final},
+        iterations=[LoopIteration(iteration=1, stage=LoopStage.ACT, action_result=final)],
+        metadata={"paused": {"thread_id": "run-42", "next_node": "act"}},
+    )
+    loop = SimpleNamespace(run=AsyncMock(return_value=paused_loop_result))
+    with patch("victor.framework.agentic_loop.AgenticLoop", return_value=loop):
+        response = await executor.execute_agentic_loop("task", max_iterations=5)
+    assert response.metadata.get("paused") == {"thread_id": "run-42", "next_node": "act"}

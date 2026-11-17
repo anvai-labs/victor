@@ -112,6 +112,7 @@ class ChatResponse(BaseModel):
     status: str = "ok"
     run_id: Optional[str] = None
     approval_request: Optional[Dict[str, Any]] = None
+    resume_thread_id: Optional[str] = None
 
 
 class ResumeRequest(BaseModel):

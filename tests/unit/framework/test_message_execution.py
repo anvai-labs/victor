@@ -784,3 +784,42 @@ def test_gateway_response_without_task_report_retains_unavailable_price(vendor_c
     metadata = _build_task_result_metadata(SimpleNamespace(), response)
     assert metadata["cost_usd_micros"] is None
     assert metadata["pricing_status"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_graph_paused_turn_becomes_a_paused_task_result() -> None:
+    """FEP-0032/FOU-D4: metadata["paused"] promotes to status="paused" with
+    the resume thread, instead of an ordinary (failed) verdict."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from victor.framework.message_execution import execute_message
+
+    metadata = {"paused": {"thread_id": "run-42", "next_node": "act"}}
+    response = CompletionResponse(content="partial output", metadata=metadata)
+    runtime = SimpleNamespace(chat=AsyncMock(return_value=response))
+    result = await execute_message(
+        orchestrator=_make_orchestrator(),
+        execution_context=SimpleNamespace(services=SimpleNamespace(chat=runtime)),
+        user_message="task",
+    )
+    assert result.status == "paused"
+    assert result.resume_thread_id == "run-42"
+
+
+@pytest.mark.asyncio
+async def test_turn_without_pause_keeps_default_status() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from victor.framework.message_execution import execute_message
+
+    response = CompletionResponse(content="done", metadata={})
+    runtime = SimpleNamespace(chat=AsyncMock(return_value=response))
+    result = await execute_message(
+        orchestrator=_make_orchestrator(),
+        execution_context=SimpleNamespace(services=SimpleNamespace(chat=runtime)),
+        user_message="task",
+    )
+    assert result.status == "ok"
+    assert result.resume_thread_id is None

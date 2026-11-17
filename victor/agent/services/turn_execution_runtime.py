@@ -1291,6 +1291,11 @@ class TurnExecutor:
         response.metadata = post_loop_recovery.response_metadata(
             response.metadata, loop_result, iterations=loop_iterations, error=loop_error
         )
+        if loop_result.paused:
+            # FEP-0032/FOU-D4: the run stopped at a graph boundary — carry the
+            # resume position so the TaskResult layer can promote it to a
+            # paused outcome instead of an ordinary (failed) verdict.
+            response.metadata["paused"] = loop_result.metadata["paused"]
         return response
 
     @classmethod

@@ -284,3 +284,30 @@ class TestAwaitingApprovalSerialization:
         assert wire["content"] == "paused for approval"
         assert "run_id" not in wire
         assert "approval_request" not in wire
+
+    def test_graph_pause_rides_the_awaiting_approval_envelope(self):
+        """FEP-0032/FOU-D4: a graph-interrupted run surfaces thread_id +
+        next_node on the same durable-pause envelope (no new v1 event type)."""
+        event = SimpleNamespace(
+            event_type="awaiting_approval",
+            content="paused at graph boundary",
+            metadata={"paused": {"thread_id": "run-9", "next_node": "act"}},
+        )
+        wire = to_wire_event(event)
+        assert wire is not None
+        assert wire["event"] == "awaiting_approval"
+        assert wire["thread_id"] == "run-9"
+        assert wire["next_node"] == "act"
+        assert wire["paused"] is True
+        assert "approval_request" not in wire
+
+    def test_awaiting_approval_without_graph_pause_has_no_thread_fields(self):
+        event = SimpleNamespace(
+            event_type="awaiting_approval",
+            content="needs approval",
+            metadata={"run_id": "run-7"},
+        )
+        wire = to_wire_event(event)
+        assert "thread_id" not in wire
+        assert "next_node" not in wire
+        assert "paused" not in wire
