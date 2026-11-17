@@ -697,3 +697,144 @@ class TestEvaluateNodeRealFulfillmentAPI:
 
         # Evaluation survives: a decision exists and the failure is contained.
         assert result.evaluation is not None
+
+
+class TestTurnResultFlowsToEvaluator:
+    """FOU-D5f root cause: EnhancedCompletionEvaluator keys its Q&A shortcut
+    (and every disposition-aware branch) off ``isinstance(action_result,
+    TurnResult)`` — but the graph path handed it a plain dict, so the model
+    answering a simple question could never COMPLETE and every run spun to
+    the iteration cap ('Insufficient progress' forever)."""
+
+    @staticmethod
+    def _turn(content):
+        from victor.agent.services.turn_execution_runtime import TurnResult
+        from victor.providers.base import CompletionResponse
+
+        return TurnResult(response=CompletionResponse(content=content))
+
+    async def test_act_node_preserves_turn_result_for_evaluation(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        te = SimpleNamespace(execute_turn=AsyncMock(return_value=self._turn("SOAK-OK")))
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+        result = await act_node(state, turn_executor=te)
+        # Text for serialization; the object preserved for the evaluator.
+        assert result.action_result["response"] == "SOAK-OK"
+        assert result.action_result["_turn_result"].response.content == "SOAK-OK"
+
+    async def test_evaluate_node_passes_turn_result_to_evaluator(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.agent.services.turn_execution_runtime import TurnResult
+        from victor.framework.agentic_graph.nodes import evaluate_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        turn = self._turn("SOAK-OK")
+        evaluator = AsyncMock()
+        evaluator.evaluate = AsyncMock(
+            return_value=SimpleNamespace(decision="complete", score=0.9, reason="qa")
+        )
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+        state = state.model_copy(
+            update={
+                "stage": "act",
+                "action_result": {
+                    "response": "SOAK-OK",
+                    "tool_results": [],
+                    "_turn_result": turn,
+                },
+            }
+        )
+
+        await evaluate_node(state, evaluator=evaluator, enable_fulfillment_check=False)
+
+        passed = (
+            evaluator.evaluate.call_args.kwargs.get("action_result")
+            or evaluator.evaluate.call_args.args[1]
+        )
+        assert isinstance(passed, TurnResult)
+
+    async def test_real_evaluator_completes_qa_answer_on_graph_path(self):
+        """The production failure, pinned: a tool-free answer must COMPLETE
+        through the real EnhancedCompletionEvaluator on the graph path. The
+        runtime marks question-task turns ``is_qa_response=True``; with the
+        TurnResult flowing through to the evaluator, the Q&A shortcut fires."""
+        from victor.agent.services.turn_execution_runtime import TurnDisposition
+        from victor.framework.agentic_graph.nodes import evaluate_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.enhanced_completion_evaluation import EnhancedCompletionEvaluator
+
+        turn = self._turn("SOAK-OK")
+        turn.is_qa_response = True
+        turn.disposition = TurnDisposition.COMPLETION_CANDIDATE
+        evaluator = EnhancedCompletionEvaluator()
+        state = AgenticLoopStateModel(query="Reply with exactly: SOAK-OK", max_iterations=5)
+        state = state.model_copy(
+            update={
+                "stage": "act",
+                "action_result": {
+                    "response": "SOAK-OK",
+                    "tool_results": [],
+                    "_turn_result": turn,
+                },
+            }
+        )
+
+        result = await evaluate_node(state, evaluator=evaluator, enable_fulfillment_check=False)
+        decision = result.evaluation["decision"]
+        assert getattr(decision, "value", decision) == "complete"
+
+
+class TestActNodePassesQaSignal:
+    """FOU-D5f final seam: the graph ACT node must derive is_qa_task from the
+    runtime's _is_question_only like the legacy loop does — otherwise the
+    runtime never marks Q&A turns and simple questions never complete."""
+
+    async def test_act_node_passes_is_qa_task_for_questions(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        captured = {}
+
+        async def execute_turn(**kwargs):
+            captured.update(kwargs)
+            from victor.providers.base import CompletionResponse
+
+            return SimpleNamespace(response=CompletionResponse(content="SOAK-OK"), tool_results=[])
+
+        te = SimpleNamespace(
+            execute_turn=AsyncMock(side_effect=execute_turn),
+            _is_question_only=lambda message: True,
+        )
+        state = AgenticLoopStateModel(query="What is this?", max_iterations=5)
+        await act_node(state, turn_executor=te)
+        assert captured.get("is_qa_task") is True
+
+    async def test_act_node_defaults_is_qa_task_false_without_hook(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        captured = {}
+
+        async def execute_turn(**kwargs):
+            captured.update(kwargs)
+            from victor.providers.base import CompletionResponse
+
+            return SimpleNamespace(response=CompletionResponse(content="done"), tool_results=[])
+
+        te = SimpleNamespace(execute_turn=AsyncMock(side_effect=execute_turn))
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+        await act_node(state, turn_executor=te)
+        assert captured.get("is_qa_task") is False
