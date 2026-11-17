@@ -179,8 +179,17 @@ FEP-0032 is constrained to:
 
 ### Implementation status (2026-10-23)
 
-Phases 1 and 3 are implemented; phase 2 (the loud input-discard `ValueError`) is not, pending
-the override-ergonomics question below, so this FEP stays Draft.
+**Update 2026-11-16 (FOU-D3, Victor Foundations program): phase 2 is implemented; this FEP is
+Accepted.** `CompiledGraph.invoke()`/`stream()` take `Optional` input; `_validate_input_state`
+short-circuits on `None`; `load_initial_state` raises the loud `ValueError` (naming the thread
+and the remedies) when a checkpoint exists and non-`None` input is supplied without an explicit
+`start_node`; `None` on a thread with no checkpoint is likewise a loud error. `start_node` plus
+input on a checkpointed thread is the acknowledged position override (checkpoint state still
+wins on resume — a fresh run needs a new thread_id). The loud error covers `stream()` too,
+beyond this FEP's original invoke-only wording.
+
+Phases 1 and 3 were implemented 2026-09/10; phase 2 (the loud input-discard `ValueError`) had
+been pending the override-ergonomics question below.
 
 - `GraphRuntimeOutcome` and `GraphExecutionResult` carry `interrupted` / `next_node`;
   `ExecutorResult.interrupted` / `interrupt_node` are now set from them.

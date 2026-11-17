@@ -256,6 +256,19 @@ class GraphCheckpointManager:
         if self.checkpointer:
             checkpoint = await self.checkpointer.load(thread_id)
             if checkpoint:
+                if input_state is not None and resolve_successor is not None:
+                    # FEP-0032 phase 2: this input used to be silently
+                    # discarded; make the discard loud and name the remedies.
+                    # resolve_successor is None exactly when the caller passed
+                    # an explicit start_node (the acknowledged override path).
+                    raise ValueError(
+                        f"thread {thread_id!r} already has a checkpoint; the "
+                        "supplied input_state would be silently discarded. "
+                        "Pass input_state=None to resume the checkpointed "
+                        "thread, start_node=... to acknowledge an explicit "
+                        "position override, or use a new thread_id for a "
+                        "fresh run."
+                    )
                 if checkpoint.metadata.get("checkpoint_boundary") == "before":
                     self.resume_past_interrupt = checkpoint.next_node
                 self.routing_state = copy.deepcopy(checkpoint.metadata.get("sequential_frontier"))
@@ -273,6 +286,14 @@ class GraphCheckpointManager:
                     resume_at,
                 )
                 return state, resume_at
+        if input_state is None:
+            # FEP-0032: None means "resume the checkpointed thread"; reaching
+            # here means there is nothing to resume.
+            raise ValueError(
+                f"thread {thread_id!r} has no checkpoint and input_state=None; "
+                "there is nothing to resume — supply an initial state, or "
+                "pass an existing thread_id."
+            )
         return copy.deepcopy(input_state), entry_point
 
     @staticmethod

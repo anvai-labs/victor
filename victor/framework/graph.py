@@ -312,8 +312,15 @@ class CompiledGraph(Generic[StateType]):
             logger.warning(f"State validation failed after node '{current_node}': {errors}")
         return None
 
-    def _validate_input_state(self, input_state: StateType, exec_config: GraphConfig) -> None:
+    def _validate_input_state(
+        self, input_state: Optional[StateType], exec_config: GraphConfig
+    ) -> None:
         """Validate input state according to graph validation config."""
+        if input_state is None:
+            # FEP-0032 phase 2: None is the resume signal ("omit fresh
+            # input_state"); validation of the checkpointed state happened
+            # when the checkpoint was written.
+            return
         if not exec_config.validation.enabled or self._state_schema is None:
             return
 
@@ -374,7 +381,7 @@ class CompiledGraph(Generic[StateType]):
 
     async def invoke(
         self,
-        input_state: StateType,
+        input_state: Optional[StateType],
         *,
         config: Optional[GraphConfig] = None,
         thread_id: Optional[str] = None,
@@ -594,7 +601,7 @@ class CompiledGraph(Generic[StateType]):
 
     async def stream(
         self,
-        input_state: StateType,
+        input_state: Optional[StateType],
         *,
         config: Optional[GraphConfig] = None,
         thread_id: Optional[str] = None,
