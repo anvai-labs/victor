@@ -367,10 +367,19 @@ async def act_node(
     try:
         if turn_executor is not None:
             # Execute via TurnExecutor
+            # FOU-D5f root cause (final seam): the legacy loop derives
+            # is_qa from the runtime's _is_question_only(user_message) and
+            # seeds it into the loop context; the graph path never did, so
+            # the runtime never marked Q&A turns, the evaluator's Q&A
+            # shortcut never fired, and simple questions spun to the
+            # iteration cap ("Insufficient progress" forever).
+            question_only = getattr(turn_executor, "_is_question_only", None)
+            is_qa_task = bool(question_only and question_only(state.query))
             result = await turn_executor.execute_turn(
                 user_message=state.query,
                 task_classification=state.task_type,
                 runtime_context_overrides=state.context,
+                is_qa_task=is_qa_task,
             )
 
             # Extract results. FOU-D5f soak finding: result.response is a
@@ -384,6 +393,12 @@ async def act_node(
             action_result = {
                 "response": response,
                 "tool_results": getattr(result, "tool_results", []),
+                # FOU-D5f root cause: EnhancedCompletionEvaluator keys its Q&A
+                # shortcut and disposition-aware branches off
+                # isinstance(action_result, TurnResult). Preserve the object
+                # alongside the serialized text or a tool-free answer can never
+                # COMPLETE and every graph run spins to the iteration cap.
+                "_turn_result": result,
             }
 
             tool_results = action_result.get("tool_results", [])
@@ -475,10 +490,19 @@ async def evaluate_node(
 
     try:
         if evaluator is not None:
-            # Use provided evaluator
+            # Use provided evaluator. FOU-D5f: the evaluator's contract is a
+            # TurnResult (its Q&A shortcut and disposition branches key off
+            # isinstance); the graph ACT node stores the serialized dict with
+            # the object embedded under "_turn_result" — restore the object
+            # for the evaluator call.
+            eval_action_result = state.action_result
+            if isinstance(eval_action_result, dict):
+                embedded = eval_action_result.get("_turn_result")
+                if embedded is not None:
+                    eval_action_result = embedded
             eval_result = await evaluator.evaluate(
                 perception=state.perception,
-                action_result=state.action_result,
+                action_result=eval_action_result,
                 state=state.to_dict(),
             )
 
