@@ -308,17 +308,19 @@ class GraphCheckpointManager:
                 "pass an existing thread_id."
             )
         # FOU-D5f-S6c: deep-copying the input state fails when run plumbing
-        # (run-policy snapshots, runtime overrides) carries futures/tasks.
-        # The sanitized-memory fallback above covers the failure for now;
-        # the handle-preserving copy
-        # (graph_checkpoint.deepcopy_preserving_runtime_handles) is the
-        # by-reference upgrade once its rollout is validated.
+        # (run-policy snapshots, runtime overrides) carries futures/tasks/
+        # stream handles. Fall back to a shallow model copy: the graph nodes
+        # create new state models via model_copy(update=...) at each stage,
+        # so the original input state is not mutated — references to run
+        # plumbing stay live and functional (locks stay locks, services
+        # stay services), unlike the repr-substitution approach which broke
+        # downstream consumers ('str' object has no attribute 'acquire').
         try:
             return copy.deepcopy(input_state), entry_point
         except Exception:
-            from victor.framework.graph_checkpoint import tolerant_deepcopy
-
-            return tolerant_deepcopy(input_state), entry_point
+            if isinstance(input_state, BaseModel):
+                return input_state.model_copy(deep=False), entry_point
+            raise
 
     @staticmethod
     def _resume_node(
