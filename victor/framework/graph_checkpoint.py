@@ -89,7 +89,20 @@ def deepcopy_preserving_runtime_handles(value: Any) -> Any:
             continue
         value_dict = getattr(obj, "__dict__", None)
         if isinstance(value_dict, dict):
-            copied = copy.copy(obj)
+            try:
+                copied = copy.copy(obj)
+            except Exception:
+                # Un-copiable leaf (e.g. TextIOWrapper): substitute its repr.
+                logger.debug("tolerant_deepcopy: substituted repr for %r", type(obj))
+                memo[oid] = repr(obj)
+                if parent is not None:
+                    if isinstance(parent, dict):
+                        parent[key] = memo[oid]
+                    elif isinstance(parent, list):
+                        parent[key] = memo[oid]
+                    else:
+                        setattr(parent, key, memo[oid])
+                continue
             memo[oid] = copied
             if parent is not None:
                 if isinstance(parent, dict):
