@@ -5,9 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.30.0] - 2026-11-16
+## [0.31.0] - Source candidate, 2026-11-17
 
-Prepared package version: **0.30.0**. This source candidate is not yet released.
+Prepared package version: **0.31.0**. This source candidate is not yet released.
+
+### Added
+
+- Add durable-by-default graph checkpointing, a SQLite checkpointer adapter, the
+  checkpoint protocol boundary, loud discard reporting for checkpointed threads,
+  and paused-result surfacing across client surfaces.
+- Bring the StateGraph executor to parity for run deadlines, verification gates,
+  and streaming execution.
+- Add the optional provider setting `stream_body_timeout_secs`. Gateway streaming
+  calls can declare one bounded advisory body budget to a Sandhi gateway that
+  enforces it; direct-provider and buffered calls remain unchanged, and a client
+  can never raise gateway policy. The embedded `sandhi-gateway==0.20.0` pin
+  remains wire-compatible; exact-policy preflight is provided by Sandhi 0.21.
+
+### Fixed
+
+- Repair the StateGraph real-chat path: provider routing and LM Studio endpoint
+  selection, TurnResult evaluation, the Q&A seam, dict-shaped streaming content,
+  tolerant state copying, serialization walkers, and runtime handles left in
+  checkpoint state no longer terminate usable runs.
+- Require the Q&A shortcut to fire only before tools have run, align the Sandhi
+  contract minor with `sandhi-gateway==0.20.0`, and register the qwen3.7-plus
+  context window.
+- Resolve the chat decision service through the explicit service-container
+  capability instead of probing private orchestrator state, keeping the FEP-0031
+  private-probe ratchet bounded without raising its cap.
+
+## [0.30.0] - Published 2026-11-16
+
+Published package version: **0.30.0**.
 
 ### Changed
 
