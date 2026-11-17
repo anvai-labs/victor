@@ -20,6 +20,7 @@ from victor.core.errors import ProviderPolicyError
 
 import asyncio
 import logging
+import sys
 import time
 from collections import deque
 from contextlib import suppress
@@ -469,6 +470,12 @@ async def _run_graph_execution_loop(
     except Exception as error:
         await report_node_error(str(error))
         logger.error("Graph execution failed: %s", error, exc_info=True)
+        import os
+
+        if os.environ.get("VICTOR_STREAM_TRACEBACK"):
+            import traceback as _tb
+
+            _tb.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
         event_emitter.emit_graph_error(
             error=str(error),
             iterations=iteration_controller.iterations,
