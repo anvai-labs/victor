@@ -382,6 +382,57 @@ class TestStateGraphExecutor:
         assert final_state.get("step1") is True
         assert final_state.get("step2") is True
 
+    @pytest.mark.asyncio
+    async def test_stream_resume_from_checkpoint(self):
+        """An omitted stream context resumes instead of supplying fresh input."""
+        from victor.framework.graph import MemoryCheckpointer
+        from victor.framework.graph_checkpoint import WorkflowCheckpoint
+
+        executed = []
+
+        def step_a(state):
+            executed.append("a")
+            return {"a_executed": True}
+
+        def step_b(state):
+            executed.append("b")
+            return {"a_executed": state.get("a_executed", False), "b_executed": True}
+
+        workflow = (
+            WorkflowBuilder("stream_checkpoint")
+            .add_transform("step_a", step_a, next_nodes=["step_b"])
+            .add_transform("step_b", step_b)
+            .build()
+        )
+        checkpointer = MemoryCheckpointer()
+        await checkpointer.save(
+            WorkflowCheckpoint(
+                checkpoint_id="after-a",
+                thread_id="stream-resume",
+                node_id="step_a",
+                state={"a_executed": True},
+                timestamp=0.0,
+                metadata={
+                    "sequential_frontier": {
+                        "pending_nodes": ["step_b"],
+                        "visited_nodes": ["step_a"],
+                    }
+                },
+            )
+        )
+
+        events = []
+        async for event in StateGraphExecutor().stream(
+            workflow,
+            thread_id="stream-resume",
+            checkpointer=checkpointer,
+        ):
+            events.append(event)
+
+        assert executed == ["b"]
+        assert events[-1][1]["a_executed"] is True
+        assert events[-1][1]["b_executed"] is True
+
 
 class TestConvenienceFunctions:
     """Tests for convenience functions."""
