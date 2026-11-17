@@ -228,3 +228,16 @@ def test_get_context_window_prefers_discovered_cache_entry(lmstudio_provider):
     with patch("victor.config.config_loaders.get_provider_limits") as limits:
         assert lmstudio_provider.get_context_window("m2") == 777
         limits.assert_not_called()
+
+
+def test_models_list_url_never_doubles_v1():
+    """FOU-D5f-S7: /v1-bearing endpoint candidates (profile-composed base
+    URLs) must query /v1/models exactly once — the doubled /v1/v1/models
+    404'd the health check and marked reachable servers as 'NO MODELS
+    LOADED', blocking real soaks."""
+    from victor.providers.lmstudio_provider import _models_list_url
+
+    assert _models_list_url("http://192.168.1.20:1234") == "http://192.168.1.20:1234/v1/models"
+    assert _models_list_url("http://192.168.1.20:1234/v1") == "http://192.168.1.20:1234/v1/models"
+    assert _models_list_url("http://192.168.1.20:1234/v1/") == "http://192.168.1.20:1234/v1/models"
+    assert _models_list_url("") == "/v1/models"

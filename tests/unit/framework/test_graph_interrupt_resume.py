@@ -359,3 +359,169 @@ async def test_compiled_resume_is_the_resume_at_entry_point():
 
     with pytest.raises(ValueError, match="t"):
         await compiled.resume("never-started")
+
+
+class TestRuntimeHandleSnapshots:
+    """FOU-D5f-S6c: graph states carry runtime handles in context
+    (``_execution_context``); deep-copying them (result snapshots,
+    MemoryCheckpointer.save) fails with 'cannot pickle _asyncio.Future'
+    and kills the run. Snapshots must strip runtime handles instead."""
+
+    @staticmethod
+    def _state_with_runtime_handle():
+        import asyncio
+        from types import SimpleNamespace
+
+        loop = asyncio.new_event_loop()
+        future = loop.create_future()
+        handle = SimpleNamespace(future=future, services={"chat": object()})
+        state = {
+            "query": "task",
+            "context": {"_execution_context": handle, "session_id": "s-1"},
+        }
+        return state, handle, loop
+
+    def test_snapshot_strips_runtime_handles_instead_of_crashing(self):
+        from victor.framework.graph_execution import snapshot_state_for_result
+
+        state, handle, loop = self._state_with_runtime_handle()
+        try:
+            snapshot = snapshot_state_for_result(state)
+            assert snapshot["context"]["session_id"] == "s-1"
+            assert "_execution_context" not in snapshot["context"]
+            # The live handle is untouched (only the snapshot is sanitized).
+            assert "_execution_context" in state["context"]
+        finally:
+            loop.close()
+
+    async def test_memory_checkpointer_save_survives_runtime_handles(self):
+        import asyncio
+        import time
+        from types import SimpleNamespace
+
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.graph_checkpoint import (
+            MemoryCheckpointer,
+            WorkflowCheckpoint,
+        )
+
+        loop = asyncio.new_event_loop()
+        future = loop.create_future()
+        handle = SimpleNamespace(future=future)
+        try:
+            checkpointer = MemoryCheckpointer()
+            checkpoint = WorkflowCheckpoint(
+                checkpoint_id="cp-1",
+                thread_id="t",
+                node_id="a",
+                state=AgenticLoopStateModel(
+                    query="task",
+                    max_iterations=5,
+                    context={"_execution_context": handle},
+                ),
+                timestamp=time.time(),
+            )
+            await checkpointer.save(checkpoint)
+            loaded = await checkpointer.load("t")
+            assert loaded is not None
+            assert "_execution_context" not in (loaded.state.context or {})
+        finally:
+            loop.close()
+
+    async def test_checkpointer_survives_tasks_at_arbitrary_keys(self):
+        """Beyond _execution_context: any runtime object (asyncio.Task, ...)
+        anywhere in state must not kill the checkpoint save (tolerant
+        deepcopy substitutes repr for uncopiable leaves)."""
+        import asyncio
+        import time
+        from types import SimpleNamespace
+
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.graph_checkpoint import (
+            MemoryCheckpointer,
+            WorkflowCheckpoint,
+        )
+
+        loop = asyncio.new_event_loop()
+        try:
+            task = loop.create_task(asyncio.sleep(0))
+            handle = SimpleNamespace(background_task=task)
+            checkpointer = MemoryCheckpointer()
+            checkpoint = WorkflowCheckpoint(
+                checkpoint_id="cp-2",
+                thread_id="t2",
+                node_id="a",
+                state=AgenticLoopStateModel(
+                    query="task",
+                    max_iterations=5,
+                    context={"background_task": task, "owner": handle},
+                ),
+                timestamp=time.time(),
+            )
+            await checkpointer.save(checkpoint)
+            loaded = await checkpointer.load("t2")
+            assert loaded is not None
+            # The save survived; copyable leaves round-trip, uncopiable
+            # leaves were substituted (repr) rather than killing the run.
+            assert "background_task" in (loaded.state.context or {})
+            assert "owner" in (loaded.state.context or {})
+        finally:
+            loop.close()
+
+
+class TestDeepcopyPreservingHandles:
+    """FOU-D5f-S6c: load_initial_state deep-copies the caller's input state;
+    the live runtime execution context must survive BY REFERENCE (nodes reach
+    services through it), not be deep-copied (its futures fail pickling)."""
+
+    def test_handles_survive_by_reference_rest_is_copied(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        from victor.framework.graph_checkpoint import (
+            deepcopy_preserving_runtime_handles,
+        )
+
+        loop = asyncio.new_event_loop()
+        try:
+            future = loop.create_future()
+            handle = SimpleNamespace(future=future)
+            state = {
+                "query": "task",
+                "context": {"_execution_context": handle, "session_id": "s-1"},
+                "count": 1,
+            }
+            copied = deepcopy_preserving_runtime_handles(state)
+            # Other values are private copies
+            assert copied["count"] == 1
+            assert copied["context"]["session_id"] == "s-1"
+            copied["count"] = 2
+            assert state["count"] == 1
+            # The live handle is shared BY REFERENCE
+            assert copied["context"]["_execution_context"] is handle
+        finally:
+            loop.close()
+
+    def test_nested_handles_inside_models_and_dicts(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.graph_checkpoint import (
+            deepcopy_preserving_runtime_handles,
+        )
+
+        loop = asyncio.new_event_loop()
+        try:
+            future = loop.create_future()
+            handle = SimpleNamespace(future=future)
+            state = AgenticLoopStateModel(
+                query="task",
+                max_iterations=5,
+                context={"_execution_context": handle, "session_id": "s-2"},
+            )
+            copied = deepcopy_preserving_runtime_handles(state)
+            assert copied.context["_execution_context"] is handle
+            assert copied.context["session_id"] == "s-2"
+        finally:
+            loop.close()

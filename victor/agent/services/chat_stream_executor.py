@@ -1658,7 +1658,8 @@ class StreamingChatExecutor:
             orchestrator=None,
             # FOU-D5f: the graph executor needs the runtime context even when
             # the streaming loop is orchestrator-free (services/session).
-            execution_context=_resolve_ec(orch),
+            execution_context=_resolve_ec(orch)
+            or getattr(orch, "_execution_context", None),  # FOU-D5f: CLI probes
             turn_executor=_te,
             runtime_intelligence=self._get_runtime_intelligence(),
             max_iterations=getattr(stream_ctx, "max_total_iterations", 10),

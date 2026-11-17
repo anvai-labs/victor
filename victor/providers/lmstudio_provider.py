@@ -85,6 +85,22 @@ def _model_supports_tools(model: str) -> bool:
     return any(pattern in model_lower for pattern in TOOL_CAPABLE_MODELS)
 
 
+def _models_list_url(endpoint: str) -> str:
+    """Model-listing URL for an LMStudio endpoint (FOU-D5f-S7).
+
+    Endpoint candidates may arrive with or without the OpenAI ``/v1`` suffix
+    (profile base_urls are composed upstream with the suffix already applied).
+    Query ``{base}/v1/models`` exactly once either way — the historical
+    ``{url}/v1/models`` composition doubled the suffix on /v1-bearing
+    candidates and 404'd the health check, marking reachable servers as
+    "NO MODELS LOADED".
+    """
+    base = (endpoint or "").rstrip("/")
+    if base.endswith("/v1"):
+        return f"{base}/models"
+    return f"{base}/v1/models"
+
+
 class LMStudioProvider(BaseProvider):
     """Provider for LMStudio local model server (OpenAI-compatible API).
 
@@ -421,7 +437,7 @@ class LMStudioProvider(BaseProvider):
             try:
                 with httpx.Client(timeout=httpx.Timeout(2)) as client:
                     # LMStudio uses /v1/models for model listing (OpenAI-compatible)
-                    resp = client.get(f"{url}/v1/models")
+                    resp = client.get(_models_list_url(url))
                     resp.raise_for_status()
 
                     # Verify we got a valid response with models
@@ -478,7 +494,7 @@ class LMStudioProvider(BaseProvider):
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(2)) as client:
                     # LMStudio uses /v1/models for model listing (OpenAI-compatible)
-                    resp = await client.get(f"{url}/v1/models")
+                    resp = await client.get(_models_list_url(url))
                     resp.raise_for_status()
 
                     # Verify we got a valid response with models
