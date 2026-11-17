@@ -70,11 +70,11 @@ async def test_checkpoint_keeps_pending_siblings_and_completed_descendants(inter
     assert frontier["pending_nodes"] == (["b", "c"] if interrupt == "before" else ["c", "d"])
 
     resumed = graph.compile(checkpointer=checkpointer)
-    result = await resumed.invoke({}, thread_id="dag")
+    result = await resumed.invoke(None, thread_id="dag")
     assert result.success
     assert result.state["trace"] == ["a", "b", "c", "d"]
     # A finished checkpoint is terminal, so a second resume cannot repeat the last node.
-    repeated = await resumed.invoke({}, thread_id="dag")
+    repeated = await resumed.invoke(None, thread_id="dag")
     assert repeated.node_history == []
     assert repeated.state["trace"] == result.state["trace"]
 
@@ -143,7 +143,7 @@ async def test_checkpoint_replay_and_start_override_cannot_discard_pending_sibli
     with pytest.raises(ValueError, match="Cannot override start_node"):
         await resumed.invoke({}, thread_id="original", start_node="b")
     assert len(await checkpointer.list("original")) == 2
-    result = await resumed.invoke({}, thread_id="original")
+    result = await resumed.invoke(None, thread_id="original")
     assert result.state["trace"] == ["a", "b", "c", "d"]
 
 
