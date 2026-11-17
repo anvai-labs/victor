@@ -32,7 +32,7 @@ from victor.config.settings import Settings
 def test_default_provider_settings_are_ollama():
     ps = ProviderSettings()
     assert ps.default_provider == "ollama"
-    assert ps.default_model == "qwen3-coder-30b"
+    assert ps.default_model == "qwen2.5-coder:7b"
 
 
 def test_allowlist_accepts_inferflux_and_rejects_unknown():
@@ -48,7 +48,7 @@ def test_bundled_default_profile_seeds_ollama(tmp_path):
     with patch.object(Settings, "get_config_dir", classmethod(lambda cls: tmp_path)):
         profiles = Settings.load_profiles()
     assert profiles["default"].provider == "ollama"
-    assert profiles["default"].model == "qwen3-coder-30b"
+    assert profiles["default"].model == "qwen2.5-coder:7b"
     # ollama remains available as the air-gapped profile
     assert profiles["local"].provider == "ollama"
     assert "local-llamacpp" in profiles
