@@ -50,7 +50,7 @@ def test_bundled_default_profile_seeds_ollama(tmp_path):
     assert profiles["default"].provider == "ollama"
     assert profiles["default"].model == "qwen2.5-coder:7b"
     # ollama remains available as the air-gapped profile
-    assert profiles["local"].provider == "ollama"
+    assert profiles["inferflux"].provider == "inferflux"
     assert "local-llamacpp" in profiles
 
 
