@@ -1683,7 +1683,7 @@ class UnifiedTaskTracker(ModeAwareMixin):
             # Classification only tunes tracker limits; a broken or missing
             # embedding backend must not abort stream preparation. Degrade
             # loudly to the general task type instead.
-            logger.warning(
+            logger.debug(
                 "task-type classifier unavailable (%s); falling back to GENERAL",
                 exc,
             )

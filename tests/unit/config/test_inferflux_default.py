@@ -29,10 +29,10 @@ from victor.config.groups.provider_config import ProviderSettings
 from victor.config.settings import Settings
 
 
-def test_default_provider_settings_are_inferflux():
+def test_default_provider_settings_are_ollama():
     ps = ProviderSettings()
-    assert ps.default_provider == "inferflux"
-    assert ps.default_model == "qwen3-coder-30b"
+    assert ps.default_provider == "ollama"
+    assert ps.default_model == "qwen2.5-coder:7b"
 
 
 def test_allowlist_accepts_inferflux_and_rejects_unknown():
@@ -41,16 +41,16 @@ def test_allowlist_accepts_inferflux_and_rejects_unknown():
         ProviderSettings(default_provider="nope")
 
 
-def test_bundled_default_profile_seeds_inferflux(tmp_path):
-    """First run seeds `default: inferflux` without touching user files."""
+def test_bundled_default_profile_seeds_ollama(tmp_path):
+    """First run seeds `default: ollama` without touching user files."""
     from unittest.mock import patch
 
     with patch.object(Settings, "get_config_dir", classmethod(lambda cls: tmp_path)):
         profiles = Settings.load_profiles()
-    assert profiles["default"].provider == "inferflux"
-    assert profiles["default"].model == "qwen3-coder-30b"
+    assert profiles["default"].provider == "ollama"
+    assert profiles["default"].model == "qwen2.5-coder:7b"
     # ollama remains available as the air-gapped profile
-    assert profiles["local"].provider == "ollama"
+    assert profiles["inferflux"].provider == "inferflux"
     assert "local-llamacpp" in profiles
 
 
