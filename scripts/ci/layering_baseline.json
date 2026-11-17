@@ -1,5 +1,5 @@
 {
-  "count": 92,
+  "count": 93,
   "pairs": [
     "victor.agent -> victor.framework.decorators",
     "victor.agent.creation_strategies -> victor.framework.agent_factory",
@@ -72,6 +72,7 @@
     "victor.providers.llamacpp_provider -> victor.agent.format_strategies",
     "victor.providers.ollama_provider -> victor.agent.format_strategies",
     "victor.providers.vllm_provider -> victor.agent.format_strategies",
+    "victor.storage.checkpoints.graph_adapter -> victor.framework.graph_checkpoint",
     "victor.storage.embeddings.intent_classifier -> victor.agent.services.tiered_decision_service",
     "victor.storage.embeddings.service -> victor.agent.debug_logger",
     "victor.storage.embeddings.task_classifier -> victor.agent.services.tiered_decision_service",

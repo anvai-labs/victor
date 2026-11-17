@@ -197,7 +197,12 @@ def strip_runtime_handles(value: Any, _seen: "Optional[Dict[int, Any]]" = None) 
     # shielded handles never survive a strip.
     value_dict = getattr(value, "__dict__", None)
     if isinstance(value_dict, dict):
-        copied = copy.copy(value)
+        try:
+            copied = copy.copy(value)
+        except Exception:
+            # Un-copiable leaf (runtime context with futures/streams):
+            # substitute its repr — the handle is not snapshot data anyway.
+            return repr(value)
         _seen[id(value)] = copied
         stripped = {
             key: strip_runtime_handles(item, _seen)
@@ -249,19 +254,27 @@ def tolerant_deepcopy(value: Any, _depth: int = 0, _seen: "Optional[Dict[int, An
         return value
     value_dict = getattr(value, "__dict__", None)
     if isinstance(value_dict, dict):
-        copied = copy.copy(value)
+        try:
+            copied = copy.copy(value)
+        except Exception:
+            logger.debug("tolerant_deepcopy: substituted repr for %r", type(value))
+            return repr(value)
         _seen[id(value)] = copied
         copied.__dict__.update(
             {key: tolerant_deepcopy(item, _depth + 1, _seen) for key, item in value_dict.items()}
         )
         return copied
     if is_dataclass(value) and not isinstance(value, type):
-        return type(value)(
-            **{
-                key: tolerant_deepcopy(item, _depth + 1, _seen)
-                for key, item in value.__dict__.items()
-            }
-        )
+        try:
+            return type(value)(
+                **{
+                    key: tolerant_deepcopy(item, _depth + 1, _seen)
+                    for key, item in value.__dict__.items()
+                }
+            )
+        except Exception:
+            logger.debug("tolerant_deepcopy: substituted repr for %r", type(value))
+            return repr(value)
     try:
         return copy.deepcopy(value)
     except Exception:

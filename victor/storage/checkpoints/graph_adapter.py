@@ -136,9 +136,15 @@ class GraphSQLiteCheckpointer(CheckpointerProtocol):
         # Snapshot at save: the caller's live state keeps mutating after this
         # point, so by-reference storage would retroactively rewrite earlier
         # checkpoints through shared nested dicts (MemoryCheckpointer lesson).
+        # FOU-D5f: strip runtime handles (context["_execution_context"]) from
+        # the persisted state — they carry futures/tasks that defeat both
+        # orjson serialization and pickle, and are not checkpoint data.
+        from victor.framework.graph_checkpoint import tolerant_deepcopy
+
+        state_data = tolerant_deepcopy(state_data)
         await self._backend.save_checkpoint(
             session_id=session_id,
-            state_data=copy.deepcopy(state_data),
+            state_data=state_data,
             metadata=metadata,
         )
         if self._max_per_thread and self._max_per_thread > 0:
