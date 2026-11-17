@@ -332,8 +332,6 @@ async def test_executor_admission_snapshot_survives_configuration_changes(
     from victor.core.feature_flags import FeatureFlag, is_feature_enabled
     from victor.framework.agentic_loop import AgenticLoop
     from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
-    from victor.framework._internal import stream_with_events
-    from victor.framework.events import EventType
     from victor.framework.policies import GateResult, MessagePolicyGate, PolicyEngine
     from .parity_harness import TurnScript
 

@@ -247,12 +247,7 @@ def test_qwen37_plus_context_window_is_256k():
     provider_context_limits.yaml) fell back to the 128k OpenAI default."""
     from victor.providers.context_windows import OPENAI_DEFAULT, lookup
 
-    table = [
-        entry
-        for entry in [
-            ("qwen3.7-plus", 262_144),
-        ]
-    ]
+    table = [("qwen3.7-plus", 262_144)]
     assert lookup(table, "qwen3.7-plus", OPENAI_DEFAULT) == 262_144
     # And the shipped table carries the entry (grep-equivalent structural pin)
     import victor.providers.context_windows as cw

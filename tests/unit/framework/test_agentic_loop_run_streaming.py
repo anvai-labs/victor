@@ -1241,7 +1241,6 @@ class TestStategraphStreamingDictActionResult:
         from victor.framework.agentic_loop import AgenticLoop, LoopIteration, LoopStage
         from victor.config.agentic_loop_settings import AgenticLoopExecutor
 
-        kwargs.setdefault("enable_fulfillment_check", False) if False else None
         loop = AgenticLoop(
             orchestrator=MagicMock(spec=[]),
             enable_fulfillment_check=False,

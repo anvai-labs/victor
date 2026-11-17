@@ -20,7 +20,7 @@ FEP-0032 paused-result surfacing: the executor owns a per-run thread id,
 """
 
 from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
