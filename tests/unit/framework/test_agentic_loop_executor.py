@@ -77,3 +77,35 @@ def test_settings_and_framework_cold_imports(first):
         [sys.executable, "-c", script], capture_output=True, text=True, timeout=30
     )
     assert result.returncode == 0, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# FOU-D2: durable-by-default checkpointer injection at the compile root
+# (FEP-0047). The executor resolves the default checkpointer through a
+# module-level seam; the storage factory owns settings/optim-out policy.
+# ---------------------------------------------------------------------------
+
+
+def test_executor_injects_default_checkpointer(monkeypatch, tmp_path):
+    from unittest.mock import Mock
+
+    from victor.framework.agentic_graph import executor as executor_module
+    from victor.storage.checkpoints.backends.sqlite_backend import SQLiteCheckpointBackend
+    from victor.storage.checkpoints.graph_adapter import GraphSQLiteCheckpointer
+
+    fake = GraphSQLiteCheckpointer(SQLiteCheckpointBackend(storage_path=tmp_path))
+    monkeypatch.setattr(executor_module, "_resolve_default_checkpointer", lambda: fake)
+
+    executor = executor_module.AgenticLoopGraphExecutor(execution_context=Mock())
+    assert executor.compiled._config.checkpoint.checkpointer is fake
+
+
+def test_executor_without_durable_checkpointer_keeps_framework_default(monkeypatch):
+    from unittest.mock import Mock
+
+    from victor.framework.agentic_graph import executor as executor_module
+
+    monkeypatch.setattr(executor_module, "_resolve_default_checkpointer", lambda: None)
+
+    executor = executor_module.AgenticLoopGraphExecutor(execution_context=Mock())
+    assert executor.compiled._config.checkpoint.checkpointer is None

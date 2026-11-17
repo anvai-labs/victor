@@ -951,6 +951,10 @@ class Settings(BaseSettings):
             "checkpoint_max_per_session": "checkpoint.checkpoint_max_per_session",
             "checkpoint_compression_enabled": "checkpoint.checkpoint_compression_enabled",
             "checkpoint_compression_threshold": "checkpoint.checkpoint_compression_threshold",
+            "workflow_checkpoints_enabled": "checkpoint.workflow_checkpoints_enabled",
+            "workflow_checkpoint_max_per_thread": "checkpoint.workflow_checkpoint_max_per_thread",
+            "workflow_checkpoint_retention_days": "checkpoint.workflow_checkpoint_retention_days",
+            "workflow_checkpoint_db_path": "checkpoint.workflow_checkpoint_db_path",
             # HITL Configuration
             "hitl_default_timeout": "hitl.hitl_default_timeout",
             "hitl_default_fallback": "hitl.hitl_default_fallback",

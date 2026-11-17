@@ -23,12 +23,34 @@ on one database file.
 
 import asyncio
 import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from victor.framework.graph_checkpoint import WorkflowCheckpoint
 from victor.storage.checkpoints.backends.sqlite_backend import SQLiteCheckpointBackend
-from victor.storage.checkpoints.graph_adapter import GraphSQLiteCheckpointer
+from victor.storage.checkpoints.graph_adapter import (
+    GraphSQLiteCheckpointer,
+    get_default_graph_checkpointer,
+)
+from victor.storage.checkpoints.protocol import (
+    CheckpointMetadata,
+    CheckpointNotFoundError,
+)
+
+
+def _factory_settings(tmp_path, enabled: bool):
+    """Minimal settings stand-in for the factory (duck-typed: .checkpoint)."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        checkpoint=SimpleNamespace(
+            workflow_checkpoints_enabled=enabled,
+            workflow_checkpoint_db_path=str(tmp_path / "checkpoints.db"),
+            workflow_checkpoint_max_per_thread=20,
+            workflow_checkpoint_retention_days=7,
+        )
+    )
 
 
 def _checkpoint(thread_id: str, node_id: str, seq: int) -> WorkflowCheckpoint:
@@ -151,3 +173,126 @@ async def test_concurrent_writers_on_shared_database(tmp_path):
     for i in (1, 2):
         listed = await reader.list(f"thread-{i}")
         assert len(listed) == 2
+
+
+# ---------------------------------------------------------------------------
+# FOU-D2: retention, TTL sweep, and the default-checkpointer factory (FEP-0047)
+# ---------------------------------------------------------------------------
+
+
+async def test_per_thread_retention_keeps_most_recent(tmp_path):
+    """With max_per_thread set, each save prunes the thread to the newest N."""
+    adapter = GraphSQLiteCheckpointer(
+        SQLiteCheckpointBackend(storage_path=tmp_path), max_per_thread=3
+    )
+    for seq in range(5):
+        await adapter.save(_checkpoint("thread-1", f"node_{seq}", seq))
+
+    listed = await adapter.list("thread-1")
+    assert [c.state["counter"] for c in listed] == [2, 3, 4]
+
+
+async def test_retention_off_by_default_keeps_all(tmp_path):
+    adapter = GraphSQLiteCheckpointer(SQLiteCheckpointBackend(storage_path=tmp_path))
+    for seq in range(7):
+        await adapter.save(_checkpoint("thread-1", f"node_{seq}", seq))
+    assert len(await adapter.list("thread-1")) == 7
+
+
+async def test_ttl_sweep_purges_aged_workflow_rows_only(tmp_path):
+    """The retention_days sweep removes aged wf:: rows on the next save and
+    leaves conversation checkpoints (other keyspaces) untouched."""
+    backend = SQLiteCheckpointBackend(storage_path=tmp_path)
+    adapter = GraphSQLiteCheckpointer(backend, retention_days=1)
+
+    # An aged workflow checkpoint (inserted directly with an old timestamp)
+    old_meta = CheckpointMetadata(
+        checkpoint_id="cp-old",
+        session_id="wf::stale-thread",
+        timestamp=datetime.now(timezone.utc) - timedelta(days=5),
+        stage="graph_node",
+        tool_count=0,
+        message_count=0,
+        tags=["workflow"],
+    )
+    await backend.save_checkpoint(
+        session_id="wf::stale-thread", state_data={"old": True}, metadata=old_meta
+    )
+    # An aged conversation checkpoint that must survive the wf::-scoped sweep
+    conv_meta = CheckpointMetadata(
+        checkpoint_id="cp-conv",
+        session_id="sess-conv",
+        timestamp=datetime.now(timezone.utc) - timedelta(days=5),
+        stage="chat",
+        tool_count=0,
+        message_count=0,
+    )
+    await backend.save_checkpoint(
+        session_id="sess-conv", state_data={"conv": True}, metadata=conv_meta
+    )
+
+    # First save triggers the once-per-instance sweep
+    await adapter.save(_checkpoint("fresh-thread", "node_a", 1))
+
+    assert await backend.load_checkpoint("cp-conv") is not None
+    with pytest.raises(CheckpointNotFoundError):
+        await backend.load_checkpoint("cp-old")
+
+
+def test_default_checkpointer_factory_disabled_returns_none(tmp_path, monkeypatch):
+    settings = _factory_settings(tmp_path, enabled=False)
+    assert get_default_graph_checkpointer(settings) is None
+
+
+def test_default_checkpointer_factory_enabled_returns_sqlite_adapter(tmp_path):
+    settings = _factory_settings(tmp_path, enabled=True)
+    checkpointer = get_default_graph_checkpointer(settings)
+    assert isinstance(checkpointer, GraphSQLiteCheckpointer)
+    assert checkpointer.backend.db_path == tmp_path / "checkpoints.db"
+
+
+def test_default_checkpointer_factory_settings_defaults(tmp_path):
+    from victor.config.checkpoint_settings import CheckpointSettings
+
+    cp = CheckpointSettings()
+    assert cp.workflow_checkpoints_enabled is True
+    assert cp.workflow_checkpoint_max_per_thread == 20
+    assert cp.workflow_checkpoint_retention_days == 7
+    # Flat keys route to the checkpoint group, so VICTOR_WORKFLOW_* env
+    # overrides resolve through Settings construction.
+    from victor.config.settings import Settings
+
+    routed = Settings(
+        **{
+            "workflow_checkpoints_enabled": False,
+            "workflow_checkpoint_max_per_thread": 5,
+            "workflow_checkpoint_retention_days": 3,
+            "workflow_checkpoint_db_path": "/tmp/cp.db",
+        }
+    )
+    assert routed.checkpoint.workflow_checkpoints_enabled is False
+    assert routed.checkpoint.workflow_checkpoint_max_per_thread == 5
+    assert routed.checkpoint.workflow_checkpoint_retention_days == 3
+    assert routed.checkpoint.workflow_checkpoint_db_path == "/tmp/cp.db"
+
+
+def test_default_checkpointer_factory_missing_aiosqlite_degrades_loudly(
+    tmp_path, monkeypatch, caplog
+):
+    import logging
+
+    import victor.storage.checkpoints.backends.sqlite_backend as backend_module
+
+    monkeypatch.setattr(backend_module, "aiosqlite", None)
+    settings = _factory_settings(tmp_path, enabled=True)
+    with caplog.at_level(logging.WARNING):
+        # None = the framework in-memory default (compile(checkpointer=None));
+        # the layering ratchet forbids importing the concrete class here.
+        checkpointer = get_default_graph_checkpointer(settings)
+    assert checkpointer is None
+    assert any("aiosqlite" in r.message.lower() for r in caplog.records)
+    # Second call stays silent (warn once, not per construction)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        get_default_graph_checkpointer(settings)
+    assert not any("aiosqlite" in r.message.lower() for r in caplog.records)

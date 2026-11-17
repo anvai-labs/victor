@@ -19,9 +19,9 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 
 | ID | Task | Tier | Spec | Depends on | Status | Evidence |
 |----|------|------|------|-----------|--------|----------|
-| FOU-DOC1 | Program vision doc + this tracker + FEP-0047/FEP-0048 + ADR-035/036/037 | — | — | — | IN REVIEW | this PR |
-| FOU-D1 | `GraphSQLiteCheckpointer` adapter (opt-in) | D | FEP-0047 | FOU-DOC1 | TODO | — |
-| FOU-D2 | Durable-by-default injection + retention + opt-out | D | FEP-0047 | FOU-D1 | TODO | — |
+| FOU-DOC1 | Program vision doc + this tracker + FEP-0047/FEP-0048 + ADR-035/036/037 | — | — | — | MERGED | #1878 |
+| FOU-D1 | `GraphSQLiteCheckpointer` adapter (opt-in) + WAL/busy_timeout | D | FEP-0047 | FOU-DOC1 | MERGED | #1879 (RED ModuleNotFoundError → GREEN 7/7 + backend mirror suite; layering ratchet green; 94+17 affected) |
+| FOU-D2 | Durable-by-default injection + retention/TTL + opt-out | D | FEP-0047 | FOU-D1 | IN REVIEW | this PR (factory `get_default_graph_checkpointer`; executor seam; settings `workflow_checkpoint_*` + env aliases; per-thread retention + `wf::`-scoped TTL sweep; smoke: cross-process resume zero re-execution + opt-out None) |
 | FOU-D3 | FEP-0032 phase 2: loud input discard; FEP-0032 → Accepted | D | FEP-0032 | FOU-D2 | TODO | — |
 | FOU-D4 | Paused result surfacing (LoopResult → wire/SSE → StreamChunk; resume-at) | D | FEP-0032 | FOU-D3 | TODO | — |
 | FOU-D5a | Executor parity: `total_timeout` via LoopGuards wrap | D | — | FOU-D2 | TODO | — |
@@ -84,7 +84,7 @@ Each row carries the same gate structure; expand here once and reference by ID:
 
 ### Smoke ladder (run at each tier boundary)
 
-Tier D: durable-resume-across-restart smoke; paused SSE → `/chat/resume` completion smoke;
+Tier D: durable-resume-across-restart smoke (DONE for D2: two-process resume, zero re-execution, opt-out writes nothing); paused SSE → `/chat/resume` completion smoke;
 executor parity transcript diff (`tests/integration/agentic_graph/test_parity.py`) both modes.
 Tier S: unsandboxed-refusal smoke (no policy + unavailable backend → actionable error);
 opt-out smoke; injection-corpus containment smoke. Tier A: memory recall across two sessions;
