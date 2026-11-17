@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
+from victor.framework.graph_checkpoint import strip_runtime_handles
 from victor.storage.checkpoints.backends.sqlite_backend import SQLiteCheckpointBackend
 from victor.storage.checkpoints.protocol import CheckpointMetadata
 
@@ -136,6 +137,10 @@ class GraphSQLiteCheckpointer(CheckpointerProtocol):
         # Snapshot at save: the caller's live state keeps mutating after this
         # point, so by-reference storage would retroactively rewrite earlier
         # checkpoints through shared nested dicts (MemoryCheckpointer lesson).
+        # FOU-D5f: strip runtime handles (context["_execution_context"]) from
+        # the persisted state — they carry futures/tasks that defeat both
+        # orjson serialization and pickle, and are not checkpoint data.
+        state_data["state"] = strip_runtime_handles(state_data.get("state", {}))
         await self._backend.save_checkpoint(
             session_id=session_id,
             state_data=copy.deepcopy(state_data),
