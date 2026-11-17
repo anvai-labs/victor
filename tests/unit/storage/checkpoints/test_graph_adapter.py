@@ -22,14 +22,18 @@ on one database file.
 """
 
 import asyncio
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from pydantic import BaseModel, Field, PrivateAttr
 
 from victor.framework.graph_checkpoint import WorkflowCheckpoint
 from victor.storage.checkpoints.backends.sqlite_backend import SQLiteCheckpointBackend
 from victor.storage.checkpoints.graph_adapter import (
+    _MODEL_STATE_MARKER,
+    _decode_state,
     GraphSQLiteCheckpointer,
     get_default_graph_checkpointer,
 )
@@ -62,6 +66,58 @@ def _checkpoint(thread_id: str, node_id: str, seq: int) -> WorkflowCheckpoint:
         timestamp=time.time() + seq,
         metadata={"next_node": f"node_{seq + 1}", "parent_id": None},
     )
+
+
+class _TypedCheckpointState(BaseModel):
+    query: str
+    context: dict[str, object] = Field(default_factory=dict)
+    _runtime_handle: object | None = PrivateAttr(default=None)
+
+
+async def test_pydantic_state_round_trips_typed_and_durable(tmp_path):
+    """A typed agentic-loop state must resume as its model, not a repr string.
+
+    Runtime-only private handles are not persisted with the model fields.
+    """
+    state = _TypedCheckpointState(query="resume me", context={"step": 2})
+    state._runtime_handle = object()
+    original = WorkflowCheckpoint(
+        checkpoint_id="typed-cp",
+        thread_id="typed-thread",
+        node_id="node_a",
+        state=state,
+        timestamp=time.time(),
+        metadata={"next_node": "node_b"},
+    )
+    writer = GraphSQLiteCheckpointer(SQLiteCheckpointBackend(storage_path=tmp_path))
+    await writer.save(original)
+
+    loaded = await GraphSQLiteCheckpointer(SQLiteCheckpointBackend(storage_path=tmp_path)).load(
+        "typed-thread"
+    )
+
+    assert loaded is not None
+    assert isinstance(loaded.state, _TypedCheckpointState)
+    assert loaded.state.query == "resume me"
+    assert loaded.state.context == {"step": 2}
+    assert loaded.next_node == "node_b"
+    assert loaded.state._runtime_handle is None
+
+
+def test_typed_state_decoder_refuses_to_import_unloaded_modules():
+    """Checkpoint data must not select an import target."""
+    missing_type = "victor._checkpoint_missing_state_module.MissingState"
+
+    with pytest.raises(ValueError, match="cannot be restored"):
+        _decode_state(
+            {
+                _MODEL_STATE_MARKER: True,
+                "type": missing_type,
+                "data": {"query": "untrusted"},
+            }
+        )
+
+    assert missing_type.rsplit(".", 1)[0] not in sys.modules
 
 
 @pytest.fixture
