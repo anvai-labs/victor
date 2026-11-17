@@ -50,7 +50,7 @@ def test_chat_stream_returns_registered_service_with_flag_off(legacy_flag_off):
     """chat_stream_executor honors a registered service even with the flag off."""
     svc = MagicMock(name="local_classifier")
     orch = MagicMock()
-    orch._container = _container_with(svc)
+    orch.get_service_container.return_value = _container_with(svc)
     assert _get_decision_service(orch) is svc
 
 

@@ -130,7 +130,7 @@ def _get_decision_service(orchestrator: object) -> object | None:
     """
     from victor.agent.services.protocols.decision_service import get_decision_service
 
-    return get_decision_service(getattr(orchestrator, "_container", None))
+    return get_decision_service(orchestrator.get_service_container())
 
 
 @dataclass
