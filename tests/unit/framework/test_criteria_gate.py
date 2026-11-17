@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from victor.framework.agentic_loop import AgenticLoop
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 from victor.framework.criteria_gate import CriteriaGate, CriteriaGateConfig
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 
@@ -244,7 +245,13 @@ async def test_buffered_run_mirrors_tool_evidence_and_gate_sees_it():
         max_iterations=3,
         enable_adaptive_iterations=False,
         enable_fulfillment_check=False,
-        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+        config={
+            "disable_enhanced_completion": True,
+            "enable_criteria_gate": True,
+            # Buffered-run wiring tests mock the standard loop's seams; pin the
+            # executor so the USE_STATEGRAPH_AGENTIC_LOOP default cannot reroute.
+            "executor": AgenticLoopExecutor.STANDARD,
+        },
     )
     loop._analyze_turn = AsyncMock(
         return_value=Perception(
@@ -293,7 +300,13 @@ async def test_buffered_run_unmet_floor_downgrades_then_exhaustion_yields():
         max_iterations=2,
         enable_adaptive_iterations=False,
         enable_fulfillment_check=False,
-        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+        config={
+            "disable_enhanced_completion": True,
+            "enable_criteria_gate": True,
+            # Buffered-run wiring tests mock the standard loop's seams; pin the
+            # executor so the USE_STATEGRAPH_AGENTIC_LOOP default cannot reroute.
+            "executor": AgenticLoopExecutor.STANDARD,
+        },
     )
     loop._analyze_turn = AsyncMock(
         return_value=Perception(
@@ -515,7 +528,13 @@ async def test_buffered_run_marker_closes_the_loop_without_a_further_turn():
         max_iterations=3,
         enable_adaptive_iterations=False,
         enable_fulfillment_check=False,
-        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+        config={
+            "disable_enhanced_completion": True,
+            "enable_criteria_gate": True,
+            # Buffered-run wiring tests mock the standard loop's seams; pin the
+            # executor so the USE_STATEGRAPH_AGENTIC_LOOP default cannot reroute.
+            "executor": AgenticLoopExecutor.STANDARD,
+        },
     )
     loop._analyze_turn = AsyncMock(
         return_value=Perception(

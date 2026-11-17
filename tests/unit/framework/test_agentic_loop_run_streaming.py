@@ -54,6 +54,12 @@ def _loop(port, *, evaluations, turn_executor=None):
     """A bare AgenticLoop with the run_streaming collaborators stubbed."""
     loop = AgenticLoop.__new__(AgenticLoop)
     loop.config = AgenticLoopConfig()
+    # These tests exercise the legacy streaming path; pin STANDARD so the
+    # USE_STATEGRAPH_AGENTIC_LOOP default flip does not reroute them through
+    # the graph executor (the StateGraph streaming path has its own classes).
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+
+    loop.config.executor = AgenticLoopExecutor.STANDARD
     loop.streaming_act_port = port
     loop.max_iterations = 5
     loop._progress_scores = []
@@ -690,7 +696,10 @@ async def test_streaming_deadline_interrupts_act_and_preserves_partial_output():
                 cleaned.set()
 
     loop = _loop(Port(), evaluations=[])
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+
     loop.config = AgenticLoopConfig(total_timeout=0.03)
+    loop.config.executor = AgenticLoopExecutor.STANDARD
 
     async def consume():
         return [chunk async for chunk in loop.run_streaming("q")]
@@ -830,6 +839,7 @@ async def test_run_streaming_criteria_gate_downgrades_unmet_complete_then_budget
 
     from victor.agent.action_authorizer import ActionIntent
     from victor.agent.services.turn_execution_runtime import TurnResult
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
     from victor.framework.perception_integration import Perception
     from victor.framework.task.protocols import TaskComplexity
 
@@ -851,7 +861,11 @@ async def test_run_streaming_criteria_gate_downgrades_unmet_complete_then_budget
         enable_adaptive_iterations=False,
         enable_fulfillment_check=False,
         streaming_act_port=Port(),
-        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+        config={
+            "disable_enhanced_completion": True,
+            "enable_criteria_gate": True,
+            "executor": AgenticLoopExecutor.STANDARD,
+        },
     )
     loop._analyze_turn = AsyncMock(
         return_value=Perception(

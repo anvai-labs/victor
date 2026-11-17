@@ -512,13 +512,27 @@ class TestConsolidationFeatureFlags:
             == "VICTOR_USE_STATEGRAPH_AGENTIC_LOOP"
         )
 
-    def test_consolidation_flags_default_to_false(self):
-        """Test that consolidation flags are opt-in (disabled by default)."""
+    def test_consolidation_flags_default_to_true(self):
+        """FOU-D5f (ADR-036): the StateGraph executor graduated to default-on."""
         config = FeatureFlagConfig(default_enabled=True)
         manager = FeatureFlagManager(config)
 
-        # Consolidation flag should default to False (opt-in for safety)
-        assert not manager.is_enabled(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP)
+        assert manager.is_enabled(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP)
+
+    def test_consolidation_flag_opt_out_via_env(self):
+        """The documented opt-out restores the legacy executor."""
+        import os
+
+        os.environ["VICTOR_USE_STATEGRAPH_AGENTIC_LOOP"] = "false"
+
+        try:
+            reset_feature_flag_manager()
+            manager = get_feature_flag_manager()
+
+            assert not manager.is_enabled(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP)
+        finally:
+            del os.environ["VICTOR_USE_STATEGRAPH_AGENTIC_LOOP"]
+            reset_feature_flag_manager()
 
     def test_consolidation_flags_can_be_enabled_via_env(self):
         """Test that consolidation flags can be enabled via environment variables."""

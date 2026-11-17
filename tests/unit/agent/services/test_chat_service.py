@@ -1938,11 +1938,16 @@ class TestChatServiceCriteriaGateEndToEnd(BaseChatServiceTest):
         from unittest.mock import MagicMock as _MagicMock
 
         from victor.agent.services.turn_execution_runtime import TurnExecutor
-        from victor.config.agentic_loop_settings import AgenticLoopSettings
+        from victor.config.agentic_loop_settings import AgenticLoopExecutor, AgenticLoopSettings
 
         chat_context = _MagicMock()
         chat_context.settings = _MagicMock()
-        chat_context.settings.agentic_loop = AgenticLoopSettings()
+        # Pin the standard loop executor: these tests stub the buffered turn
+        # primitives, so the USE_STATEGRAPH_AGENTIC_LOOP default (AUTO resolves
+        # to STATEGRAPH once the flag graduates) must not reroute admission.
+        chat_context.settings.agentic_loop = AgenticLoopSettings(
+            executor=AgenticLoopExecutor.STANDARD
+        )
         chat_context.settings.agent.effect_gated_completion = False
         chat_context.settings.exploration = None
         chat_context.settings.chat_max_iterations = 8

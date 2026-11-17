@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from victor.framework.agentic_loop import AgenticLoop, LoopResult
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 from victor.framework.loop import guards as loop_guards
 from victor.agent.task_analyzer import TaskAnalysis, TaskAnalyzer
 from victor.framework.task.protocols import TaskComplexity
@@ -50,7 +51,14 @@ def continuing_loop(max_iterations):
         max_iterations=max_iterations,
         enable_fulfillment_check=False,
         enable_adaptive_iterations=False,
-        config={"enable_topology_routing": False, "disable_enhanced_completion": True},
+        config={
+            "enable_topology_routing": False,
+            "disable_enhanced_completion": True,
+            # These tests mock the buffered _act/_evaluate seams; pin the
+            # standard executor so the USE_STATEGRAPH_AGENTIC_LOOP default
+            # cannot reroute the run through the StateGraph driver.
+            "executor": AgenticLoopExecutor.STANDARD,
+        },
     )
     loop._act = AsyncMock(
         return_value=TurnResult(response=CompletionResponse(content="", role="assistant"))
@@ -175,6 +183,7 @@ class TestSpinGuardTerminatesLoop:
             max_iterations=50,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": AgenticLoopExecutor.STANDARD},
         )
         result = await loop.run("a task the guard cuts short")
         assert result.success is False

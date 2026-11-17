@@ -171,6 +171,13 @@ class TestAgenticLoop:
         """Create AgenticLoop with mock orchestrator."""
         if orchestrator is None:
             orchestrator = MagicMock()
+        config = kwargs.pop("config", None)
+        if config is None:
+            config = {}
+        # These tests exercise the standard loop; pin the executor so the
+        # USE_STATEGRAPH_AGENTIC_LOOP flag flip does not reroute them.
+        config.setdefault("executor", "standard")
+        kwargs["config"] = config
         return AgenticLoop(
             orchestrator=orchestrator,
             enable_fulfillment_check=kwargs.pop("enable_fulfillment_check", False),
@@ -1928,6 +1935,7 @@ class TestStream:
             orchestrator=MagicMock(spec=[]),
             max_iterations=2,
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
 
         perception = _make_perception()
@@ -1952,6 +1960,7 @@ class TestStream:
             orchestrator=MagicMock(spec=[]),
             max_iterations=1,
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
 
         perception = _make_perception()
@@ -2239,6 +2248,7 @@ class TestAdaptiveIterations:
             max_iterations=2,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.confidence = 0.6
