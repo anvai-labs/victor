@@ -32,6 +32,7 @@ from __future__ import annotations
 from victor.core.errors import ProviderPolicyError
 
 import logging
+from contextvars import ContextVar
 from typing import Any, Dict, Optional
 
 from victor.framework.agentic_graph._state_utils import normalize_state_argument
@@ -44,6 +45,26 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # PERCEIVE Node
 # =============================================================================
+
+
+_last_turn_result: ContextVar[Optional[Any]] = ContextVar(
+    "agentic_graph_last_turn_result", default=None
+)
+
+
+def set_last_turn_result(turn: Any) -> None:
+    """Publish the current ACT TurnResult to the EVALUATE node (FOU-D5f-S6b).
+
+    Out-of-band on purpose: the object carries runtime futures and must not
+    enter persisted state (checkpoint pickling fails on _asyncio.Future).
+    Nodes execute sequentially within one invoke, so the contextvar flows.
+    """
+    _last_turn_result.set(turn)
+
+
+def pop_last_turn_result() -> Optional[Any]:
+    """Consume the published TurnResult (evaluator-side)."""
+    return _last_turn_result.get()
 
 
 @normalize_state_argument()
@@ -393,15 +414,17 @@ async def act_node(
             action_result = {
                 "response": response,
                 "tool_results": getattr(result, "tool_results", []),
-                # FOU-D5f root cause: EnhancedCompletionEvaluator keys its Q&A
-                # shortcut and disposition-aware branches off
-                # isinstance(action_result, TurnResult). Preserve the object
-                # alongside the serialized text or a tool-free answer can never
-                # COMPLETE and every graph run spins to the iteration cap.
-                "_turn_result": result,
             }
 
             tool_results = action_result.get("tool_results", [])
+            # FOU-D5f root cause: EnhancedCompletionEvaluator keys its Q&A
+            # shortcut and disposition-aware branches off
+            # isinstance(action_result, TurnResult). The object travels to the
+            # evaluator through the per-run contextvar channel — NOT through
+            # state: a runtime TurnResult carries futures and embedding it made
+            # every durable checkpoint save fail ("cannot pickle
+            # _asyncio.Future").
+            set_last_turn_result(result)
 
             return state.model_copy(
                 update={
@@ -496,7 +519,10 @@ async def evaluate_node(
             # the object embedded under "_turn_result" — restore the object
             # for the evaluator call.
             eval_action_result = state.action_result
-            if isinstance(eval_action_result, dict):
+            channelled = pop_last_turn_result()
+            if channelled is not None:
+                eval_action_result = channelled
+            elif isinstance(eval_action_result, dict):
                 embedded = eval_action_result.get("_turn_result")
                 if embedded is not None:
                     eval_action_result = embedded
