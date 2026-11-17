@@ -886,8 +886,6 @@ class AgenticLoop(TopologyPlanningMixin):
         if use_stategraph_executor(self.config.executor):
             if self.turn_executor is not None:
                 self.turn_executor.require_supported_loop_executor(stategraph=True)
-            if getattr(self, "_verifier", None) is not None:
-                raise NotImplementedError("StateGraph execution does not support verification")
             # FOU-D5a: run-deadline parity with the legacy loop — the same
             # cooperative LoopGuards wrap the graph path from outside.
             from victor.framework.loop.guards import LoopGuards, LoopSpinError
@@ -4447,6 +4445,49 @@ class AgenticLoop(TopologyPlanningMixin):
                 conversation_history=conversation_history,
             )
 
+            # FOU-D5b: verification parity (FEP-0018). The graph path evaluates
+            # inside graph nodes, so the COMPLETE claim is verified post-run:
+            # same _run_verification/_inject_verify_feedback machinery, the
+            # same verification dict shape as the legacy path, and the same
+            # bounded retry budget — a failed check re-enters the graph once
+            # per remaining retry with the verifier's feedback in context.
+            verification: Optional[Dict[str, Any]] = None
+            if (
+                getattr(self, "_verifier", None) is not None
+                and graph_result.success
+                and not graph_result.metadata.get("paused")
+            ):
+                self._verify_retries = 0  # FEP-0018: reset per run
+                while True:
+                    graph_state = graph_result.metadata.get("final_state", {})
+                    verify_state = (
+                        graph_state.to_dict()
+                        if hasattr(graph_state, "to_dict")
+                        else (graph_state if isinstance(graph_state, dict) else {})
+                    )
+                    vr = await self._run_verification(verify_state)
+                    verification = {
+                        "passed": vr.passed,
+                        "total": vr.total,
+                        "verified": vr.is_verified,
+                        "retries_used": self._verify_retries,
+                        "max_retries": self._max_verify_retries,
+                    }
+                    if vr.is_verified or self._verify_retries >= self._max_verify_retries:
+                        if not vr.is_verified:
+                            reason = vr.feedback or "Verification did not pass all checks"
+                            if self._verify_retries >= self._max_verify_retries:
+                                reason += "; verification retry budget exhausted"
+                            verification["reason"] = reason
+                        break
+                    self._verify_retries += 1
+                    self._inject_verify_feedback(vr)
+                    graph_result = await graph_executor.run(
+                        query=query,
+                        context={**(context or {}), "verification_feedback": vr.feedback},
+                        conversation_history=conversation_history,
+                    )
+
             final_state = graph_result.metadata.get("final_state", {})
 
             iterations = self._loop_iterations_from_state_history(
@@ -4458,12 +4499,15 @@ class AgenticLoop(TopologyPlanningMixin):
             # the older per-iteration object list used by AgenticLoop, so we
             # reconstruct that list from the graph state's node snapshots.
             duration = time.time() - start_time
+            metadata = self._stategraph_metadata(graph_result, final_state)
+            if verification is not None:
+                metadata["verification"] = verification
             return LoopResult(
                 success=graph_result.success,
                 iterations=iterations,
                 final_state=final_state,
                 total_duration=duration,
-                metadata=self._stategraph_metadata(graph_result, final_state),
+                metadata=metadata,
             )
 
         except ProviderPolicyError:

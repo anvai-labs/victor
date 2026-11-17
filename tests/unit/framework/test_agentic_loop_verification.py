@@ -8,6 +8,7 @@ import pytest
 from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
 from victor.agent.task_analyzer import TaskAnalysis, TaskAnalyzer
 from victor.framework.agentic_loop import AgenticLoop
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.framework.task.protocols import TaskComplexity
 from victor.framework.verification import VerificationResult
@@ -124,13 +125,111 @@ async def test_default_without_verifier_retains_completion(streaming):
         assert result.success is True
 
 
-async def test_stategraph_cannot_silently_ignore_verifier(monkeypatch):
+def _fake_graph_executor(results):
+    """Executor stand-in whose .run pops pre-built graph results (FOU-D5b)."""
+    from types import SimpleNamespace
+
+    calls = {"feedback": []}
+
+    async def run(**kwargs):
+        calls["feedback"].append((kwargs.get("context") or {}).get("verification_feedback"))
+        return results.pop(0)
+
+    return SimpleNamespace(run=run, calls=calls)
+
+
+def _graph_result(success=True):
+    from types import SimpleNamespace
+
+    from victor.framework.agentic_graph.executor import LoopResult as GraphLoopResult
+
+    final_state = SimpleNamespace(
+        action_result=None,
+        evaluation=None,
+        iteration=1,
+        max_iterations=10,
+        to_dict=lambda: {"workspace": None},
+    )
+    return GraphLoopResult(
+        success=success,
+        response=None,
+        iterations=1,
+        termination_reason="complete" if success else "failed",
+        metadata={"final_state": {"workspace": None}, "state_history": None},
+    )
+
+
+async def test_stategraph_executor_applies_verification_gate(monkeypatch):
+    """FOU-D5b: the graph path verifies COMPLETE runs like the legacy loop —
+    same verification dict shape, bounded re-entry with injected feedback."""
+    from unittest.mock import AsyncMock
+
     from victor.core.feature_flags import FeatureFlag
+    from victor.framework.verification import VerificationResult
 
     monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
-    loop = make_loop(MagicMock(), retries=1)
-    with pytest.raises(NotImplementedError, match="StateGraph.*verification"):
-        await loop.run("task")
+    verifier = MagicMock(
+        verify=AsyncMock(return_value=VerificationResult(0, 1, feedback="tests failed"))
+    )
+    loop = make_loop(verifier, retries=1)
+    loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+    executor = _fake_graph_executor([_graph_result(), _graph_result()])
+    loop._create_stategraph_executor = lambda: executor
+
+    result = await loop.run("task")
+
+    # Verified the first (failed) run, injected feedback, re-entered once.
+    assert executor.calls["feedback"][0] is None
+    assert executor.calls["feedback"][1]  # feedback text present on the retry
+    verification = result.metadata["verification"]
+    assert verification == {
+        "passed": 0,
+        "total": 1,
+        "verified": False,
+        "retries_used": 1,
+        "max_retries": 1,
+        "reason": "tests failed; verification retry budget exhausted",
+    }
+
+
+async def test_stategraph_executor_passing_verifier_runs_once(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from victor.core.feature_flags import FeatureFlag
+    from victor.framework.verification import VerificationResult
+
+    monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
+    verifier = MagicMock(verify=AsyncMock(return_value=VerificationResult(1, 1)))
+    loop = make_loop(verifier, retries=1)
+    loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+    executor = _fake_graph_executor([_graph_result()])
+    loop._create_stategraph_executor = lambda: executor
+
+    result = await loop.run("task")
+
+    assert executor.calls["feedback"] == [None]  # single run, no retry
+    assert result.metadata["verification"]["verified"] is True
+
+
+async def test_stategraph_executor_budget_exhaustion_stops_reentry(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from victor.core.feature_flags import FeatureFlag
+    from victor.framework.verification import VerificationResult
+
+    monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
+    verifier = MagicMock(verify=AsyncMock(return_value=VerificationResult(0, 1)))
+    loop = make_loop(verifier, retries=1)  # budget: 1 retry
+    loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+    executor = _fake_graph_executor([_graph_result(), _graph_result(), _graph_result()])
+    loop._create_stategraph_executor = lambda: executor
+
+    result = await loop.run("task")
+
+    # Initial run + exactly one bounded re-entry; the third graph run never happens.
+    assert len(executor.calls["feedback"]) == 2
+    assert result.metadata["verification"]["retries_used"] == 1
+    assert "budget exhausted" in result.metadata["verification"].get("reason", "")
 
 
 async def test_iteration_stream_cannot_silently_ignore_verifier():
