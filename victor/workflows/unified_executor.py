@@ -69,7 +69,7 @@ from victor.workflows.compiler.boundary import (
     WorkflowCompilationRequest,
 )
 from victor.workflows.executors.compatibility import CompatibilityNodeExecutorFactory
-from victor.workflows.runtime_types import create_initial_workflow_state
+from victor.workflows.invocation_state import create_invocation_state
 
 logger = logging.getLogger(__name__)
 
@@ -315,10 +315,8 @@ class StateGraphExecutor:
         try:
             compiled = self._compile_workflow(workflow, checkpointer=checkpointer)
 
-            state = create_initial_workflow_state(
-                workflow_id=thread_id,
-                current_node=workflow.start_node or "",
-                initial_state=initial_context,
+            state = await create_invocation_state(
+                workflow, initial_context, thread_id, checkpointer
             )
 
             # Execute
@@ -373,11 +371,7 @@ class StateGraphExecutor:
         """
         compiled = self._compile_workflow(workflow, checkpointer=checkpointer)
 
-        state = create_initial_workflow_state(
-            workflow_id=thread_id,
-            current_node=workflow.start_node or "",
-            initial_state=initial_context,
-        )
+        state = await create_invocation_state(workflow, initial_context, thread_id, checkpointer)
 
         # Stream execution
         async with aclosing(compiled.stream(state, thread_id=thread_id)) as events:

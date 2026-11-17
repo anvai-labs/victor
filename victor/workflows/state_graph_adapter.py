@@ -110,8 +110,11 @@ class StateGraphWorkflowExecutor:
         node_observer: Optional[NodeLifecycleObserver] = None,
     ) -> Any:
         """Execute a definition, or delegate an already compiled graph unchanged."""
+        # Preserve ``None``: the graph uses it to resume a checkpointed thread.
+        # StateGraphExecutor converts an absent context back to an empty state for
+        # a fresh definition run, while direct compiled-graph delegation remains
+        # faithful to the graph API.
         state = initial_context if initial_context is not None else initial_state
-        state = state if state is not None else {}
         if not isinstance(workflow, WorkflowDefinition):
             if hasattr(workflow, "invoke"):
                 kwargs: Dict[str, Any] = {"thread_id": thread_id}
