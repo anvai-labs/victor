@@ -39,7 +39,6 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
-from victor.framework.graph_checkpoint import strip_runtime_handles
 from victor.storage.checkpoints.backends.sqlite_backend import SQLiteCheckpointBackend
 from victor.storage.checkpoints.protocol import CheckpointMetadata
 
