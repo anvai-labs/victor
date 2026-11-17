@@ -288,6 +288,17 @@ def to_wire_event(event: Any) -> Optional[Dict[str, Any]]:
         run_id = metadata.get("run_id")
         if run_id:
             pause["run_id"] = run_id
+        # FEP-0032/FOU-D4: a graph-interrupted run rides the same durable-pause
+        # envelope (no new v1 event type) with its resume position.
+        graph_pause = metadata.get("paused")
+        if isinstance(graph_pause, dict):
+            pause["paused"] = True
+            thread_id = graph_pause.get("thread_id")
+            if thread_id:
+                pause["thread_id"] = thread_id
+            next_node = graph_pause.get("next_node")
+            if next_node:
+                pause["next_node"] = next_node
         return pause
 
     return None  # outside the v1 contract (tool_progress, stage_change, ...)

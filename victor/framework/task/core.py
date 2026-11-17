@@ -121,11 +121,14 @@ class TaskResult:
         success: Whether the task completed successfully
         error: Error message if task failed
         metadata: Additional execution metadata
-        status: Outcome status — "ok" (completed) or "awaiting_approval" (durably
-            paused on a policy ASK, FEP-0029). Defaults to "ok".
+        status: Outcome status — "ok" (completed), "awaiting_approval" (durably
+            paused on a policy ASK, FEP-0029), or "paused" (stopped at a graph
+            boundary, FEP-0032/FOU-D4). Defaults to "ok".
         run_id: Resume token, present only when ``status == "awaiting_approval"``.
         approval_request: The pending ApprovalRequest (as a dict), present only when
             ``status == "awaiting_approval"``.
+        resume_thread_id: Graph thread to resume via ``compiled.resume()``, present
+            only when ``status == "paused"``.
 
     Example:
         result = await agent.run("Create a new module")
@@ -145,6 +148,7 @@ class TaskResult:
     status: str = "ok"
     run_id: Optional[str] = None
     approval_request: Optional[Dict[str, Any]] = None
+    resume_thread_id: Optional[str] = None
 
     @property
     def files_modified(self) -> List[str]:

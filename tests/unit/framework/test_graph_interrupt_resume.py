@@ -343,3 +343,19 @@ async def test_first_invoke_accepts_none_state_schema_short_circuit():
     # is a caller error the guard names precisely.
     with pytest.raises(ValueError, match="input_state"):
         await compiled.invoke(None, thread_id="fresh")
+
+
+@pytest.mark.asyncio
+async def test_compiled_resume_is_the_resume_at_entry_point():
+    """FOU-D4: compiled.resume(thread_id) == invoke(None, thread_id), with a
+    loud error naming the remedy when there is nothing to resume."""
+    calls: List[str] = []
+    compiled, _ = await _run(_graph(calls), interrupt_after=["a"])
+    paused = await compiled.invoke({}, thread_id="t")
+    assert paused.interrupted is True
+
+    resumed = await compiled.resume("t")
+    assert resumed.interrupted is False and calls == ["a", "b"]
+
+    with pytest.raises(ValueError, match="t"):
+        await compiled.resume("never-started")

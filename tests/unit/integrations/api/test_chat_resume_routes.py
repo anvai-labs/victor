@@ -133,3 +133,28 @@ async def test_normal_chat_is_unchanged_200_ok(monkeypatch, tmp_path: Path) -> N
     assert body["content"] == "echo:hi"
     assert body["status"] == "ok"
     assert body["run_id"] is None
+
+
+class _GraphPausedClient:
+    """Chat stopped at a graph boundary (FEP-0032), not an approval pause."""
+
+    async def chat(self, message: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            content="",
+            tool_calls=[],
+            status="paused",
+            resume_thread_id="run-graph-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_chat_surfaces_graph_pause_as_202_with_resume_thread(monkeypatch, tmp_path: Path):
+    """FEP-0032/FOU-D4: a graph-interrupted run is 202 + resume_thread_id,
+    distinct from the FEP-0029 approval pause (run_id + approval_request)."""
+    server = _server(monkeypatch, tmp_path, _GraphPausedClient())
+    resp = await _post(server, "/chat", {"messages": [{"role": "user", "content": "hi"}]})
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["status"] == "paused"
+    assert body["resume_thread_id"] == "run-graph-1"
+    assert body.get("run_id") in (None, "")

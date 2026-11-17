@@ -495,6 +495,16 @@ class LoopResult:
     total_duration: float
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def paused(self) -> bool:
+        """The run stopped at a graph boundary and can resume (FEP-0032/FOU-D4).
+
+        Backed by ``metadata["paused"]`` ({thread_id, next_node}); a pause
+        without a thread id is not surfaced (unresumable claims are noise).
+        """
+        info = self.metadata.get("paused")
+        return isinstance(info, dict) and bool(info.get("thread_id"))
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
