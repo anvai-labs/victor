@@ -140,7 +140,7 @@ EXPECTED_WIRE_CONTRACT = "1"
 # below; bindings predating chat_contract_minor() report 0 — their documents
 # simply never carry the newer fields, which every consumer tolerates by
 # construction. installed_minor > KNOWN stays valid forward-compat.
-KNOWN_CONTRACT_MINOR = 9
+KNOWN_CONTRACT_MINOR = 14
 
 # The typed request fields land at minor 4 (W3d/G7). Below it, the runtime has
 # no such fields, so Victor dual-writes into extensions and only drops the

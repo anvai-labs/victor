@@ -1260,3 +1260,44 @@ class TestStategraphStreamingDictActionResult:
         chunks = [chunk async for chunk in loop.run_streaming("task")]
         assert [c.content for c in chunks if not c.is_final] == ["SOAK-OK"]
         assert chunks[-1].is_final is True
+
+
+class TestQaShortcutPriorToolsGuard:
+    """Handoff fix: the Q&A shortcut fired whenever the turn had content and
+    is_qa_response — including turns AFTER tools ran, terminating the loop
+    before the question was actually answered. The shortcut now requires NO
+    prior tool calls (spin_detector.total_tool_calls == 0)."""
+
+    @staticmethod
+    def _evaluator_with_spin(total_tool_calls: int):
+        from unittest.mock import MagicMock
+
+        from victor.framework.enhanced_completion_evaluation import (
+            EnhancedCompletionEvaluator,
+        )
+
+        spin = MagicMock(total_tool_calls=total_tool_calls)
+        return EnhancedCompletionEvaluator(), spin
+
+    @staticmethod
+    def _turn(content):
+        from victor.agent.services.turn_execution_runtime import TurnResult
+        from victor.providers.base import CompletionResponse
+
+        return TurnResult(response=CompletionResponse(content=content), is_qa_response=True)
+
+    def test_shortcut_skipped_when_tools_were_used(self):
+        evaluator, spin = self._evaluator_with_spin(total_tool_calls=2)
+        result = evaluator._check_qa_shortcut(self._turn("here is the answer"), spin)
+        assert result is None  # falls through to evidence-based evaluation
+
+    def test_shortcut_fires_when_no_tools_were_used(self):
+        evaluator, spin = self._evaluator_with_spin(total_tool_calls=0)
+        result = evaluator._check_qa_shortcut(self._turn("direct answer"), spin)
+        assert result is not None
+        assert result.decision.value == "complete"
+
+    def test_shortcut_fires_without_spin_detector(self):
+        evaluator, _ = self._evaluator_with_spin(0)
+        result = evaluator._check_qa_shortcut(self._turn("direct answer"), None)
+        assert result is not None

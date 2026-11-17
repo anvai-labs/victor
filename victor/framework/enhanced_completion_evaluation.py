@@ -191,7 +191,7 @@ class EnhancedCompletionEvaluator:
 
         # === PRIORITY 2: Q&A Shortcut (fast path for questions) ===
         if isinstance(action_result, TurnResult):
-            qa_result = self._check_qa_shortcut(action_result)
+            qa_result = self._check_qa_shortcut(action_result, spin_detector)
             if qa_result is not None:
                 return qa_result
 
@@ -470,10 +470,11 @@ class EnhancedCompletionEvaluator:
         """
         return response_classification.is_intent_only_response(response_text)
 
-    def _check_qa_shortcut(self, action_result: Any) -> Optional[Any]:
+    def _check_qa_shortcut(self, action_result: Any, spin_detector: Any = None) -> Optional[Any]:
         """Check for Q&A shortcut (model answered without tools).
 
         Returns EvaluationResult if Q&A shortcut applies, None otherwise.
+        Q&A shortcut only applies if NO tools were used in the conversation.
         """
         from victor.framework.evaluation_nodes import EvaluationResult
         from victor.agent.services.turn_execution_runtime import TurnResult
@@ -484,17 +485,25 @@ class EnhancedCompletionEvaluator:
         turn: TurnResult = action_result
 
         # Q&A shortcut: model answered without tools on a question task
+        # BUT only if no tools were used earlier in the conversation
         if (
             hasattr(turn, "is_qa_response")
             and turn.is_qa_response
             and hasattr(turn, "has_content")
             and turn.has_content
         ):
-            return EvaluationResult(
-                decision=EvaluationDecision.COMPLETE,
-                score=0.9,
-                reason="Q&A shortcut: accepted direct answer",
-            )
+            # Check if tools were used earlier — if so, this is not a pure Q&A response
+            had_prior_tools = False
+            if spin_detector is not None:
+                total_tool_calls = getattr(spin_detector, "total_tool_calls", 0)
+                had_prior_tools = total_tool_calls > 0
+
+            if not had_prior_tools:
+                return EvaluationResult(
+                    decision=EvaluationDecision.COMPLETE,
+                    score=0.9,
+                    reason="Q&A shortcut: accepted direct answer",
+                )
 
         return None
 
