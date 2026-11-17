@@ -637,6 +637,30 @@ TDD reproduced dropped profile values, omitted streaming defaults, missing
 GPT-6 capability recognition and unvalidated labels. Regression coverage also
 checks unsupported providers and per-request overrides (including `None`).
 
+## Streaming body-budget preflight (2026-11-17)
+
+Victor provider configuration accepts an optional
+`stream_body_timeout_secs` value between one millisecond and 840 seconds. When set on a
+streaming Sandhi call, Victor sends it once as
+`x-sandhi-stream-body-budget-ms`. The value is an explicit caller need, not an
+authorization to raise gateway policy and not a substitute for the outer
+planning deadline. It remains unset by default so ordinary streams are unaffected.
+
+Sandhi compares the hint with its effective exact-model policy. A larger value is
+refused before rate admission, reservation, provider dispatch and source egress;
+a within-policy value proceeds normally. This catches long-form planning requests
+before partial JSON generation instead of timing out minutes later. Authenticated
+model discovery can expose the sanitized effective limits without revealing
+backend URLs, credentials or provider references.
+
+```yaml
+providers:
+  openai:
+    stream_setup_timeout_secs: 30
+    stream_idle_timeout_secs: 180
+    stream_body_timeout_secs: 600
+```
+
 ## Resource-audience co-design: local candidate acceptance
 
 The existing `GatewayTokenFileCredential` already supports an exact resource URI

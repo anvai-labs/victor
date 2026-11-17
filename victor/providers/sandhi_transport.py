@@ -944,6 +944,34 @@ class SandhiTypedProviderMixin:
             raise ValueError("stream setup timeout must be finite and between 0 and 600 seconds")
         return value
 
+    def _sandhi_stream_body_timeout_secs(self) -> Optional[float]:
+        """Optional body-duration hint sent to gateway policy preflight.
+
+        Unlike setup/idle, this is deliberately not inferred from the outer request timeout:
+        a planning deadline includes non-body work and must not reject an otherwise valid
+        stream. Callers opt in when they know a model needs a long body lifetime.
+        """
+        value = (getattr(self, "extra_config", None) or {}).get("stream_body_timeout_secs")
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError("stream body timeout must be finite and between 0 and 840 seconds")
+        numeric = float(value)
+        if not math.isfinite(numeric) or not 0 < numeric <= 840 or numeric * 1000 < 1:
+            raise ValueError(
+                "stream body timeout must be finite, between one millisecond and 840 seconds"
+            )
+        return numeric
+
+    def _sandhi_stream_wire_headers(self) -> Dict[str, str]:
+        if self._gateway_overrides() is None:
+            return {}
+        headers = _gateway_wire_headers(_wire_call_headers())
+        body_timeout = self._sandhi_stream_body_timeout_secs()
+        if body_timeout is not None:
+            headers["x-sandhi-stream-body-budget-ms"] = str(int(body_timeout * 1000))
+        return headers
+
     def _sandhi_timeout(self) -> float:
         try:
             return float(getattr(self, "timeout", 120.0) or 120.0)
@@ -1322,11 +1350,7 @@ class SandhiTypedProviderMixin:
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
         idle_timeout = self._sandhi_stream_idle_timeout()
-        call_headers = (
-            _gateway_wire_headers(_wire_call_headers())
-            if self._gateway_overrides() is not None
-            else {}
-        )
+        call_headers = self._sandhi_stream_wire_headers()
         wire_headers = json.dumps(call_headers) if call_headers else None
         calls: Dict[int, Dict[str, Any]] = {}
         finish_reason: Optional[str] = None

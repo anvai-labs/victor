@@ -518,6 +518,9 @@ class ProviderConfig(BaseSettings):
     timeout: int = 300  # 5 minutes - increased for CPU-only inference
     stream_idle_timeout_secs: float = Field(default=90.0, gt=0, le=600, allow_inf_nan=False)
     stream_setup_timeout_secs: float = Field(default=90.0, gt=0, le=600, allow_inf_nan=False)
+    stream_body_timeout_secs: Optional[float] = Field(
+        default=None, gt=0, le=840, allow_inf_nan=False
+    )
 
     @field_validator("stream_idle_timeout_secs", mode="before")
     @classmethod
@@ -531,6 +534,20 @@ class ProviderConfig(BaseSettings):
     def reject_boolean_stream_setup(cls, value: Any) -> Any:
         if isinstance(value, bool):
             raise ValueError("stream setup timeout must be a number, not a boolean")
+        return value
+
+    @field_validator("stream_body_timeout_secs", mode="before")
+    @classmethod
+    def reject_boolean_stream_body(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("stream body timeout must be a number, not a boolean")
+        return value
+
+    @field_validator("stream_body_timeout_secs", mode="after")
+    @classmethod
+    def reject_submillisecond_stream_body(cls, value: Optional[float]) -> Optional[float]:
+        if value is not None and value * 1000 < 1:
+            raise ValueError("stream body timeout must represent at least one millisecond")
         return value
 
     max_retries: int = 3
