@@ -1942,7 +1942,7 @@ class TestChatServiceCriteriaGateEndToEnd(BaseChatServiceTest):
 
         chat_context = _MagicMock()
         chat_context.settings = _MagicMock()
-        chat_context.settings.agentic_loop = AgenticLoopSettings()
+        chat_context.settings.agentic_loop = AgenticLoopSettings(executor="standard")
         chat_context.settings.agent.effect_gated_completion = False
         chat_context.settings.exploration = None
         chat_context.settings.chat_max_iterations = 8

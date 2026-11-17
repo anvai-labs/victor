@@ -171,6 +171,13 @@ class TestAgenticLoop:
         """Create AgenticLoop with mock orchestrator."""
         if orchestrator is None:
             orchestrator = MagicMock()
+        # Pin to the legacy executor: USE_STATEGRAPH_AGENTIC_LOOP is now
+        # default-ON, and these tests exercise the standard loop path.
+        config = kwargs.get("config")
+        if config is None:
+            kwargs["config"] = {"executor": "standard"}
+        elif isinstance(config, dict):
+            config.setdefault("executor", "standard")
         return AgenticLoop(
             orchestrator=orchestrator,
             enable_fulfillment_check=kwargs.pop("enable_fulfillment_check", False),
@@ -1475,7 +1482,11 @@ class TestPlanFallbacks:
         orchestrator = MagicMock()
         orchestrator.planning_coordinator = mock_coordinator
 
-        loop = AgenticLoop(orchestrator=orchestrator, enable_fulfillment_check=False)
+        loop = AgenticLoop(
+            orchestrator=orchestrator,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
         perception = _make_perception()
         result = await loop._plan(perception, {"query": "test"})
 
@@ -1487,7 +1498,11 @@ class TestPlanFallbacks:
         orchestrator = MagicMock(spec=[])
         orchestrator.plan = AsyncMock(return_value={"plan": "direct"})
 
-        loop = AgenticLoop(orchestrator=orchestrator, enable_fulfillment_check=False)
+        loop = AgenticLoop(
+            orchestrator=orchestrator,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
         perception = _make_perception()
         result = await loop._plan(perception, {"query": "test"})
 
@@ -1497,7 +1512,11 @@ class TestPlanFallbacks:
         """Falls back to perception dict when no plan methods available."""
         orchestrator = MagicMock(spec=[])
 
-        loop = AgenticLoop(orchestrator=orchestrator, enable_fulfillment_check=False)
+        loop = AgenticLoop(
+            orchestrator=orchestrator,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
         perception = _make_perception()
         result = await loop._plan(perception, {"query": "test"})
 
@@ -1548,7 +1567,11 @@ class TestActFallbacks:
         orchestrator = MagicMock(spec=[])
         orchestrator.execute = AsyncMock(return_value={"result": "done"})
 
-        loop = AgenticLoop(orchestrator=orchestrator, enable_fulfillment_check=False)
+        loop = AgenticLoop(
+            orchestrator=orchestrator,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
         result = await loop._act({"plan": "test"}, {"query": "test"})
         assert result == {"result": "done"}
 
@@ -1556,14 +1579,22 @@ class TestActFallbacks:
         orchestrator = MagicMock(spec=[])
         orchestrator.run = AsyncMock(return_value="response")
 
-        loop = AgenticLoop(orchestrator=orchestrator, enable_fulfillment_check=False)
+        loop = AgenticLoop(
+            orchestrator=orchestrator,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
         result = await loop._act({"plan": "test"}, {"query": "test"})
         assert result == "response"
 
     async def test_act_fallback(self):
         orchestrator = MagicMock(spec=[])
 
-        loop = AgenticLoop(orchestrator=orchestrator, enable_fulfillment_check=False)
+        loop = AgenticLoop(
+            orchestrator=orchestrator,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
         result = await loop._act({"plan": "test"}, {"query": "test"})
         assert result["plan_executed"] is True
 
@@ -1580,6 +1611,7 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.confidence = 0.9
@@ -1591,6 +1623,7 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.confidence = 0.6
@@ -1603,6 +1636,7 @@ class TestEvaluate:
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
             config={
+                "executor": "standard",
                 "medium_confidence_threshold": 0.7,
                 "low_confidence_retry_limit": 2,
             },
@@ -1619,6 +1653,7 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.confidence = 0.3
@@ -1633,6 +1668,7 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.confidence = 0.32
@@ -1657,6 +1693,7 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.confidence = 0.28
@@ -1677,7 +1714,10 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
-            config={"low_confidence_retry_limit": 2},
+            config={
+                "executor": "standard",
+                "low_confidence_retry_limit": 2,
+            },
         )
         perception = _make_perception()
         perception.confidence = 0.2
@@ -1693,7 +1733,10 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
-            config={"low_confidence_retry_limit": 2},
+            config={
+                "executor": "standard",
+                "low_confidence_retry_limit": 2,
+            },
         )
         perception = _make_perception()
         perception.confidence = 0.6
@@ -1710,7 +1753,10 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
-            config={"low_confidence_retry_limit": 2},
+            config={
+                "executor": "standard",
+                "low_confidence_retry_limit": 2,
+            },
         )
         loop.enhanced_completion_evaluator = MagicMock()
         loop.enhanced_completion_evaluator.evaluate = AsyncMock(
@@ -1736,7 +1782,10 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
-            config={"low_confidence_retry_limit": 2},
+            config={
+                "executor": "standard",
+                "low_confidence_retry_limit": 2,
+            },
         )
         loop.enhanced_completion_evaluator = MagicMock()
         loop.enhanced_completion_evaluator.evaluate = AsyncMock(
@@ -1780,6 +1829,7 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         loop.enhanced_completion_evaluator = AsyncMock()
         loop.enhanced_completion_evaluator.evaluate = AsyncMock(
@@ -1814,6 +1864,7 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         # A real forced synthesis is accepted only when it looks like an actual
         # deliverable: markdown structure plus substantive length. Short narration
@@ -1843,6 +1894,7 @@ class TestEvaluate:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         turn = TurnResult(
             response=CompletionResponse(
@@ -1874,6 +1926,7 @@ class TestMapToTaskType:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.intent = ActionIntent.WRITE_ALLOWED
@@ -1885,6 +1938,7 @@ class TestMapToTaskType:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.intent = ActionIntent.DISPLAY_ONLY
@@ -1896,6 +1950,7 @@ class TestMapToTaskType:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.intent = ActionIntent.READ_ONLY
@@ -1907,6 +1962,7 @@ class TestMapToTaskType:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.intent = ActionIntent.AMBIGUOUS
@@ -1928,6 +1984,7 @@ class TestStream:
             orchestrator=MagicMock(spec=[]),
             max_iterations=2,
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
 
         perception = _make_perception()
@@ -1952,6 +2009,7 @@ class TestStream:
             orchestrator=MagicMock(spec=[]),
             max_iterations=1,
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
 
         perception = _make_perception()
@@ -2101,6 +2159,7 @@ class TestAdaptiveIterations:
             enable_fulfillment_check=False,
             plateau_window=3,
             plateau_tolerance=0.02,
+            config={"executor": "standard"},
         )
         loop._progress_scores = [0.5, 0.505, 0.51]
         evaluation = EvaluationResult(decision=EvaluationDecision.CONTINUE, score=0.51)
@@ -2111,6 +2170,7 @@ class TestAdaptiveIterations:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         loop._progress_scores = [0.5, 0.75]
         evaluation = EvaluationResult(decision=EvaluationDecision.CONTINUE, score=0.75)
@@ -2121,6 +2181,7 @@ class TestAdaptiveIterations:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         loop._progress_scores = [0.3, 0.5]
         evaluation = EvaluationResult(decision=EvaluationDecision.CONTINUE, score=0.5)
@@ -2133,6 +2194,7 @@ class TestAdaptiveIterations:
             enable_fulfillment_check=False,
             plateau_window=3,
             plateau_tolerance=0.02,
+            config={"executor": "standard"},
         )
         loop._progress_scores = [0.33, 0.33, 0.33]
         evaluation = EvaluationResult(decision=EvaluationDecision.RETRY, score=0.33)
@@ -2165,6 +2227,7 @@ class TestAdaptiveIterations:
             enable_fulfillment_check=False,
             plateau_window=3,
             plateau_tolerance=0.02,
+            config={"executor": "standard"},
         )
         loop._progress_scores = [0.33, 0.33, 0.33]
         evaluation = EvaluationResult(decision=EvaluationDecision.RETRY, score=0.33)
@@ -2195,6 +2258,7 @@ class TestAdaptiveIterations:
             enable_fulfillment_check=False,
             plateau_window=3,
             plateau_tolerance=0.02,
+            config={"executor": "standard"},
         )
         loop._progress_scores = [0.5, 0.5, 0.5]
         evaluation = EvaluationResult(
@@ -2227,6 +2291,7 @@ class TestAdaptiveIterations:
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
             max_iterations=1,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.confidence = 0.6
@@ -2239,6 +2304,7 @@ class TestAdaptiveIterations:
             max_iterations=2,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.confidence = 0.6
@@ -2261,6 +2327,7 @@ class TestEnhancedTaskTypeMapping:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.task_analysis = MagicMock(task_type="debugging")
@@ -2271,6 +2338,7 @@ class TestEnhancedTaskTypeMapping:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.task_analysis = MagicMock(task_type="testing")
@@ -2281,6 +2349,7 @@ class TestEnhancedTaskTypeMapping:
         loop = AgenticLoop(
             orchestrator=MagicMock(),
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.task_analysis = MagicMock(task_type=None)

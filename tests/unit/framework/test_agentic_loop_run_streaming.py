@@ -53,7 +53,9 @@ def _fake_port(turns):
 def _loop(port, *, evaluations, turn_executor=None):
     """A bare AgenticLoop with the run_streaming collaborators stubbed."""
     loop = AgenticLoop.__new__(AgenticLoop)
-    loop.config = AgenticLoopConfig()
+    # USE_STATEGRAPH_AGENTIC_LOOP is now default-ON; these tests exercise the
+    # legacy iteration streaming path.
+    loop.config = AgenticLoopConfig(executor="standard")
     loop.streaming_act_port = port
     loop.max_iterations = 5
     loop._progress_scores = []
@@ -690,7 +692,7 @@ async def test_streaming_deadline_interrupts_act_and_preserves_partial_output():
                 cleaned.set()
 
     loop = _loop(Port(), evaluations=[])
-    loop.config = AgenticLoopConfig(total_timeout=0.03)
+    loop.config = AgenticLoopConfig(total_timeout=0.03, executor="standard")
 
     async def consume():
         return [chunk async for chunk in loop.run_streaming("q")]
@@ -851,7 +853,11 @@ async def test_run_streaming_criteria_gate_downgrades_unmet_complete_then_budget
         enable_adaptive_iterations=False,
         enable_fulfillment_check=False,
         streaming_act_port=Port(),
-        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+        config={
+            "disable_enhanced_completion": True,
+            "enable_criteria_gate": True,
+            "executor": "standard",
+        },
     )
     loop._analyze_turn = AsyncMock(
         return_value=Perception(

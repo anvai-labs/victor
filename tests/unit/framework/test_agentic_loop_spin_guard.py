@@ -50,7 +50,13 @@ def continuing_loop(max_iterations):
         max_iterations=max_iterations,
         enable_fulfillment_check=False,
         enable_adaptive_iterations=False,
-        config={"enable_topology_routing": False, "disable_enhanced_completion": True},
+        config={
+            "enable_topology_routing": False,
+            "disable_enhanced_completion": True,
+            # USE_STATEGRAPH_AGENTIC_LOOP is now default-ON; these tests exercise
+            # the legacy iteration executor.
+            "executor": "standard",
+        },
     )
     loop._act = AsyncMock(
         return_value=TurnResult(response=CompletionResponse(content="", role="assistant"))
@@ -175,6 +181,7 @@ class TestSpinGuardTerminatesLoop:
             max_iterations=50,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": "standard"},
         )
         result = await loop.run("a task the guard cuts short")
         assert result.success is False

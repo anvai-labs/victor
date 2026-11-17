@@ -244,7 +244,11 @@ async def test_buffered_run_mirrors_tool_evidence_and_gate_sees_it():
         max_iterations=3,
         enable_adaptive_iterations=False,
         enable_fulfillment_check=False,
-        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+        config={
+            "disable_enhanced_completion": True,
+            "enable_criteria_gate": True,
+            "executor": "standard",
+        },
     )
     loop._analyze_turn = AsyncMock(
         return_value=Perception(
@@ -293,7 +297,11 @@ async def test_buffered_run_unmet_floor_downgrades_then_exhaustion_yields():
         max_iterations=2,
         enable_adaptive_iterations=False,
         enable_fulfillment_check=False,
-        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+        config={
+            "disable_enhanced_completion": True,
+            "enable_criteria_gate": True,
+            "executor": "standard",
+        },
     )
     loop._analyze_turn = AsyncMock(
         return_value=Perception(
@@ -515,7 +523,11 @@ async def test_buffered_run_marker_closes_the_loop_without_a_further_turn():
         max_iterations=3,
         enable_adaptive_iterations=False,
         enable_fulfillment_check=False,
-        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+        config={
+            "disable_enhanced_completion": True,
+            "enable_criteria_gate": True,
+            "executor": "standard",
+        },
     )
     loop._analyze_turn = AsyncMock(
         return_value=Perception(
