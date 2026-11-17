@@ -176,7 +176,7 @@ class OnboardingWizard:
         The auth wizard persists the account (keyring + config.yaml) and an
         account-named chat profile, but startup reads the ``default`` profile
         from profiles.yaml — without this step a first-run cloud user would
-        still boot on the built-in Ollama default.
+        still boot on the built-in default profile (Ollama since FOU onboarding).
         """
         recommended = get_recommended_profile()
         # Local providers report a placeholder model; let the profile
