@@ -1684,8 +1684,7 @@ class UnifiedTaskTracker(ModeAwareMixin):
             # embedding backend must not abort stream preparation. Degrade
             # loudly to the general task type instead.
             logger.debug(
-
-             "task-type classifier unavailable (%s); falling back to GENERAL",
+                "task-type classifier unavailable (%s); falling back to GENERAL",
                 exc,
             )
             self.set_task_type(TrackerTaskType.GENERAL)
