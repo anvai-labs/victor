@@ -303,10 +303,16 @@ class TestEvaluateNode:
             }
         )
 
-        detector = MagicMock()
-        detector.is_fulfilled = MagicMock(return_value=True)
-        detector.get_fulfillment_result = MagicMock(
-            return_value={"is_fulfilled": True, "confidence": 0.9}
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        # Real FulfillmentDetector contract: async check_fulfillment returning
+        # a result with is_fulfilled/score/reason (FOU-D5f: the graph node
+        # previously called a phantom get_fulfillment_result API).
+        detector = SimpleNamespace(
+            check_fulfillment=AsyncMock(
+                return_value=SimpleNamespace(is_fulfilled=True, score=0.9, reason="done")
+            )
         )
 
         result = await evaluate_node(
@@ -585,3 +591,109 @@ class TestNodeIntegration:
         # Decide
         next_node = decide_edge(state)
         assert next_node == "__end__"
+
+
+class TestActNodeResponseText:
+    """FOU-D5f soak finding: act_node stored the raw CompletionResponse object
+    in action_result['response']; _default_evaluation called .lower() on it and
+    crashed into the fallback 'continue' decision — every run spun to the
+    iteration cap and never completed. The node must store the response TEXT
+    (the shape LoopResult.from_graph_result and evaluation both consume)."""
+
+    @staticmethod
+    def _turn(response):
+        from victor.agent.services.turn_execution_runtime import TurnResult
+        from victor.providers.base import CompletionResponse
+
+        return TurnResult(response=CompletionResponse(content=response))
+
+    async def test_act_node_stores_response_text_not_object(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        te = SimpleNamespace(execute_turn=AsyncMock(return_value=self._turn("SOAK-OK")))
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+        result = await act_node(state, turn_executor=te)
+        assert result.action_result["response"] == "SOAK-OK"
+
+    async def test_default_evaluation_completes_on_response_text(self):
+        from types import SimpleNamespace
+
+        from victor.framework.agentic_graph.nodes import _default_evaluation
+
+        state = SimpleNamespace(action_result={"response": "The task completed successfully."})
+        evaluation = _default_evaluation(state)
+        assert evaluation["decision"] == "complete"
+
+    async def test_default_evaluation_survives_object_response(self):
+        """Defense in depth: even if an object leaks into the dict, evaluation
+        must coerce instead of crashing into the fallback 'continue'."""
+        from types import SimpleNamespace
+
+        from victor.providers.base import CompletionResponse
+
+        from victor.framework.agentic_graph.nodes import _default_evaluation
+
+        state = SimpleNamespace(
+            action_result={"response": CompletionResponse(content="done, finished successfully")}
+        )
+        evaluation = _default_evaluation(state)
+        assert evaluation["decision"] == "complete"
+
+
+class TestEvaluateNodeRealFulfillmentAPI:
+    """FOU-D5f soak finding: the graph evaluate node called a phantom
+    ``get_fulfillment_result`` API — the real ``FulfillmentDetector`` exposes
+    ``async check_fulfillment``. Every production evaluation crashed into the
+    fallback 'continue', so graph runs never completed."""
+
+    async def test_evaluate_node_uses_check_fulfillment_and_records_result(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import evaluate_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        detector = SimpleNamespace(
+            check_fulfillment=AsyncMock(
+                return_value=SimpleNamespace(is_fulfilled=True, score=0.95, reason="criteria met")
+            )
+        )
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+
+        result = await evaluate_node(
+            state,
+            evaluator=None,
+            fulfillment_detector=detector,
+            enable_fulfillment_check=True,
+        )
+
+        detector.check_fulfillment.assert_awaited_once()
+        assert result.fulfillment is not None
+        assert result.fulfillment["is_fulfilled"] is True
+        assert result.fulfillment["score"] == 0.95
+
+    async def test_fulfillment_failure_does_not_crash_evaluation(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import evaluate_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        detector = SimpleNamespace(
+            check_fulfillment=AsyncMock(side_effect=RuntimeError("strategy missing"))
+        )
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+
+        result = await evaluate_node(
+            state,
+            evaluator=None,
+            fulfillment_detector=detector,
+            enable_fulfillment_check=True,
+        )
+
+        # Evaluation survives: a decision exists and the failure is contained.
+        assert result.evaluation is not None

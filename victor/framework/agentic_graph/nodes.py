@@ -373,9 +373,16 @@ async def act_node(
                 runtime_context_overrides=state.context,
             )
 
-            # Extract results
+            # Extract results. FOU-D5f soak finding: result.response is a
+            # CompletionResponse OBJECT; storing it raw made evaluation crash
+            # (.lower() on the object) into the fallback 'continue' decision —
+            # every graph run spun to the iteration cap without completing.
+            # Consumers (evaluation, LoopResult.from_graph_result) want text.
+            response = getattr(result, "response", "")
+            if not isinstance(response, str):
+                response = getattr(response, "content", "") or ""
             action_result = {
-                "response": getattr(result, "response", ""),
+                "response": response,
                 "tool_results": getattr(result, "tool_results", []),
             }
 
@@ -485,6 +492,13 @@ async def evaluate_node(
             # Default evaluation logic
             evaluation = _default_evaluation(state)
 
+        logger.debug(
+            "[EvaluateNode] decision=%s score=%s reason=%s",
+            evaluation.get("decision"),
+            evaluation.get("score"),
+            str(evaluation.get("reason"))[:120],
+        )
+
         # Update progress scores
         progress_scores = list(state.progress_scores)
         progress_scores.append(evaluation.get("score", 0.5))
@@ -495,15 +509,31 @@ async def evaluate_node(
             "progress_scores": progress_scores,
         }
 
-        # Optional fulfillment check
+        # Optional fulfillment check. FOU-D5f soak finding: this node called a
+        # phantom ``get_fulfillment_result`` API — the real FulfillmentDetector
+        # exposes ``async check_fulfillment`` (the legacy loop's contract), so
+        # every production evaluation crashed into the fallback 'continue' and
+        # graph runs never completed. Contained failure: a fulfillment error
+        # must not take the evaluation verdict down with it.
         if enable_fulfillment_check and fulfillment_detector is not None:
-            fulfillment_result = fulfillment_detector.get_fulfillment_result(
-                query=state.query,
-                action_result=state.action_result,
-                perception=state.perception,
-            )
-
-            update_dict["fulfillment"] = fulfillment_result
+            try:
+                fulfillment_result = await fulfillment_detector.check_fulfillment(
+                    task_type=getattr(state, "task_type", None),
+                    criteria=(
+                        dict((state.context or {}).get("criteria", {}))
+                        if isinstance(state.context, dict)
+                        else {}
+                    ),
+                    context=state.to_dict(),
+                )
+                update_dict["fulfillment"] = {
+                    "is_fulfilled": getattr(fulfillment_result, "is_fulfilled", False),
+                    "score": getattr(fulfillment_result, "score", 0.0),
+                    "reason": getattr(fulfillment_result, "reason", ""),
+                }
+            except Exception as fe:
+                logger.warning(f"Fulfillment check failed: {fe}")
+                update_dict["fulfillment"] = None
 
         return state.model_copy(update=update_dict)
 
@@ -547,6 +577,8 @@ def _default_evaluation(state: AgenticLoopStateModel) -> Dict[str, Any]:
         Evaluation dictionary with decision and score
     """
     action_result = state.action_result or {}
+    if not isinstance(action_result, dict):
+        action_result = {}
 
     # Check for errors
     if action_result.get("error"):
@@ -556,8 +588,12 @@ def _default_evaluation(state: AgenticLoopStateModel) -> Dict[str, Any]:
             "reason": "Execution error occurred",
         }
 
-    # Check for completion signals
+    # Check for completion signals. Coerce defensively: a CompletionResponse
+    # object leaked here used to crash evaluation into the fallback 'continue'
+    # decision (FOU-D5f soak finding).
     response = action_result.get("response", "")
+    if not isinstance(response, str):
+        response = getattr(response, "content", "") or ""
     if response and any(
         marker in response.lower() for marker in ["done", "complete", "finished", "successfully"]
     ):
