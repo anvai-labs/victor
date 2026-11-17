@@ -2081,7 +2081,71 @@ class AgenticLoop(TopologyPlanningMixin):
         from victor.framework.agentic_loop_executor import use_stategraph_executor
 
         if use_stategraph_executor(self.config.executor):
-            raise NotImplementedError("StateGraph execution does not support token streaming")
+            # FOU-D5c: streaming parity for the StateGraph executor. The graph
+            # ACT node executes turns buffered today, so chunks arrive at TURN
+            # granularity (one per completed ACT turn) rather than token
+            # granularity — a documented limitation until the streaming ACT
+            # adapter is threaded through the graph node. The terminal verdict
+            # contract is identical to the legacy path.
+            from victor.framework.loop.guards import LoopGuards, LoopSpinError
+
+            _sg_guards = LoopGuards(total_timeout=self.config.total_timeout)
+
+            # FOU-D5b parity on the streaming path: a configured verifier gates
+            # the streamed run too. The graph stream carries no final state, so
+            # verification runs against the streamed workspace context (the
+            # same 3-level workspace fallback resolves the rest).
+            verify_stream = getattr(self, "_verifier", None) is not None
+            if verify_stream:
+                self._verify_retries = 0  # FEP-0018: reset per run
+
+            verify_context = dict(context or {})
+            iterations_seen = 0
+            run_success = True
+            run_error: Optional[str] = None
+            try:
+                while True:
+                    iterations_seen = 0
+                    async for iteration in self._stream_with_stategraph(
+                        query=query,
+                        context=verify_context,
+                        conversation_history=conversation_history,
+                    ):
+                        _sg_guards.enforce()
+                        iterations_seen += 1
+                        action_result = getattr(iteration, "action_result", None)
+                        content = getattr(getattr(action_result, "response", None), "content", None)
+                        if content:
+                            yield StreamChunk(content=content)
+                    if not verify_stream:
+                        break
+                    vr = await self._run_verification(dict(verify_context))
+                    if vr.is_verified:
+                        break
+                    if self._verify_retries >= self._max_verify_retries:
+                        run_success = False
+                        run_error = (
+                            vr.feedback or "Verification did not pass all checks"
+                        ) + "; verification retry budget exhausted"
+                        break
+                    self._verify_retries += 1
+                    self._inject_verify_feedback(vr)
+                    verify_context = {
+                        **verify_context,
+                        "verification_feedback": vr.feedback,
+                    }
+                yield self._terminal_stream_outcome(
+                    success=run_success, iterations=iterations_seen, error=run_error
+                )
+            except LoopSpinError as spin:
+                logger.warning("[AgenticLoop] stategraph stream terminated by spin guard: %s", spin)
+                yield self._terminal_stream_outcome(
+                    success=False,
+                    iterations=iterations_seen,
+                    error=str(spin),
+                )
+            return
+
         if self.streaming_act_port is None:
             raise RuntimeError(
                 "AgenticLoop.run_streaming requires a streaming ACT port; it is wired at the "

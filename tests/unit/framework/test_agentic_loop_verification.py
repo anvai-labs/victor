@@ -537,6 +537,8 @@ async def test_direct_loop_explicit_executor_overrides_legacy_flag(mode, monkeyp
         assert [event async for event in loop.stream("q")] == []
         assert visited == ["q"]
     else:
-        with pytest.raises(NotImplementedError, match="StateGraph.*token streaming"):
-            await anext(loop.run_streaming("q"))
+        # FOU-D5c: token streaming no longer refuses the StateGraph executor.
+        chunks = [chunk async for chunk in loop.run_streaming("q")]
+        assert chunks[-1].is_final is True
+        assert visited == ["q"]
     loop._act.assert_not_awaited()
