@@ -125,3 +125,42 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
 3. Update this ledger at each material milestone and at session handoff, citing exact
    commits, test outcomes, review results, and CI runs.
 4. Never equate local pass, merge, release, and live acceptance.
+
+## FOU-D5f-S8 follow-up: live pickle diagnosis (2026-11-17)
+
+Real graph-executor chat runs still fail flakily with
+`cannot pickle 'TextIOWrapper' instances` (some runs complete — Q&A
+shortcut verified live; others die). The failure does NOT route through
+`copy.deepcopy` (a deepcopy-stack probe printed nothing on failing
+runs). Diagnostic probe — drop as `sitecustomize.py` in a dir prepended
+to PYTHONPATH; wraps all three entry points and prints the calling
+frames for the first 3 failures:
+
+```python
+import copy, pickle, traceback, sys
+_count = [0]
+def _wrap(name, fn):
+    def probed(x, *a, **k):
+        try:
+            return fn(x, *a, **k)
+        except Exception as exc:
+            if "pickle" in str(exc) and _count[0] < 3:
+                _count[0] += 1
+                frames = [f"{fr.filename}:{fr.lineno} {fr.function}"
+                          for fr in traceback.extract_stack()[-14:-1]]
+                sys.stderr.write(f"{name}-FAIL[{_count[0]}] {type(x)}\n")
+                for f in reversed(frames):
+                    sys.stderr.write(f"  {f}\n")
+        raise
+    return probed
+copy.deepcopy = _wrap("DEEPCOPY", copy.deepcopy)
+copy.copy = _wrap("COPY", copy.copy)
+pickle.dumps = _wrap("PICKLEDUMPS", pickle.dumps)
+```
+
+Soak command: `PYTHONPATH=<probe-dir>:<worktree>
+VICTOR_USE_STATEGRAPH_AGENTIC_LOOP=true victor chat --profile
+soak-lmstudio "Reply with exactly: SOAK-OK"`. Candidate sites: any
+unguarded `copy.copy`/`pickle` in the streaming run plumbing;
+`post_loop_recovery.py:117` deep-copies tool-call arguments. The flip
+stays BLOCKED until a run completes with delivered content.
