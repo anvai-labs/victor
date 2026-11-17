@@ -54,10 +54,23 @@ class GraphExecutionResult(Generic[StateType]):
 
 
 def snapshot_state_for_result(state: Any) -> Any:
-    """Create a safe state snapshot for execution traces."""
+    """Create a safe state snapshot for execution traces.
+
+    States carry runtime execution handles in ``context`` (FOU-D5f-S6c);
+    stripping them before the deep copy keeps result snapshots from dying on
+    unpicklable objects.
+    """
+    from victor.framework.graph_checkpoint import strip_runtime_handles, tolerant_deepcopy
+
     if isinstance(state, BaseModel):
-        return state.model_copy(deep=True)
-    return copy.deepcopy(state)
+        try:
+            return state.model_copy(deep=True)
+        except Exception:
+            return tolerant_deepcopy(strip_runtime_handles(state))
+    try:
+        return copy.deepcopy(state)
+    except Exception:
+        return tolerant_deepcopy(strip_runtime_handles(state))
 
 
 class IterationController:
@@ -294,6 +307,11 @@ class GraphCheckpointManager:
                 "there is nothing to resume — supply an initial state, or "
                 "pass an existing thread_id."
             )
+        # FOU-D5f-S6c note: deep-copying the input state fails when its
+        # context carries runtime handles (futures/tasks). The robust
+        # handle-preserving copy exists (graph_checkpoint.deepcopy_
+        # preserving_runtime_handles) but its live rollout is pending — the
+        # sanitized-memory fallback above covers the failure for now.
         return copy.deepcopy(input_state), entry_point
 
     @staticmethod
