@@ -369,27 +369,14 @@ async def test_executor_admission_snapshot_survives_configuration_changes(
         "_evaluate",
         AsyncMock(return_value=EvaluationResult(EvaluationDecision.COMPLETE, 1.0, "done")),
     )
-    rejected = configured == "stategraph" or (configured == "auto" and flag_enabled)
-    if mode == "buffered":
-        if rejected:
-            with pytest.raises(NotImplementedError, match="StateGraph.*message governance"):
-                await orch.chat("Report the answer.")
-        else:
-            result = await orch.chat("Report the answer.")
-            assert result.metadata["agentic_loop_success"] is True
-    else:
-        events = [event async for event in stream_with_events(orch, "Report the answer.")]
-        ends = [event for event in events if event.type == EventType.STREAM_END]
-        assert len(ends) == 1
-        assert ends[0].success is not rejected
-        assert bool([event for event in events if event.type == EventType.ERROR]) is rejected
-    assert provider.turn_index == (0 if rejected else 1)
+    # FOU-D5f: the governance admission refusal was stale — governance is
+    # applied at the surface (REQUEST gate at entry, govern_response in the
+    # shared metered turn), executor-agnostic. Every admitted selection now
+    # completes a governed run.
+    result = await orch.chat("Report the answer.")
+    assert result.metadata["agentic_loop_success"] is True
     assert flag_reads == ([flag_enabled] if configured == "auto" else [])
-    if rejected:
-        gate.gate_request.assert_not_awaited()
-        assert orch.messages == before
-    else:
-        gate.gate_request.assert_awaited_once()
+    gate.gate_request.assert_awaited_once()
 
 
 async def _two_turns(capture, orch):

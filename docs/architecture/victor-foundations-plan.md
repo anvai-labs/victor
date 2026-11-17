@@ -34,6 +34,7 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-D5f-S2 | Soak fix: `execution_context` handoff to the streaming loop's graph executor | D | — | FOU-D4 | this PR | constructor field + run_unified threading + inject None-guard; wrapper test asserts handoff |
 | FOU-D5f-S3 | Soak fix: ACT node stores response text; evaluation coerces objects | D | — | — | this PR | 3 tests (node shape, default-eval complete, object-defense) |
 | FOU-D5f-S4 | Soak fix: evaluate node uses the real `check_fulfillment` API | D | — | — | this PR | real-API + contained-failure tests; phantom-pinning test migrated |
+| FOU-D5f-S5 | Soak fix: stale governance/verifier admission refusals removed (`require_supported_loop_executor`) | D | — | FOU-D5b/D5c | this PR | streaming-parity stategraph+gate tests (were the RED evidence) + admission seam test; documented boundary: governance enforced at the chat surface, direct graph-API runs ungated by design |
 | FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | TODO | — |
 | FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a (qualification green on CI matrix) | TODO | — |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | TODO | — |
