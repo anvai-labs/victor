@@ -38,7 +38,7 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | IN REVIEW | fou/s1-sandbox-hardening |
 | FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a (qualification green on CI matrix) | TODO | — |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | TODO | — |
-| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | TODO | — |
+| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b IN REVIEW (S3c-d TODO) | fou/s3a-containment-envelope, fou/s3b-canary-blocking |
 | FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | TODO | — |
 | FOU-A1 | Subagent-spawn tool (Task-tool pattern) | A | ledger §A1 design | FOU-D2 | TODO | — |
 | FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | TODO | — |
@@ -117,6 +117,37 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
 - Negative tests: depth budget exceeded → refusal; subagent cannot escalate beyond parent
   mode; orphan cleanup on parent cancellation.
 
+## FOU-S3a evidence (2026-11-17, fou/s3a-containment-envelope)
+
+- **RED**: new containment module + seam tests failed collection on develop
+  (module absent; seam unwrapped).
+- **GREEN**: `victor/security/containment.py` — canonical provenance envelope
+  (`<untrusted source= origin= canary= [flagged=]>`), per-session canary
+  contextvar, closing-tag neutralization (envelope closes exactly once,
+  negative-tested). Seam: `format_and_prune_tool_output` envelopes the
+  model-bound output only; user preview stays raw. Escape hatch:
+  `tool_settings.untrusted_content_envelopes` (default on, ADR graduation).
+- **Ripple (4 test migrations)**: durable-resume receipt, tool-execution
+  runtime publication, tool-service result processing x3 — assertions now
+  semantic (payload inside exactly one envelope) instead of raw-equality.
+- Selector targets green; affected suites clean; black/ruff clean.
+
+## FOU-S3b evidence (2026-11-18, fou/s3b-canary-blocking, stacked on S3a)
+
+- **RED**: canary-blocking tests failed collection on the S3a branch
+  (find_canary_in_value absent; pipeline unwired).
+- **GREEN**: `find_canary_in_value` (deterministic recursive scan, dotted
+  path reporting, exact-token match so the bare prefix is not a hit);
+  pipeline admission check after the permission gate, before budget:
+  canary in outbound arguments -> skip result
+  (outcome_kind=canary_exfiltration, block_source=containment,
+  retryable=False, zero execution), model-visible reason does NOT echo
+  the token, logger.error records the attempt. Escape hatch:
+  tool_settings.canary_blocking_enabled (default on per ADR graduation).
+- Live-path proof: blocked call never reaches executor
+  (executor.assert_not_awaited); clean args + no-session-canary +
+  disabled-knob negative tests.
+- Selector targets + tool-pipeline ripple suites green (997 passed).
 ## Reboot instructions
 
 1. `git fetch origin develop`; check this table for `IN REVIEW`/`GREEN` rows and verify their

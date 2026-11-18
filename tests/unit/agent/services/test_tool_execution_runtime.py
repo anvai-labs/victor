@@ -618,7 +618,15 @@ async def test_interrupted_publication_failure_preserves_control_without_fallbac
         "status": "incomplete",
     }
     assert host.add_message.call_count == (1 if failure == "persist" else 0)
-    assert all(content == "known result" for _, content, _ in messages)
+    # ADR-037: model-bound content arrives inside exactly one provenance
+    # envelope with the payload intact (format-failure variants publish
+    # nothing, so an empty message list is legitimate there).
+    assert all(
+        content.startswith("<untrusted ")
+        and content.rstrip().endswith("</untrusted>")
+        and "known result" in content
+        for _, content, _ in messages
+    )
 
 
 @pytest.mark.parametrize("member", [False, True])

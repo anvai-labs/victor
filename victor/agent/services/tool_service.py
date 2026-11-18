@@ -318,6 +318,23 @@ def format_and_prune_tool_output(
     if not isinstance(llm_output, str):
         llm_output = str(llm_output)
 
+    # ADR-037 containment: the model-bound output is untrusted data — wrap it
+    # in the canonical provenance envelope (source class, origin, session
+    # canary). The user preview is NOT enveloped (the user is trusted).
+    try:
+        from victor.config.tool_settings import get_tool_settings as _get_tool_settings
+
+        if _get_tool_settings().untrusted_content_envelopes and llm_output:
+            from victor.security.containment import UntrustedSourceClass, wrap_untrusted
+
+            llm_output = wrap_untrusted(
+                llm_output,
+                source_class=UntrustedSourceClass.TOOL,
+                origin=tool_name,
+            )
+    except Exception:  # containment must never break tool output delivery
+        pass
+
     # Generate preview for user display only (does not affect LLM)
     preview_output = formatted_output
     was_pruned = False
