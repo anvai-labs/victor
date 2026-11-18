@@ -98,6 +98,7 @@ def test_executor_injects_default_checkpointer(monkeypatch, tmp_path):
 
     executor = executor_module.AgenticLoopGraphExecutor(execution_context=Mock())
     assert executor.compiled._config.checkpoint.checkpointer is fake
+    assert executor.compiled._config.checkpoint.checkpoint_after_nodes == {"act"}
 
 
 def test_executor_without_durable_checkpointer_keeps_framework_default(monkeypatch):

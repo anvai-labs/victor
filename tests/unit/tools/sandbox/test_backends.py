@@ -51,19 +51,36 @@ def test_none_sandbox_is_passthrough():
 # -- BubblewrapSandbox ------------------------------------------------------
 
 
+def _option_sources(argv: list[str], option: str) -> list[str]:
+    return [argv[index + 1] for index, value in enumerate(argv) if value == option]
+
+
 def test_bwrap_argv_structure():
     b = BubblewrapSandbox()
     argv = b.wrap_argv(["/bin/sh", "-c", "echo hi"], Path("/work"))
     assert argv[0] == "bwrap"
     assert "--die-with-parent" in argv
-    # system roots bound read-only
-    assert "--ro-bind-try" in argv and "/usr" in argv
+    # The host root is read-only; only explicit policy mounts are writable.
+    assert _option_sources(argv, "--ro-bind") == ["/"]
     # cwd bound writable in workspace-only mode
     joined = " ".join(argv)
     assert "--bind /work /work" in joined
     # command appended after the -- separator
     assert argv[-3:] == ["/bin/sh", "-c", "echo hi"]
     assert "--" in argv
+
+
+def test_bwrap_workspace_only_includes_victor_state_not_home(monkeypatch, tmp_path):
+    state_root = tmp_path / "home" / ".victor"
+    monkeypatch.setattr(sb, "get_victor_dir", lambda: state_root)
+    sandbox = BubblewrapSandbox(seccomp=False)
+    argv = sandbox.wrap_argv(["x"], cwd=tmp_path / "workspace")
+
+    bind_sources = _option_sources(argv, "--bind")
+    assert str(tmp_path / "workspace") in bind_sources
+    assert str(state_root) in bind_sources
+    assert str(tmp_path / "home") not in bind_sources
+    assert state_root.is_dir()
 
 
 def test_bwrap_network_and_namespace_toggles():
@@ -91,6 +108,18 @@ def test_bwrap_allowed_mounts_and_readonly_workspace():
 # -- SeatbeltSandbox --------------------------------------------------------
 
 
+def test_seatbelt_workspace_only_includes_victor_state_not_home(monkeypatch, tmp_path):
+    state_root = tmp_path / "home" / ".victor"
+    monkeypatch.setattr(sb, "get_victor_dir", lambda: state_root)
+    profile = SeatbeltSandbox().build_profile(tmp_path / "workspace")
+
+    assert f'(allow file-write* (subpath "{state_root}"))' in profile
+    assert f'(allow file-write* (subpath "{tmp_path / "workspace"}"))' in profile
+    assert f'(allow file-write* (subpath "{tmp_path / "home"}"))' not in profile
+    assert "(allow file-write*)" not in profile
+    assert state_root.is_dir()
+
+
 def test_seatbelt_argv_and_profile():
     s = SeatbeltSandbox(network_isolation=True)
     argv = s.wrap_argv(["echo", "hi"], Path("/work"))
@@ -101,6 +130,15 @@ def test_seatbelt_argv_and_profile():
     assert "(version 1)" in profile
     assert '(allow file-write* (subpath "/work"))' in profile
     assert "(deny network*)" in profile
+
+
+def test_sandbox_fails_loudly_when_state_root_cannot_be_created(monkeypatch, tmp_path):
+    state_root = tmp_path / "not-a-directory"
+    state_root.write_text("blocked", encoding="utf-8")
+    monkeypatch.setattr(sb, "get_victor_dir", lambda: state_root)
+
+    with pytest.raises(RuntimeError, match="Cannot prepare writable Victor state root"):
+        BubblewrapSandbox(seccomp=False).wrap_argv(["x"], cwd=tmp_path)
 
 
 def test_seatbelt_no_network_deny_when_disabled():

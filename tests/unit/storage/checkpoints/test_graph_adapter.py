@@ -35,6 +35,7 @@ from victor.storage.checkpoints.graph_adapter import (
     _MODEL_STATE_MARKER,
     _decode_state,
     GraphSQLiteCheckpointer,
+    ProjectDatabaseGraphCheckpointer,
     get_default_graph_checkpointer,
 )
 from victor.storage.checkpoints.protocol import (
@@ -300,11 +301,31 @@ def test_default_checkpointer_factory_disabled_returns_none(tmp_path, monkeypatc
     assert get_default_graph_checkpointer(settings) is None
 
 
-def test_default_checkpointer_factory_enabled_returns_sqlite_adapter(tmp_path):
+def test_default_checkpointer_factory_enabled_honors_explicit_override(tmp_path):
     settings = _factory_settings(tmp_path, enabled=True)
     checkpointer = get_default_graph_checkpointer(settings)
-    assert isinstance(checkpointer, GraphSQLiteCheckpointer)
-    assert checkpointer.backend.db_path == tmp_path / "checkpoints.db"
+    assert isinstance(checkpointer, ProjectDatabaseGraphCheckpointer)
+    assert checkpointer.db_path == tmp_path / "checkpoints.db"
+
+
+def test_default_checkpointer_factory_uses_project_database(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import victor.config.settings as settings_module
+
+    project_db = tmp_path / ".victor" / "project.db"
+    monkeypatch.setattr(
+        settings_module,
+        "get_project_paths",
+        lambda: SimpleNamespace(project_db=project_db),
+    )
+    settings = _factory_settings(tmp_path, enabled=True)
+    settings.checkpoint.workflow_checkpoint_db_path = None
+
+    checkpointer = get_default_graph_checkpointer(settings)
+    assert isinstance(checkpointer, ProjectDatabaseGraphCheckpointer)
+    assert checkpointer.db_path == project_db
+    assert not (tmp_path / "checkpoints.db").exists()
 
 
 def test_default_checkpointer_factory_settings_defaults(tmp_path):
@@ -332,23 +353,76 @@ def test_default_checkpointer_factory_settings_defaults(tmp_path):
     assert routed.checkpoint.workflow_checkpoint_db_path == "/tmp/cp.db"
 
 
-def test_default_checkpointer_factory_missing_aiosqlite_degrades_loudly(
-    tmp_path, monkeypatch, caplog
-):
-    import logging
+def test_project_checkpointer_schema_round_trip_and_retention(tmp_path):
+    db_path = tmp_path / ".victor" / "project.db"
+    adapter = ProjectDatabaseGraphCheckpointer(db_path, max_per_thread=2, retention_days=7)
+    checkpoints = [
+        _checkpoint("thread-1", "perceive", 1),
+        _checkpoint("thread-1", "act", 2),
+        _checkpoint("thread-1", "evaluate", 3),
+    ]
+    for checkpoint in checkpoints:
+        checkpoint.state["_execution_context"] = object()
+        adapter._save_sync(checkpoint)
 
-    import victor.storage.checkpoints.backends.sqlite_backend as backend_module
+    loaded = adapter._load_sync("thread-1")
+    listed = adapter._list_sync("thread-1")
+    assert loaded is not None
+    assert loaded.node_id == "evaluate"
+    assert loaded.state["counter"] == 3
+    assert "_execution_context" not in loaded.state
+    assert [cp.node_id for cp in listed] == ["act", "evaluate"]
 
-    monkeypatch.setattr(backend_module, "aiosqlite", None)
-    settings = _factory_settings(tmp_path, enabled=True)
-    with caplog.at_level(logging.WARNING):
-        # None = the framework in-memory default (compile(checkpointer=None));
-        # the layering ratchet forbids importing the concrete class here.
-        checkpointer = get_default_graph_checkpointer(settings)
-    assert checkpointer is None
-    assert any("aiosqlite" in r.message.lower() for r in caplog.records)
-    # Second call stays silent (warn once, not per construction)
-    caplog.clear()
-    with caplog.at_level(logging.WARNING):
-        get_default_graph_checkpointer(settings)
-    assert not any("aiosqlite" in r.message.lower() for r in caplog.records)
+    import sqlite3
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("""
+            SELECT schema_version, completed_node, resume_target, durable_state
+            FROM workflow_checkpoint ORDER BY sequence DESC LIMIT 1
+            """).fetchone()
+    assert row[0] == 1
+    assert row[1] == "evaluate"
+    assert row[2] == "node_4"
+    assert b"_execution_context" not in row[3].encode()
+
+
+def test_project_checkpointer_models_interrupt_before_without_completed_node(tmp_path):
+    adapter = ProjectDatabaseGraphCheckpointer(tmp_path / "project.db")
+    checkpoint = _checkpoint("paused", "approval", 1)
+    checkpoint.metadata["checkpoint_boundary"] = "before"
+
+    adapter._save_sync(checkpoint)
+    loaded = adapter._load_sync("paused")
+
+    assert loaded is not None
+    assert loaded.node_id == "approval"
+    assert loaded.next_node == "node_2"
+    assert loaded.metadata["checkpoint_boundary"] == "before"
+
+    import sqlite3
+
+    with sqlite3.connect(tmp_path / "project.db") as conn:
+        completed_node, resume_target = conn.execute(
+            "SELECT completed_node, resume_target FROM workflow_checkpoint"
+        ).fetchone()
+    assert completed_node is None
+    assert resume_target == "node_2"
+
+
+def test_project_checkpointer_rejects_non_json_state(tmp_path):
+    adapter = ProjectDatabaseGraphCheckpointer(tmp_path / "project.db")
+    checkpoint = _checkpoint("thread-1", "act", 1)
+    checkpoint.state["credential"] = b"secret"
+    with pytest.raises(ValueError, match="strict JSON-safe"):
+        adapter._save_sync(checkpoint)
+
+
+async def test_project_checkpointer_async_protocol_round_trip(tmp_path):
+    adapter = ProjectDatabaseGraphCheckpointer(tmp_path / "project.db")
+    await adapter.save(_checkpoint("async-thread", "act", 1))
+
+    loaded = await adapter.load("async-thread")
+    listed = await adapter.list("async-thread")
+
+    assert loaded is not None and loaded.node_id == "act"
+    assert [cp.node_id for cp in listed] == ["act"]

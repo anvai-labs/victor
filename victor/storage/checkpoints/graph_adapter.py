@@ -32,12 +32,18 @@ Design notes (FEP-0047):
   callers mutate live state after save and mutate the resumed state after load.
 """
 
+import asyncio
 import copy
-import sys
+import json
 import logging
-from datetime import datetime, timedelta, timezone
+import sqlite3
+import sys
+import threading
+import weakref
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, List, Optional
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel
 
@@ -238,48 +244,255 @@ class GraphSQLiteCheckpointer(CheckpointerProtocol):
         return result
 
 
-_factory_warning_logged = False
+class ProjectDatabaseGraphCheckpointer(CheckpointerProtocol):
+    """Store workflow checkpoints in a versioned project-database table.
 
-
-def _warn_memory_degradation_once(reason: Exception) -> None:
-    """One loud warning when durability degrades to in-memory (FEP-0047).
-
-    Durable-by-default must not silently lie: a deployment without the
-    optional ``aiosqlite`` dependency keeps working but is told, once, that
-    its workflow checkpoints are volatile.
+    The default database is the canonical project ``project.db``.  An explicit
+    path is a deployment override for measured write contention or portability;
+    it uses the same schema and never changes checkpoint semantics.
     """
-    global _factory_warning_logged
-    if _factory_warning_logged:
-        return
-    _factory_warning_logged = True
-    logger.warning(
-        "Durable graph checkpointing unavailable (%s). Falling back to "
-        "in-memory checkpoints for this process — workflow state will NOT "
-        "survive restarts. Install with: pip install 'victor-ai[checkpoints]'",
-        reason,
+
+    _SCHEMA_VERSION = 1
+    _EXPECTED_COLUMNS = frozenset(
+        {
+            "sequence",
+            "checkpoint_id",
+            "thread_id",
+            "schema_version",
+            "completed_node",
+            "resume_target",
+            "state_type",
+            "durable_state",
+            "checkpoint_metadata",
+            "created_at",
+        }
     )
+
+    def __init__(
+        self,
+        db_path: Path,
+        *,
+        max_per_thread: Optional[int] = None,
+        retention_days: Optional[int] = None,
+    ):
+        self.db_path = Path(db_path)
+        self.max_per_thread = max_per_thread
+        self.retention_days = retention_days
+        self._connection: Optional[sqlite3.Connection] = None
+        self._lock = threading.Lock()
+        self._ttl_swept = False
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="victor-workflow-checkpoint"
+        )
+        weakref.finalize(self, self._executor.shutdown)
+
+    def _connect(self) -> sqlite3.Connection:
+        if self._connection is None:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(self.db_path, timeout=5.0, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS workflow_checkpoint (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    checkpoint_id TEXT NOT NULL UNIQUE,
+                    thread_id TEXT NOT NULL,
+                    schema_version INTEGER NOT NULL,
+                    completed_node TEXT,
+                    resume_target TEXT,
+                    state_type TEXT,
+                    durable_state TEXT NOT NULL,
+                    checkpoint_metadata TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+                """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_workflow_checkpoint_thread_sequence "
+                "ON workflow_checkpoint(thread_id, sequence)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_workflow_checkpoint_thread_created "
+                "ON workflow_checkpoint(thread_id, created_at)"
+            )
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(workflow_checkpoint)")}
+            missing = self._EXPECTED_COLUMNS - columns
+            if missing:
+                conn.close()
+                raise ValueError(
+                    "Existing workflow_checkpoint table is incompatible with schema "
+                    f"version {self._SCHEMA_VERSION}; missing columns: {sorted(missing)}"
+                )
+            conn.commit()
+            self._connection = conn
+        return self._connection
+
+    @staticmethod
+    def _encode_durable_state(state: Any) -> tuple[Any, Optional[str]]:
+        from victor.framework.graph_checkpoint import strip_runtime_handles
+
+        encoded = _encode_state(strip_runtime_handles(state))
+        if isinstance(encoded, dict) and encoded.get(_MODEL_STATE_MARKER) is True:
+            return encoded["data"], encoded["type"]
+        return encoded, None
+
+    @staticmethod
+    def _dump_json(value: Any, field: str) -> str:
+        try:
+            return json.dumps(value, allow_nan=False, separators=(",", ":"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Workflow checkpoint {field} is not strict JSON-safe; live handles, "
+                "streams, credentials, and raw provider responses must not be checkpointed"
+            ) from exc
+
+    def _save_sync(self, checkpoint: WorkflowCheckpoint) -> None:
+        with self._lock:
+            conn = self._connect()
+            durable_state, state_type = self._encode_durable_state(checkpoint.state)
+            metadata = dict(checkpoint.metadata)
+            if checkpoint.next_node is not None:
+                metadata["next_node"] = checkpoint.next_node
+            if metadata.get("checkpoint_boundary") == "before":
+                # An interrupt-before boundary has not completed this node.
+                # Keep the pending node as explicit resume metadata only.
+                metadata["interrupt_node"] = checkpoint.node_id
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO workflow_checkpoint (
+                        checkpoint_id, thread_id, schema_version, completed_node,
+                        resume_target, state_type, durable_state, checkpoint_metadata,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        checkpoint.checkpoint_id,
+                        checkpoint.thread_id,
+                        self._SCHEMA_VERSION,
+                        (
+                            None
+                            if metadata.get("checkpoint_boundary") == "before"
+                            else checkpoint.node_id
+                        ),
+                        checkpoint.next_node,
+                        state_type,
+                        self._dump_json(durable_state, "state"),
+                        self._dump_json(metadata, "metadata"),
+                        checkpoint.timestamp,
+                    ),
+                )
+                if self.max_per_thread is not None and self.max_per_thread > 0:
+                    conn.execute(
+                        """
+                        DELETE FROM workflow_checkpoint
+                        WHERE thread_id = ?
+                          AND sequence NOT IN (
+                              SELECT sequence FROM workflow_checkpoint
+                              WHERE thread_id = ?
+                              ORDER BY sequence DESC
+                              LIMIT ?
+                          )
+                        """,
+                        (checkpoint.thread_id, checkpoint.thread_id, self.max_per_thread),
+                    )
+                if (
+                    not self._ttl_swept
+                    and self.retention_days is not None
+                    and self.retention_days > 0
+                ):
+                    self._ttl_swept = True
+                    cutoff = datetime.now(timezone.utc).timestamp() - (self.retention_days * 86400)
+                    conn.execute("DELETE FROM workflow_checkpoint WHERE created_at < ?", (cutoff,))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+    def _row_to_checkpoint(self, row: sqlite3.Row) -> WorkflowCheckpoint:
+        if row["schema_version"] != self._SCHEMA_VERSION:
+            raise ValueError(
+                "Unsupported workflow checkpoint schema version "
+                f"{row['schema_version']} (expected {self._SCHEMA_VERSION})"
+            )
+        try:
+            state_value = json.loads(row["durable_state"])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("Stored workflow checkpoint state is not valid JSON") from exc
+        state_type = row["state_type"]
+        if state_type is not None:
+            state_value = {
+                _MODEL_STATE_MARKER: True,
+                "type": state_type,
+                "data": state_value,
+            }
+        try:
+            metadata = json.loads(row["checkpoint_metadata"])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("Stored workflow checkpoint metadata is not valid JSON") from exc
+        return WorkflowCheckpoint(
+            checkpoint_id=row["checkpoint_id"],
+            thread_id=row["thread_id"],
+            node_id=row["completed_node"] or metadata.get("interrupt_node") or "",
+            state=_decode_state(state_value),
+            timestamp=row["created_at"],
+            metadata=metadata,
+        )
+
+    def _load_sync(self, thread_id: str) -> Optional[WorkflowCheckpoint]:
+        with self._lock:
+            row = (
+                self._connect()
+                .execute(
+                    """
+                SELECT * FROM workflow_checkpoint
+                WHERE thread_id = ?
+                ORDER BY sequence DESC
+                LIMIT 1
+                """,
+                    (thread_id,),
+                )
+                .fetchone()
+            )
+            return None if row is None else copy.deepcopy(self._row_to_checkpoint(row))
+
+    def _list_sync(self, thread_id: str) -> List[WorkflowCheckpoint]:
+        with self._lock:
+            rows = (
+                self._connect()
+                .execute(
+                    """
+                SELECT * FROM workflow_checkpoint
+                WHERE thread_id = ?
+                ORDER BY sequence ASC
+                """,
+                    (thread_id,),
+                )
+                .fetchall()
+            )
+            return [copy.deepcopy(self._row_to_checkpoint(row)) for row in rows]
+
+    async def _run(self, function, *args: Any) -> Any:
+        return await asyncio.get_running_loop().run_in_executor(self._executor, function, *args)
+
+    async def save(self, checkpoint: WorkflowCheckpoint) -> None:
+        await self._run(self._save_sync, checkpoint)
+
+    async def load(self, thread_id: str) -> Optional[WorkflowCheckpoint]:
+        return await self._run(self._load_sync, thread_id)
+
+    async def list(self, thread_id: str) -> List[WorkflowCheckpoint]:
+        return await self._run(self._list_sync, thread_id)
 
 
 def get_default_graph_checkpointer(settings: Any = None) -> Optional[Any]:
-    """Settings-driven default checkpointer for production compile sites.
+    """Resolve the default durable workflow checkpointer.
 
-    Composition-root policy (FEP-0047, FOU-D2):
-    - ``workflow_checkpoints_enabled=False`` (or a settings snapshot without a
-      checkpoint group) returns ``None`` — the framework default (in-memory)
-      is preserved and ``StateGraph.compile()`` signatures stay untouched.
-    - A missing ``aiosqlite`` extra also returns ``None`` (the framework
-      in-memory default) with a one-time loud warning — never failing agent
-      construction, never silently claiming durability.
-    - Otherwise returns a ``GraphSQLiteCheckpointer`` with per-thread
-      retention and the TTL sweep wired from settings.
-
-    The only framework symbols this module imports are the
-    ``CheckpointerProtocol``/``WorkflowCheckpoint`` abstractions (DIP); the
-    degradation path returns ``None`` rather than referencing the framework's
-    concrete in-memory checkpointer.
-
-    ``settings`` is duck-typed (``.checkpoint`` group) so tests can pass a
-    stand-in; production resolves the cached snapshot via ``load_settings()``.
+    With no override, checkpoints use the canonical project ``project.db``.
+    ``workflow_checkpoint_db_path`` is an explicit deployment exception for
+    measured contention, cache lifetime, or portability; it never selects the
+    former silent global ``checkpoints.db`` default.
     """
     if settings is None:
         from victor.config.settings import load_settings
@@ -287,24 +500,19 @@ def get_default_graph_checkpointer(settings: Any = None) -> Optional[Any]:
         settings = load_settings()
 
     checkpoint_settings = getattr(settings, "checkpoint", None)
-    if checkpoint_settings is None:
-        return None
-    if not checkpoint_settings.workflow_checkpoints_enabled:
+    if checkpoint_settings is None or not checkpoint_settings.workflow_checkpoints_enabled:
         return None
 
-    db_path = getattr(checkpoint_settings, "workflow_checkpoint_db_path", None)
-    try:
-        if db_path:
-            path = Path(db_path)
-            backend = SQLiteCheckpointBackend(storage_path=path.parent, db_name=path.name)
-        else:
-            backend = SQLiteCheckpointBackend()
-    except RuntimeError as exc:  # aiosqlite missing — documented degradation
-        _warn_memory_degradation_once(exc)
-        return None
+    configured_path = getattr(checkpoint_settings, "workflow_checkpoint_db_path", None)
+    if configured_path:
+        db_path = Path(configured_path)
+    else:
+        from victor.config.settings import get_project_paths
 
-    return GraphSQLiteCheckpointer(
-        backend,
+        db_path = get_project_paths().project_db
+
+    return ProjectDatabaseGraphCheckpointer(
+        db_path,
         max_per_thread=getattr(checkpoint_settings, "workflow_checkpoint_max_per_thread", None),
         retention_days=getattr(checkpoint_settings, "workflow_checkpoint_retention_days", None),
     )

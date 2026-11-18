@@ -28,6 +28,17 @@ from victor.framework.agentic_graph.executor import AgenticLoopGraphExecutor, Lo
 from victor.framework.execution_checkpoint import ExecutionCheckpoint
 
 
+@pytest.fixture(autouse=True)
+def volatile_builder_checkpointer(monkeypatch):
+    """Keep graph execution tests focused on topology and state transitions."""
+    from victor.framework.agentic_graph import executor as executor_module
+    from victor.framework.graph_checkpoint import MemoryCheckpointer
+
+    monkeypatch.setattr(
+        executor_module, "_resolve_default_checkpointer", lambda: MemoryCheckpointer()
+    )
+
+
 class TestAgenticLoopGraphBuilder:
     """Tests for create_agentic_loop_graph builder function."""
 
@@ -278,7 +289,7 @@ class TestAgenticLoopGraphExecutor:
         )
 
         class FakeCompiled:
-            async def stream(self, _initial_state):
+            async def stream(self, _initial_state, *, node_observer=None):
                 yield "act", state
 
         executor = AgenticLoopGraphExecutor(
@@ -314,7 +325,7 @@ class TestAgenticLoopGraphExecutor:
         )
 
         class FakeCompiled:
-            async def stream(self, _initial_state):
+            async def stream(self, _initial_state, *, node_observer=None):
                 yield "plan", state
 
         executor = AgenticLoopGraphExecutor(
@@ -340,7 +351,7 @@ class TestAgenticLoopGraphExecutor:
         mock_prompt_orchestrator = MagicMock()
         mock_prompt_orchestrator.build_system_prompt.return_value = "Framework prompt"
         mock_context = MagicMock()
-        mock_context.metadata = {"prompt_orchestrator": mock_prompt_orchestrator}
+        mock_context.prompt_orchestrator = mock_prompt_orchestrator
 
         executor = AgenticLoopGraphExecutor(
             execution_context=mock_context,

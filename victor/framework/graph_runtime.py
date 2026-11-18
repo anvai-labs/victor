@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from victor.core.errors import ProviderPolicyError
+from victor.core.errors import ProviderPolicyError, is_terminal_agent_error
 
 import asyncio
 import logging
@@ -468,8 +468,11 @@ async def _run_graph_execution_loop(
     except ProviderPolicyError:
         raise
     except Exception as error:
+        if is_terminal_agent_error(error):
+            raise error
         await report_node_error(str(error))
         logger.error("Graph execution failed: %s", error, exc_info=True)
+
         import os
 
         if os.environ.get("VICTOR_STREAM_TRACEBACK"):

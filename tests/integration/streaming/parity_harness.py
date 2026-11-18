@@ -223,6 +223,29 @@ def build_streaming_orchestrator(
             settings=settings, provider=provider, model="scripted", temperature=0.0
         )
 
+    # Offline parity must not lazily load sentence-transformers/PyTorch merely to
+    # classify scripted prompts. Keep the real deterministic service and state
+    # stores; only semantic-model classification is replaced.
+    from victor.agent.task_complexity import TaskComplexityService
+
+    from tests.integration.offline_intelligence import (
+        make_offline_task_analyzer,
+    )
+
+    deterministic_complexity = TaskComplexityService(use_semantic=False, use_rl=False)
+    orch.task_classifier = deterministic_complexity
+
+    analyzer = make_offline_task_analyzer(deterministic_complexity)
+    orch._task_analyzer = analyzer
+    runtime_intelligence = getattr(orch, "_runtime_intelligence", None)
+    if runtime_intelligence is not None:
+        runtime_intelligence._task_analyzer = make_offline_task_analyzer(deterministic_complexity)
+        perception_integration = getattr(runtime_intelligence, "_perception_integration", None)
+        if perception_integration is not None:
+            perception_integration.task_analyzer = make_offline_task_analyzer(
+                deterministic_complexity
+            )
+
     for tool in tools:
         orch.tools.register(tool)
     # Keep every component that caches the registry in sync (see test_orchestrator_stream_tool_calls).

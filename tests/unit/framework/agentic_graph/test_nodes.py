@@ -212,6 +212,7 @@ class TestActNode:
         )
 
         mock_executor = AsyncMock()
+        mock_executor._is_question_only = lambda message: False
         mock_executor.execute_turn = AsyncMock(
             return_value=MagicMock(
                 response="Code written",
@@ -241,6 +242,7 @@ class TestActNode:
         """Action failures should be recorded in graph-side degradation metadata."""
         state = create_initial_state(query="Write code")
         mock_executor = AsyncMock()
+        mock_executor._is_question_only = lambda message: False
         mock_executor.execute_turn = AsyncMock(side_effect=RuntimeError("provider failed"))
 
         result = await act_node(state, turn_executor=mock_executor)
@@ -576,6 +578,7 @@ class TestNodeIntegration:
 
         # Act (mocked)
         mock_executor = AsyncMock()
+        mock_executor._is_question_only = lambda message: False
         mock_executor.execute_turn = AsyncMock(
             return_value=MagicMock(
                 response="Here's help",
@@ -628,7 +631,7 @@ class TestActNodeResponseText:
         te = SimpleNamespace(execute_turn=AsyncMock(return_value=self._turn("SOAK-OK")))
         state = AgenticLoopStateModel(query="task", max_iterations=5)
         result = await act_node(state, turn_executor=te)
-        assert result.action_result["response"] == "SOAK-OK"
+        assert result.action_result.content == "SOAK-OK"
 
     async def test_default_evaluation_completes_on_response_text(self):
         from types import SimpleNamespace
@@ -724,23 +727,26 @@ class TestTurnResultFlowsToEvaluator:
 
         return TurnResult(response=CompletionResponse(content=content))
 
-    async def test_act_node_publishes_turn_result_on_the_channel(self):
+    async def test_act_completion_observer_publishes_durable_record(self):
+        from victor.framework.agentic_graph.executor import _turn_record_observer
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.agentic_graph.turn_record import TurnRecordChannel
         from types import SimpleNamespace
         from unittest.mock import AsyncMock
 
-        from victor.framework.agentic_graph.nodes import act_node, pop_last_turn_result
-        from victor.framework.agentic_graph.state import AgenticLoopStateModel
-
         te = SimpleNamespace(execute_turn=AsyncMock(return_value=self._turn("SOAK-OK")))
         state = AgenticLoopStateModel(query="task", max_iterations=5)
-        result = await act_node(state, turn_executor=te)
-        # Text stays in state (serialization-safe); the object travels on the
-        # contextvar channel — never through persisted state (S6b: a runtime
-        # TurnResult carries futures; embedding it broke checkpoint pickling).
-        assert result.action_result["response"] == "SOAK-OK"
-        assert "_turn_result" not in result.action_result
-        published = pop_last_turn_result()
-        assert published is not None and published.response.content == "SOAK-OK"
+        channel = TurnRecordChannel()
+        completed = await act_node(state, turn_executor=te)
+
+        await _turn_record_observer(channel)("complete", "act", completed, None, 0.1)
+        await _turn_record_observer(channel)("complete", "plan", completed, None, 0.1)
+
+        assert completed.action_result.content == "SOAK-OK"
+        published = channel.latest
+        assert published is not None and published.content == "SOAK-OK"
+        assert completed.to_dict()["action_result"]["schema_version"] == "victor.turn.record.v1"
 
     async def test_evaluate_node_passes_turn_result_to_evaluator(self):
         from types import SimpleNamespace
@@ -750,10 +756,9 @@ class TestTurnResultFlowsToEvaluator:
         from victor.framework.agentic_graph.nodes import evaluate_node
         from victor.framework.agentic_graph.state import AgenticLoopStateModel
 
-        from victor.framework.agentic_graph.nodes import set_last_turn_result
+        from victor.framework.agentic_graph.turn_record import TurnRecord
 
         turn = self._turn("SOAK-OK")
-        set_last_turn_result(turn)
         evaluator = AsyncMock()
         evaluator.evaluate = AsyncMock(
             return_value=SimpleNamespace(decision="complete", score=0.9, reason="qa")
@@ -762,7 +767,7 @@ class TestTurnResultFlowsToEvaluator:
         state = state.model_copy(
             update={
                 "stage": "act",
-                "action_result": {"response": "SOAK-OK", "tool_results": []},
+                "action_result": TurnRecord.from_turn_result(turn),
             }
         )
 
@@ -784,18 +789,17 @@ class TestTurnResultFlowsToEvaluator:
         from victor.framework.agentic_graph.state import AgenticLoopStateModel
         from victor.framework.enhanced_completion_evaluation import EnhancedCompletionEvaluator
 
-        from victor.framework.agentic_graph.nodes import set_last_turn_result
+        from victor.framework.agentic_graph.turn_record import TurnRecord
 
         turn = self._turn("SOAK-OK")
         turn.is_qa_response = True
         turn.disposition = TurnDisposition.COMPLETION_CANDIDATE
-        set_last_turn_result(turn)
         evaluator = EnhancedCompletionEvaluator()
         state = AgenticLoopStateModel(query="Reply with exactly: SOAK-OK", max_iterations=5)
         state = state.model_copy(
             update={
                 "stage": "act",
-                "action_result": {"response": "SOAK-OK", "tool_results": []},
+                "action_result": TurnRecord.from_turn_result(turn),
             }
         )
 

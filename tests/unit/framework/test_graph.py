@@ -1938,6 +1938,74 @@ class TestStateHistoryReplay:
         assert replay.success
 
 
+async def test_checkpoint_after_nodes_writes_only_selected_boundaries():
+    graph = StateGraph(SimpleState)
+    graph.add_node("perceive", increment_node)
+    graph.add_node("act", double_node)
+    graph.add_node("evaluate", increment_node)
+    graph.add_edge("perceive", "act")
+    graph.add_edge("act", "evaluate")
+    graph.add_edge("evaluate", END)
+    graph.set_entry_point("perceive")
+
+    checkpointer = MemoryCheckpointer()
+    app = graph.compile(
+        checkpointer=checkpointer,
+        checkpoint_after_nodes={"act"},
+    )
+    result = await app.invoke({"value": 1, "history": []}, thread_id="selective")
+
+    assert result.success
+    assert [cp.node_id for cp in await checkpointer.list("selective")] == ["act"]
+
+
+def test_checkpoint_binding_copies_immutable_pydantic_state():
+    """Binding checkpoint metadata must not mutate the input value object."""
+    from victor.framework.agentic_graph.state import AgenticLoopStateModel
+    from victor.framework.graph_execution import GraphCheckpointManager
+
+    state = AgenticLoopStateModel(
+        query="resume me",
+        context={
+            "execution_checkpoint": {
+                "id": "execution-1",
+                "session_id": "session-1",
+            }
+        },
+    )
+    bound = GraphCheckpointManager._bind_graph_checkpoint_id(state, "graph-1")
+
+    assert bound is not state
+    assert state.context["execution_checkpoint"] == {
+        "id": "execution-1",
+        "session_id": "session-1",
+    }
+    assert bound.context["execution_checkpoint_metadata"]["graph_checkpoint_id"] == "graph-1"
+    assert bound.context["execution_checkpoint"]["graph_checkpoint_id"] == "graph-1"
+
+
+async def test_interrupt_boundaries_are_checkpointed_even_when_excluded():
+    graph = StateGraph(SimpleState)
+    graph.add_node("act", increment_node)
+    graph.add_node("review", double_node)
+    graph.add_edge("act", "review")
+    graph.add_edge("review", END)
+    graph.set_entry_point("act")
+
+    checkpointer = MemoryCheckpointer()
+    app = graph.compile(
+        checkpointer=checkpointer,
+        checkpoint_after_nodes={"act"},
+        interrupt_after=["review"],
+    )
+    result = await app.invoke({"value": 1, "history": []}, thread_id="interrupt")
+
+    assert result.success
+    assert result.interrupted
+    assert [cp.node_id for cp in await checkpointer.list("interrupt")] == ["act", "review"]
+    assert (await checkpointer.load("interrupt")).next_node == "__end__"
+
+
 # ---------------------------------------------------------------------------
 # Bounded Send fan-out admission (SCALE-03 first slice)
 # ---------------------------------------------------------------------------
