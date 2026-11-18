@@ -24,14 +24,35 @@ from unittest.mock import AsyncMock, MagicMock
 from victor.core.feature_flags import FeatureFlag, is_feature_enabled
 from victor.framework.agentic_loop import AgenticLoop
 
+try:
+    from tests.integration.offline_intelligence import make_offline_runtime_intelligence
+except ModuleNotFoundError:  # Windows source qualification invokes a narrower root.
+    from integration.offline_intelligence import make_offline_runtime_intelligence
+
+
+@pytest.fixture(autouse=True)
+def volatile_parity_checkpointer(monkeypatch):
+    """Keep parity deterministic while preserving ACT-boundary compile policy.
+
+    Durable placement and schema have their own storage tests. Running every
+    parity case against SQLite would couple executor behavior to local disk and
+    worker scheduling rather than the buffered/streamed graph contract.
+    """
+    from victor.framework.agentic_graph import executor as executor_module
+    from victor.framework.graph_checkpoint import MemoryCheckpointer
+
+    monkeypatch.setattr(
+        executor_module, "_resolve_default_checkpointer", lambda: MemoryCheckpointer()
+    )
+
 
 class TestFeatureFlagIntegration:
     """Tests for feature flag integration in AgenticLoop."""
 
     @pytest.mark.asyncio
-    async def test_stategraph_path_disabled_by_default(self):
-        """Test that StateGraph path is disabled by default."""
-        assert not is_feature_enabled(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP)
+    async def test_stategraph_path_enabled_by_default(self):
+        """The expanded 0.31 scope makes StateGraph the default agentic executor."""
+        assert is_feature_enabled(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP)
 
     @pytest.mark.asyncio
     async def test_agentic_loop_with_flag_disabled(self):
@@ -52,6 +73,7 @@ class TestFeatureFlagIntegration:
 
             loop = AgenticLoop(
                 orchestrator=mock_orchestrator,
+                runtime_intelligence=make_offline_runtime_intelligence(),
                 max_iterations=2,
             )
 
@@ -76,10 +98,14 @@ class TestFeatureFlagIntegration:
         manager.set(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP, True)
 
         try:
-            mock_orchestrator = MagicMock()
+            # A broad MagicMock advertises a turn executor and execution-context
+            # handles that do not exist, sending StateGraph into irrelevant
+            # service resolution instead of its deterministic fallback path.
+            mock_orchestrator = MagicMock(spec=["planning_coordinator"])
 
             loop = AgenticLoop(
                 orchestrator=mock_orchestrator,
+                runtime_intelligence=make_offline_runtime_intelligence(),
                 max_iterations=2,
             )
 

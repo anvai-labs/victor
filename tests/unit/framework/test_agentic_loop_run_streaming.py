@@ -71,7 +71,9 @@ def _loop(port, *, evaluations, turn_executor=None):
     loop.turn_evaluation_controller = TurnEvaluationController(
         spin_detector=loop.spin_detector, enable_plateau_nudge=False, enable_budget_warning=False
     )
-    loop.criteria_builder = SimpleNamespace(reset=lambda: None)
+    loop.criteria_builder = SimpleNamespace(
+        reset=lambda: None, record_tool_result=lambda result: None
+    )
     loop.effect_gate = SimpleNamespace(reset=lambda: None)
     loop.per_turn_auditor = SimpleNamespace(reset=lambda: None)
     loop.nudge_policy = SimpleNamespace(
@@ -1140,9 +1142,20 @@ class TestStategraphExecutorStreaming:
         from victor.framework.agentic_loop import LoopIteration, LoopStage
 
         async def graph_stream(**kwargs):
+            from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
+
             for i, content in enumerate(turns, start=1):
                 yield LoopIteration(
                     iteration=i, stage=LoopStage.ACT, action_result=self._turn(content)
+                )
+                yield LoopIteration(
+                    iteration=i,
+                    stage=LoopStage.EVALUATE,
+                    evaluation=EvaluationResult(
+                        decision=EvaluationDecision.COMPLETE,
+                        score=1.0,
+                        reason="done",
+                    ),
                 )
 
         loop._stream_with_stategraph = graph_stream

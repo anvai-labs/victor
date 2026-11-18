@@ -4,7 +4,7 @@ title: "Durable-by-Default Graph Checkpointing"
 type: Standards Track
 status: Draft
 created: 2026-11-16
-modified: 2026-11-16
+modified: 2026-11-18
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -149,9 +149,10 @@ reuses the existing `checkpoint_compression_enabled`/`checkpoint_compression_thr
 - Should `thread_id` default derive from the session id, or fall back to
   `project:{cwd-hash}` for sessions that lack one? (Implementation will use the session id
   when present; the fallback needs a product decision.)
-- Should the SQLite database file live at `~/.victor/checkpoints.db` (backend default) or
-  move under the project `.victor/` scope for project-local workflows? The global location is
-  proposed for v1 since workflow threads are session-keyed.
+- **Placement decided by FEP-0050**: the composition-root default is the canonical project
+  `.victor/project.db` `workflow_checkpoint` table. A separate database requires an explicit
+  `workflow_checkpoint_db_path` for measured contention, cache lifetime, or portability; the
+  former silent `~/.victor/checkpoints.db` default is not used.
 - Does the wire/API surface need a "list resumable threads" endpoint in v1, or is that
   deferred to the paused-result surfacing work (FOU I-D4)?
 
@@ -187,6 +188,10 @@ moves to Implemented when the I-D2 PR merges.
   `/system` info endpoint exposes durability status (backend kind, db path, retention).
 
 ## Compatibility
+
+Placement correction (2026-11-18, FEP-0050): new composition-root defaults use the project
+`workflow_checkpoint` table. `GraphSQLiteCheckpointer` remains an explicit adapter/override,
+not the default placement.
 
 No framework public API signature changes. `CheckpointerProtocol`,
 `WorkflowCheckpoint`, and `StateGraph.compile()` are unchanged; the adapter satisfies the

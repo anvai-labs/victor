@@ -56,7 +56,7 @@ Example:
 
 from __future__ import annotations
 
-from victor.core.errors import AgentError, ProviderPolicyError
+from victor.core.errors import ProviderPolicyError, is_terminal_agent_error
 from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 
 import inspect
@@ -81,6 +81,11 @@ from typing import (
 
 from victor.core.async_utils import aclosing_if_supported
 from victor.agent.action_authorizer import ActionIntent
+from victor.framework.agentic_graph.turn_record import (
+    TURN_RECORD_SCHEMA_VERSION,
+    TurnRecord,
+    TurnRecordChannel,
+)
 from victor.agent.turn_policy import (
     FulfillmentCriteriaBuilder,
     NudgePolicy,
@@ -577,6 +582,17 @@ class AgenticLoopConfig:
         return cls(**known_vals, extra_config=extra)
 
 
+@dataclass(frozen=True)
+class TurnEvaluationOutcome:
+    """One completed turn's evaluation and controller decision."""
+
+    evaluation: EvaluationResult
+    turn_decision: TurnDecision
+
+
+_UNSET_INTENT: Any = object()
+
+
 class AgenticLoop(TopologyPlanningMixin):
     """Complete agentic loop integrating existing Victor components.
 
@@ -867,6 +883,64 @@ class AgenticLoop(TopologyPlanningMixin):
             criteria_gate.reset()
         self.per_turn_auditor.reset()
 
+    async def evaluate_completed_turn(
+        self,
+        perception: Perception,
+        action_result: Any,
+        state: Dict[str, Any],
+        *,
+        iteration: int,
+        max_iterations: Optional[int] = None,
+        original_intent: Any = _UNSET_INTENT,
+    ) -> TurnEvaluationOutcome:
+        """Own every observation made after one completed ACT boundary.
+
+        Buffered, token-streamed, and StateGraph execution all call this method. It alone
+        records spin/ratchet and criteria evidence, applies evaluator and controller filters,
+        guards COMPLETE with disposition/backslide, and enforces the run-owned deadline.
+        Callers keep their genuinely different ACT I/O and publication behavior.
+        """
+        effective_max = self.max_iterations if max_iterations is None else max_iterations
+        self._record_spin_and_ratchet(action_result)
+
+        tool_results = getattr(action_result, "tool_results", None) or []
+        if tool_results:
+            for result in tool_results:
+                if isinstance(result, dict):
+                    self.criteria_builder.record_tool_result(result)
+            from victor.framework.criteria_gate import mirror_criteria_state
+
+            mirror_criteria_state(state, tool_results)
+            if any(isinstance(result, dict) and result.get("success") for result in tool_results):
+                state["_successful_tool_evidence"] = True
+
+        evaluation = await self._evaluate(perception, action_result, state)
+        self._progress_scores.append(evaluation.score)
+        evaluation, turn_decision = self._apply_turn_controller(
+            action_result,
+            evaluation,
+            state,
+            iteration=iteration,
+            max_iterations=effective_max,
+            intent=(
+                original_intent
+                if original_intent is not _UNSET_INTENT
+                else getattr(perception, "intent", None)
+            ),
+        )
+        if evaluation.decision == EvaluationDecision.COMPLETE:
+            evaluation = self._apply_turn_disposition(
+                action_result,
+                self._apply_backslide_guard(evaluation),
+            )
+
+        from victor.framework.loop.guards import current_guards
+
+        guards = current_guards()
+        if guards is not None:
+            guards.enforce()
+        return TurnEvaluationOutcome(evaluation=evaluation, turn_decision=turn_decision)
+
     async def run(
         self,
         query: str,
@@ -896,20 +970,27 @@ class AgenticLoop(TopologyPlanningMixin):
             from victor.framework.loop.guards import LoopGuards, LoopSpinError
 
             _sg_guards = LoopGuards(total_timeout=self.config.total_timeout)
+            _turn_records = TurnRecordChannel()
             try:
                 return await _sg_guards.run(
                     lambda: self._run_with_stategraph(
                         query=query,
                         context=context,
                         conversation_history=conversation_history,
+                        turn_record_channel=_turn_records,
                     )
                 )
             except LoopSpinError as spin:
                 logger.warning("[AgenticLoop] stategraph run terminated by spin guard: %s", spin)
+                record = _turn_records.latest
+                action_result = record.to_turn_result() if record is not None else None
+                final_state: Dict[str, Any] = {"query": query}
+                if action_result is not None:
+                    final_state["action_result"] = action_result
                 return LoopResult(
                     success=False,
                     iterations=[],
-                    final_state={},
+                    final_state=final_state,
                     total_duration=_sg_guards.total_elapsed(),
                     metadata={
                         "error": str(spin),
@@ -928,6 +1009,7 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        original_intent: Any = _UNSET_INTENT
         # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
         # funded iteration, so a best-effort run always terminates with an
         # honest terminal report rather than a forced RETRY. Consolidation
@@ -937,7 +1019,6 @@ class AgenticLoop(TopologyPlanningMixin):
 
         _termination_authority = TerminationAuthority.for_state(state)
         _termination_authority.reset_budget_marker(state)
-        nudge_intent: Optional[ActionIntent] = None
 
         try:
             _loop_guards.enforce()
@@ -1149,7 +1230,7 @@ class AgenticLoop(TopologyPlanningMixin):
                 )
                 iteration.perception = perception
                 if i == 1:
-                    nudge_intent = perception.intent
+                    original_intent = perception.intent
                 self._last_perception = perception  # Cache for next iteration check
 
                 # Update task_type from perception for more accurate gating
@@ -1290,23 +1371,20 @@ class AgenticLoop(TopologyPlanningMixin):
 
                 # EVALUATE
                 logger.info(f"[Iteration {i}/{effective_max}] EVALUATE")
-                evaluation = await _loop_guards.run(
-                    lambda: self._evaluate(perception, action_result, state)
+                turn_outcome = await _loop_guards.run(
+                    lambda: self.evaluate_completed_turn(
+                        perception,
+                        action_result,
+                        state,
+                        iteration=i,
+                        max_iterations=effective_max,
+                        original_intent=original_intent,
+                    )
                 )
+                evaluation = turn_outcome.evaluation
                 iteration.evaluation = evaluation
                 iteration.stage = LoopStage.EVALUATE
-
-                # Track progress (SubSearch intermediate rewards)
-                self._progress_scores.append(evaluation.score)
-
-                evaluation, turn_decision = self._apply_turn_controller(
-                    action_result,
-                    evaluation,
-                    state,
-                    iteration=i,
-                    max_iterations=effective_max,
-                    intent=nudge_intent,
-                )
+                turn_decision = turn_outcome.turn_decision
 
                 # FULFILLMENT CHECK (optional)
                 if self.enable_fulfillment_check:
@@ -1395,10 +1473,6 @@ class AgenticLoop(TopologyPlanningMixin):
                 # drop from the previous turn means the model regressed and should not
                 # be considered done yet.
                 if evaluation.decision == EvaluationDecision.COMPLETE:
-                    evaluation = self._apply_turn_disposition(
-                        action_result, self._apply_backslide_guard(evaluation)
-                    )
-                    iteration.evaluation = evaluation
                     # FEP-0018: framework verification hook — verify before accepting.
                     if await _loop_guards.run(
                         lambda: self._maybe_verify_and_retry(i, evaluation, state, streaming=False)
@@ -1507,7 +1581,7 @@ class AgenticLoop(TopologyPlanningMixin):
             # A denial must not become an empty result that triggers LLM recovery.
             raise
         except Exception as e:
-            if isinstance(e, AgentError) and not e.recoverable:
+            if is_terminal_agent_error(e):
                 # A terminal failure is not an empty result eligible for synthesis.
                 raise
             logger.error(f"Agentic loop error: {e}", exc_info=True)
@@ -2104,32 +2178,87 @@ class AgenticLoop(TopologyPlanningMixin):
             if verify_stream:
                 self._verify_retries = 0  # FEP-0018: reset per run
 
+            self._reset_run_state()
             verify_context = dict(context or {})
+            _turn_records = TurnRecordChannel()
             iterations_seen = 0
             run_success = True
             run_error: Optional[str] = None
+            last_iteration: Optional[LoopIteration] = None
+            last_action_result: Any = None
+            has_tool_evidence = False
+            content_streamed = False
             try:
                 while True:
                     iterations_seen = 0
+                    last_iteration = None
+                    last_action_result = None
                     async for iteration in self._stream_with_stategraph(
                         query=query,
                         context=verify_context,
                         conversation_history=conversation_history,
+                        turn_record_channel=_turn_records,
                     ):
                         _sg_guards.enforce()
-                        iterations_seen += 1
-                        action_result = getattr(iteration, "action_result", None)
+                        if iteration.stage == LoopStage.EVALUATE:
+                            iterations_seen += 1
+                            last_iteration = iteration
+
+                        graph_action_result = getattr(iteration, "action_result", None)
+                        if isinstance(graph_action_result, TurnRecord):
+                            action_result = graph_action_result.to_turn_result()
+                        elif (
+                            isinstance(graph_action_result, dict)
+                            and graph_action_result.get("schema_version")
+                            == TURN_RECORD_SCHEMA_VERSION
+                        ):
+                            action_result = TurnRecord.model_validate(
+                                graph_action_result
+                            ).to_turn_result()
+                        else:
+                            action_result = graph_action_result
+                        if iteration.stage == LoopStage.ACT:
+                            last_action_result = action_result
+                            has_tool_evidence |= self._turn_has_tool_evidence(action_result)
+
                         # FOU-D5f final seam: the graph ACT stores response
                         # TEXT in the action_result dict; accept both shapes
                         # (the legacy TurnResult-object shape stays supported).
-                        if isinstance(action_result, dict):
+                        # Later node snapshots retain prior action state, so only the ACT
+                        # event owns a new user-facing emit.
+                        if iteration.stage != LoopStage.ACT:
+                            content = None
+                        elif isinstance(action_result, dict):
                             content = action_result.get("response") or None
                         else:
                             content = getattr(
                                 getattr(action_result, "response", None), "content", None
                             )
                         if content:
+                            content_streamed = True
                             yield StreamChunk(content=content)
+
+                    # The graph stream emits node snapshots, not a final result.  The final
+                    # EVALUATE snapshot is therefore the terminal verdict; node events must
+                    # not be counted as agentic-loop iterations.
+                    last_evaluation = getattr(last_iteration, "evaluation", None)
+                    if last_evaluation is None:
+                        run_success = False
+                        run_error = "StateGraph stream ended without an evaluation"
+                    else:
+                        run_success = last_evaluation.decision == EvaluationDecision.COMPLETE
+                        run_error = (
+                            None
+                            if run_success
+                            else last_evaluation.reason
+                            or "Maximum iterations reached without completion"
+                        )
+
+                    latest_record = _turn_records.latest
+                    if latest_record is not None:
+                        last_action_result = latest_record.to_turn_result()
+                        has_tool_evidence |= self._turn_has_tool_evidence(last_action_result)
+
                     if not verify_stream:
                         break
                     vr = await self._run_verification(dict(verify_context))
@@ -2148,7 +2277,17 @@ class AgenticLoop(TopologyPlanningMixin):
                         "verification_feedback": vr.feedback,
                     }
                 yield self._terminal_stream_outcome(
-                    success=run_success, iterations=iterations_seen, error=run_error
+                    success=run_success,
+                    iterations=iterations_seen,
+                    error=run_error,
+                    recovery=self._post_loop_recovery_request(
+                        success=run_success,
+                        action_result=last_action_result,
+                        evaluation=getattr(last_iteration, "evaluation", None),
+                        has_tool_evidence=has_tool_evidence,
+                        content_streamed=content_streamed,
+                        reason=run_error,
+                    ),
                 )
             except LoopSpinError as spin:
                 logger.warning("[AgenticLoop] stategraph stream terminated by spin guard: %s", spin)
@@ -2171,6 +2310,7 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        original_intent: Any = _UNSET_INTENT
         # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
         # funded iteration, so a best-effort run always terminates with an
         # honest terminal report rather than a forced RETRY. Consolidation
@@ -2180,7 +2320,6 @@ class AgenticLoop(TopologyPlanningMixin):
 
         _termination_authority = TerminationAuthority.for_state(state)
         _termination_authority.reset_budget_marker(state)
-        nudge_intent: Optional[ActionIntent] = None
         evaluation: Optional[EvaluationResult] = None  # bound per turn; None if loop never runs
         action_result: Any = None
         has_tool_evidence = False  # any turn produced successful tool output (recovery input)
@@ -2202,7 +2341,7 @@ class AgenticLoop(TopologyPlanningMixin):
                     lambda: self._analyze_turn(query, context, conversation_history)
                 )
                 if i == 1:
-                    nudge_intent = perception.intent
+                    original_intent = perception.intent
                 self._last_perception = perception
                 state["iteration"] = i
                 if getattr(perception, "task_analysis", None):
@@ -2249,45 +2388,27 @@ class AgenticLoop(TopologyPlanningMixin):
                 state["action_result"] = action_result
                 has_tool_evidence = has_tool_evidence or self._turn_has_tool_evidence(action_result)
 
-                # FEP-0043: mirror criteria-declared keys from this turn's tool
-                # results into state (streaming parity with the buffered _act
-                # path) so the criteria gate counts the run's own evidence.
-                _turn_tool_results = getattr(action_result, "tool_results", None)
-                if _turn_tool_results:
-                    from victor.framework.criteria_gate import mirror_criteria_state
-
-                    mirror_criteria_state(state, _turn_tool_results)
-
                 # FEP-0023 Phase 1: record the turn onto the live SessionLedger
                 # (streaming parity with run(); populates <SESSION_STATE>). No-op
                 # unless USE_SESSION_LEDGER is enabled.
                 self._populate_session_ledger(action_result, i)
 
-                # Update shared spin detector + advance the temperature ratchet — the same per-turn step
-                # the buffered _act path runs, so streaming detects spin and escalates temperature
-                # identically (closes a latent streaming parity gap; ADR-013).
-                self._record_spin_and_ratchet(action_result)
-
                 # EVALUATE (shared, non-yielding)
-                evaluation = await _loop_guards.run(
-                    lambda: self._evaluate(perception, action_result, state)
+                turn_outcome = await _loop_guards.run(
+                    lambda: self.evaluate_completed_turn(
+                        perception,
+                        action_result,
+                        state,
+                        iteration=i,
+                        max_iterations=effective_max,
+                        original_intent=original_intent,
+                    )
                 )
-                self._progress_scores.append(evaluation.score)
-
-                evaluation, turn_decision = self._apply_turn_controller(
-                    action_result,
-                    evaluation,
-                    state,
-                    iteration=i,
-                    max_iterations=effective_max,
-                    intent=nudge_intent,
-                )
+                evaluation = turn_outcome.evaluation
+                turn_decision = turn_outcome.turn_decision
 
                 # DECIDE — terminal decisions end the stream; non-terminal nudge + continue.
                 if evaluation.decision == EvaluationDecision.COMPLETE:
-                    evaluation = self._apply_turn_disposition(
-                        action_result, self._apply_backslide_guard(evaluation)
-                    )
                     # FEP-0018: framework verification hook — verify before accepting.
                     if await _loop_guards.run(
                         lambda: self._maybe_verify_and_retry(i, evaluation, state, streaming=True)
@@ -3043,20 +3164,6 @@ class AgenticLoop(TopologyPlanningMixin):
                     task_type=state.get("task_type"),
                     runtime_context_overrides=runtime_context_overrides,
                 )
-
-            # Update shared spin detector + advance the temperature ratchet (shared with streaming).
-            self._record_spin_and_ratchet(turn_result)
-
-            # Record tool results for fulfillment criteria auto-derivation
-            if turn_result.tool_results:
-                for tr in turn_result.tool_results:
-                    self.criteria_builder.record_tool_result(tr)
-                # FEP-0043: mirror criteria-declared keys from this turn's tool
-                # results into state so the criteria gate counts the run's own
-                # evidence. Opt-in by declaration; a no-op without criteria.
-                from victor.framework.criteria_gate import mirror_criteria_state
-
-                mirror_criteria_state(state, turn_result.tool_results)
 
             return turn_result
 
@@ -4280,12 +4387,70 @@ class AgenticLoop(TopologyPlanningMixin):
             graph_executor.runtime_intelligence = self.runtime_intelligence
         if hasattr(self.orchestrator, "planning_coordinator"):
             graph_executor.planning_coordinator = self.orchestrator.planning_coordinator
-        if self.enhanced_completion_evaluator is not None:
-            graph_executor.evaluator = self.enhanced_completion_evaluator
+        # The graph must share the loop EVALUATE seam (including effect, criteria,
+        # disposition and controller post-filters), not call its internal evaluator directly.
+        graph_executor.evaluator = self.evaluate_graph_turn
         if self.fulfillment is not None:
             graph_executor.fulfillment_detector = self.fulfillment
 
         return graph_executor
+
+    async def evaluate_graph_turn(
+        self,
+        perception: Any,
+        action_result: Any,
+        state: Dict[str, Any],
+    ) -> EvaluationResult:
+        """Adapt durable graph state to the shared completed-turn pipeline."""
+        graph_state = dict(state)
+        context = graph_state.get("context")
+        if isinstance(context, dict):
+            graph_state.update(context)
+
+        if isinstance(action_result, TurnRecord):
+            live_action_result = action_result.to_turn_result()
+        elif (
+            isinstance(action_result, dict)
+            and action_result.get("schema_version") == "victor.turn.record.v1"
+        ):
+            live_action_result = TurnRecord.model_validate(action_result).to_turn_result()
+        else:
+            live_action_result = action_result
+
+        perception_payload = perception.to_dict() if hasattr(perception, "to_dict") else perception
+        if isinstance(perception_payload, dict):
+            perception_payload = {
+                **perception_payload,
+                "task_type": perception_payload.get("task_type") or graph_state.get("task_type"),
+            }
+        typed_perception = self._reconstruct_perception_from_state(perception_payload)
+        if typed_perception is None:
+            raise RuntimeError("StateGraph execution produced no usable perception")
+
+        original_intent: Any = _UNSET_INTENT
+        original_intent_raw = graph_state.get("original_intent")
+        if original_intent_raw is not None:
+            try:
+                original_intent = (
+                    original_intent_raw
+                    if isinstance(original_intent_raw, ActionIntent)
+                    else ActionIntent(original_intent_raw)
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"StateGraph state has invalid original intent: {original_intent_raw!r}"
+                ) from exc
+        outcome = await self.evaluate_completed_turn(
+            typed_perception,
+            live_action_result,
+            graph_state,
+            original_intent=original_intent,
+            iteration=int(graph_state.get("iteration", 0) or 0),
+            max_iterations=int(
+                graph_state.get("max_iterations", self.max_iterations) or self.max_iterations
+            ),
+        )
+        return outcome.evaluation
 
     @staticmethod
     def _reconstruct_perception_from_state(payload: Any) -> Optional[Perception]:
@@ -4497,6 +4662,8 @@ class AgenticLoop(TopologyPlanningMixin):
         query: str,
         context: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
+        *,
+        turn_record_channel: Optional[TurnRecordChannel] = None,
     ) -> LoopResult:
         """Run the agentic loop through the StateGraph-backed executor.
 
@@ -4520,6 +4687,7 @@ class AgenticLoop(TopologyPlanningMixin):
         start_time = time.time()
 
         try:
+            self._reset_run_state()
             graph_executor = self._create_stategraph_executor()
 
             # Run the graph
@@ -4527,6 +4695,7 @@ class AgenticLoop(TopologyPlanningMixin):
                 query=query,
                 context=context or {},
                 conversation_history=conversation_history,
+                turn_record_channel=turn_record_channel,
             )
 
             # FOU-D5b: verification parity (FEP-0018). The graph path evaluates
@@ -4570,13 +4739,33 @@ class AgenticLoop(TopologyPlanningMixin):
                         query=query,
                         context={**(context or {}), "verification_feedback": vr.feedback},
                         conversation_history=conversation_history,
+                        turn_record_channel=turn_record_channel,
                     )
 
             final_state = graph_result.metadata.get("final_state", {})
 
+            latest_record = turn_record_channel.latest if turn_record_channel is not None else None
+            legacy_turn_result = latest_record.to_turn_result() if latest_record else None
+            if legacy_turn_result is not None:
+                final_state = {**final_state, "action_result": legacy_turn_result}
+
             iterations = self._loop_iterations_from_state_history(
                 graph_result.metadata.get("state_history")
             )
+            iterations = [
+                (
+                    replace(
+                        iteration,
+                        action_result=TurnRecord.model_validate(
+                            iteration.action_result
+                        ).to_turn_result(),
+                    )
+                    if isinstance(iteration.action_result, dict)
+                    and iteration.action_result.get("schema_version") == TURN_RECORD_SCHEMA_VERSION
+                    else iteration
+                )
+                for iteration in iterations
+            ]
 
             # Adapt the graph result into the historical LoopResult shape.
             # The graph executor exposes aggregate iteration counts rather than
@@ -4601,6 +4790,8 @@ class AgenticLoop(TopologyPlanningMixin):
             # re-raise for run()'s spin handler (FAIL + loop_spin_guard).
             raise
         except Exception as e:
+            if is_terminal_agent_error(e):
+                raise
             logger.error(f"StateGraph executor error: {e}", exc_info=True)
             duration = time.time() - start_time
             return LoopResult(
@@ -4619,6 +4810,8 @@ class AgenticLoop(TopologyPlanningMixin):
         query: str,
         context: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
+        *,
+        turn_record_channel: Optional[TurnRecordChannel] = None,
     ) -> AsyncIterator[LoopIteration]:
         """Stream agentic-loop iterations through the StateGraph executor."""
         graph_executor = self._create_stategraph_executor()
@@ -4627,6 +4820,7 @@ class AgenticLoop(TopologyPlanningMixin):
             query=query,
             context=context or {},
             conversation_history=conversation_history,
+            turn_record_channel=turn_record_channel,
         ):
             if event.get("event_type") == "error":
                 raise RuntimeError(str(event.get("error") or "StateGraph stream failed"))

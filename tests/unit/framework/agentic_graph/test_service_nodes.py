@@ -22,9 +22,7 @@ from victor.framework.agentic_graph.state import (
     AgenticLoopStateModel,
 )
 from victor.framework.agentic_graph.service_nodes import (
-    _get_execution_context,
     _get_service_accessor,
-    inject_execution_context,
     chat_service_node,
     tool_service_node,
     context_service_node,
@@ -33,78 +31,26 @@ from victor.framework.agentic_graph.service_nodes import (
 )
 
 
-class TestHelperFunctions:
-    """Tests for helper functions."""
+class TestRuntimeCollaborators:
+    "Runtime collaborators are explicit and never become durable state."
 
-    def test_get_execution_context_none(self):
-        """Test getting ExecutionContext from state without context."""
-        state = create_initial_state(query="Test")
-        ctx = _get_execution_context(state)
-        assert ctx is None
+    def test_service_accessor_requires_runtime_context(self):
+        assert _get_service_accessor(None) is None
 
-    def test_get_execution_context_from_private_attr(self):
-        """Test getting ExecutionContext from private attribute."""
-        state = create_initial_state(query="Test")
-        mock_ctx = MagicMock()
-        state._execution_context_private = mock_ctx
-
-        ctx = _get_execution_context(state)
-        assert ctx is mock_ctx
-
-    def test_get_execution_context_from_context_dict(self):
-        """Test getting ExecutionContext from context dict."""
-        state = create_initial_state(query="Test")
-        mock_ctx = MagicMock()
-        state = state.model_copy(update={"context": {"_execution_context": mock_ctx}})
-
-        ctx = _get_execution_context(state)
-        assert ctx is mock_ctx
-
-    def test_get_service_accessor_none(self):
-        """Test getting ServiceAccessor from state without context."""
-        state = create_initial_state(query="Test")
-        services = _get_service_accessor(state)
-        assert services is None
-
-    def test_get_service_accessor_from_context(self):
-        """Test getting ServiceAccessor from ExecutionContext."""
-        state = create_initial_state(query="Test")
+    def test_service_accessor_uses_explicit_runtime_context(self):
         mock_services = MagicMock()
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = state.model_copy(update={"context": {"_execution_context": mock_ctx}})
 
-        services = _get_service_accessor(state)
-        assert services is mock_services
+        assert _get_service_accessor(mock_ctx) is mock_services
 
-
-class TestInjectExecutionContext:
-    """Tests for inject_execution_context function."""
-
-    def test_inject_execution_context(self):
-        """Test injecting ExecutionContext into state."""
-        state = create_initial_state(query="Test")
-        mock_ctx = MagicMock()
-        mock_ctx.session_id = "test-session"
-
-        result = inject_execution_context(state, mock_ctx)
-
-        assert result._execution_context_private is mock_ctx
-        # FOU-D5f: the handle stays in the private attribute only —
-        # the context dict no longer carries runtime objects (they defeat
-        # checkpoint serialization and pickle).
-        assert "_execution_context" not in (result.context or {})
-        assert result._execution_context_private is mock_ctx
-        assert result.context.get("session_id") == "test-session"
-
-    def test_inject_execution_context_tolerates_minimal_owner(self):
-        """A fallback owner without a session id must not mask policy errors."""
+    def test_agentic_state_has_no_runtime_handle_fields(self):
         state = create_initial_state(query="Test")
 
-        result = inject_execution_context(state, MagicMock(spec=[]))
-
-        assert result._execution_context_private is not None
-        assert result.context == {}
+        assert "_execution_context" not in AgenticLoopStateModel.model_fields
+        assert "_execution_context_private" not in AgenticLoopStateModel.model_fields
+        assert "_turn_record_channel" not in AgenticLoopStateModel.model_fields
+        assert "inject_execution_context" not in globals()
 
 
 class TestChatServiceNode:
@@ -128,12 +74,10 @@ class TestChatServiceNode:
         mock_chat.chat = AsyncMock(return_value="Response text")
         mock_services.chat = mock_chat
 
-        # Inject into state
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
-        result = await chat_service_node(state)
+        result = await chat_service_node(state, execution_context=mock_ctx)
 
         mock_chat.chat.assert_called_once()
         assert result.context.get("last_response") == "Response text"
@@ -150,9 +94,10 @@ class TestChatServiceNode:
 
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
-        result = await chat_service_node(state, message="Custom message")
+        result = await chat_service_node(
+            state, message="Custom message", execution_context=mock_ctx
+        )
 
         mock_chat.chat.assert_called_once()
         assert result.context.get("last_response") == "Custom response"
@@ -168,9 +113,8 @@ class TestChatServiceNode:
 
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
-        result = await chat_service_node(state)
+        result = await chat_service_node(state, execution_context=mock_ctx)
 
         mock_chat.chat.assert_not_called()
 
@@ -197,14 +141,33 @@ class TestToolServiceNode:
 
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
-        result = await tool_service_node(state, tool_name="test_tool", tool_args={"arg1": "value1"})
+        result = await tool_service_node(
+            state, tool_name="test_tool", tool_args={"arg1": "value1"}, execution_context=mock_ctx
+        )
 
         mock_tool.execute_tool.assert_called_once()
         tool_results = result.context.get("tool_results", [])
         assert len(tool_results) == 1
         assert tool_results[0]["tool"] == "test_tool"
+
+    @pytest.mark.asyncio
+    async def test_tool_service_node_copies_nested_tool_results(self):
+        existing = {"tool": "previous", "result": "old"}
+        state = create_initial_state(
+            query="Execute tool",
+            context={"tool_results": [existing]},
+        )
+        mock_tool = AsyncMock()
+        mock_tool.execute_tool = AsyncMock(return_value={"status": "success"})
+        mock_ctx = MagicMock()
+        mock_ctx.services.tool = mock_tool
+
+        result = await tool_service_node(state, tool_name="test_tool", execution_context=mock_ctx)
+
+        assert state.context["tool_results"] == [existing]
+        assert len(result.context["tool_results"]) == 2
+        assert result.context["tool_results"][0] is existing
 
     @pytest.mark.asyncio
     async def test_tool_service_node_error_handling(self):
@@ -218,9 +181,10 @@ class TestToolServiceNode:
 
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
-        result = await tool_service_node(state, tool_name="failing_tool")
+        result = await tool_service_node(
+            state, tool_name="failing_tool", execution_context=mock_ctx
+        )
 
         tool_results = result.context.get("tool_results", [])
         assert len(tool_results) == 1
@@ -249,9 +213,8 @@ class TestContextServiceNode:
 
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
-        result = await context_service_node(state, max_results=5)
+        result = await context_service_node(state, max_results=5, execution_context=mock_ctx)
 
         mock_context.retrieve_context.assert_called_once()
         assert result.context.get("context_items") == ["item1", "item2"]
@@ -281,9 +244,8 @@ class TestProviderServiceNode:
 
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
-        result = await provider_service_node(state)
+        result = await provider_service_node(state, execution_context=mock_ctx)
 
         mock_provider.get_provider_info.assert_called_once()
         assert result.context.get("current_provider") == "test-provider"
@@ -303,10 +265,12 @@ class TestProviderServiceNode:
 
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
         result = await provider_service_node(
-            state, provider_name="override-provider", model_name="override-model"
+            state,
+            provider_name="override-provider",
+            model_name="override-model",
+            execution_context=mock_ctx,
         )
 
         assert result.context.get("current_provider") == "override-provider"
@@ -322,8 +286,7 @@ class TestPromptServiceNode:
         mock_prompt_orchestrator = MagicMock()
         mock_prompt_orchestrator.build_system_prompt.return_value = "Prompt text"
         mock_ctx = MagicMock()
-        mock_ctx.metadata = {"prompt_orchestrator": mock_prompt_orchestrator}
-        state = inject_execution_context(state, mock_ctx)
+        mock_ctx.prompt_orchestrator = mock_prompt_orchestrator
         state = state.model_copy(
             update={
                 "context": {
@@ -336,7 +299,7 @@ class TestPromptServiceNode:
             }
         )
 
-        result = await prompt_service_node(state)
+        result = await prompt_service_node(state, execution_context=mock_ctx)
 
         assert result.context.get("prompt_overlays") == [
             {
@@ -361,8 +324,7 @@ class TestPromptServiceNode:
         mock_prompt_orchestrator.build_system_prompt.return_value = "Prompt text"
         mock_prompt_orchestrator.activate_constraints.return_value = True
         mock_ctx = MagicMock()
-        mock_ctx.metadata = {"prompt_orchestrator": mock_prompt_orchestrator}
-        state = inject_execution_context(state, mock_ctx)
+        mock_ctx.prompt_orchestrator = mock_prompt_orchestrator
         constraints = object()
 
         result = await prompt_service_node(
@@ -370,6 +332,7 @@ class TestPromptServiceNode:
             base_prompt="You are an assistant.",
             constraints=constraints,
             vertical="coding",
+            execution_context=mock_ctx,
         )
 
         assert result.context.get("constraints_activated") is True
@@ -399,14 +362,13 @@ class TestServiceIntegration:
 
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
         # Chat node
-        state = await chat_service_node(state)
+        state = await chat_service_node(state, execution_context=mock_ctx)
         assert state.context.get("last_response") == "Use the tool"
 
         # Tool node
-        state = await tool_service_node(state, tool_name="test_tool")
+        state = await tool_service_node(state, tool_name="test_tool", execution_context=mock_ctx)
         tool_results = state.context.get("tool_results", [])
         assert len(tool_results) == 1
 
@@ -431,16 +393,15 @@ class TestServiceIntegration:
 
         mock_ctx = MagicMock()
         mock_ctx.services = mock_services
-        state = inject_execution_context(state, mock_ctx)
 
         # Chat
-        state = await chat_service_node(state)
+        state = await chat_service_node(state, execution_context=mock_ctx)
         assert "last_response" in state.context
 
         # Provider
-        state = await provider_service_node(state)
+        state = await provider_service_node(state, execution_context=mock_ctx)
         assert "current_provider" in state.context
 
         # Context
-        state = await context_service_node(state)
+        state = await context_service_node(state, execution_context=mock_ctx)
         assert "context_items" in state.context

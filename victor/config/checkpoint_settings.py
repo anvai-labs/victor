@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field
 class CheckpointSettings(BaseModel):
     """State checkpointing for time-travel debugging.
 
-    The ``workflow_checkpoint_*`` group is FEP-0047 (FOU-D2): durable-by-default
-    graph checkpointing at the composition roots, opt-out-able per deployment.
+    The ``workflow_checkpoint_*`` group is FEP-0047/FEP-0050: durable-by-default
+    graph checkpointing at the composition roots, project-scoped by default, and
+    opt-out-able per deployment.
     """
 
     checkpoint_enabled: bool = True
@@ -29,5 +30,8 @@ class CheckpointSettings(BaseModel):
     )
     workflow_checkpoint_db_path: Optional[str] = Field(
         default=None,
-        description="Explicit database file; None uses ~/.victor/checkpoints.db",
+        description=(
+            "Explicit contention/portability override; None uses the canonical "
+            "project .victor/project.db"
+        ),
     )

@@ -364,7 +364,8 @@ class CompiledGraph(Generic[StateType]):
         )
         node_executor = NodeExecutor(nodes=self._nodes, use_copy_on_write=use_copy_on_write)
         checkpoint_manager = GraphCheckpointManager(
-            checkpointer=exec_config.checkpoint.checkpointer
+            checkpointer=exec_config.checkpoint.checkpointer,
+            after_nodes=exec_config.checkpoint.checkpoint_after_nodes,
         )
         event_emitter = GraphEventEmitter(
             graph_id=graph_id,
@@ -605,6 +606,7 @@ class CompiledGraph(Generic[StateType]):
         *,
         config: Optional[GraphConfig] = None,
         thread_id: Optional[str] = None,
+        node_observer: Optional[NodeLifecycleObserver] = None,
     ):
         """Stream execution yielding state after each node.
 
@@ -670,6 +672,7 @@ class CompiledGraph(Generic[StateType]):
                 ),
                 record_state_history=exec_config.checkpoint.record_state_history,
                 sequential_fanout=self._sequential_fanout,
+                node_observer=node_observer,
             )
         ) as events:
             async for node_id, node_state in events:

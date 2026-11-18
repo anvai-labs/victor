@@ -51,11 +51,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
-logger = logging.getLogger(__name__)
+from victor.config.secure_paths import get_victor_dir
 
-# System paths bound read-only inside the bwrap mount namespace so common
-# interpreters/tools (sh, git, python, …) and their libraries remain reachable.
-_BWRAP_SYSTEM_ROOTS = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt")
+logger = logging.getLogger(__name__)
 
 # Temp dirs that must stay writable for tools that use them (macOS uses
 # /var/folders; /private/tmp is the real path behind /tmp).
@@ -63,8 +61,30 @@ _SEATBELT_WRITABLE_TEMP = ("/tmp", "/private/tmp", "/var/folders")
 
 # Warn-once bookkeeping, per category ("preferred_degraded",
 # "opt_out_disabled") so one category's warning can never permanently
-# suppress another's.
+# suppress another's in a long-lived process.
 _warned_categories: set = set()
+
+
+def _prepare_victor_state_root() -> Path:
+    """Return the validated, absolute Victor user-state root.
+
+    The state root is created on demand so a first-run sandbox can open the global database
+    and profile files. Failure is raised here, before command launch, rather than becoming a
+    silent no-write mount.
+    """
+    root = get_victor_dir().expanduser().resolve()
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(f"Cannot prepare writable Victor state root {root}: {exc}") from exc
+    if not root.is_dir():
+        raise RuntimeError(f"Victor state root is not a directory: {root}")
+    return root
+
+
+def _absolute_mount_path(path: Path | str) -> Path:
+    """Normalize an operator or workspace path without creating it."""
+    return Path(path).expanduser().resolve()
 
 
 # -- seccomp deny filter (classic BPF) ---------------------------------------
@@ -380,8 +400,8 @@ class NoneSandbox(SandboxBackend):
 class BubblewrapSandbox(SandboxBackend):
     """Linux ``bwrap`` mount-namespace sandbox.
 
-    System paths are bound read-only; the working directory is bound writable
-    (workspace-only mode). PID/IPC and network namespace isolation are on by
+    The host root starts read-only; workspace-only mode adds writable mounts for
+    the working directory and Victor user state. PID/IPC and network namespace isolation are on by
     default (ADR-035: egress deny is the deliverable, not a dead knob), as is
     a classic-BPF seccomp deny filter over sandbox-escape syscalls and
     ``--new-session`` tty detachment. The seccomp filter fd must be inherited
@@ -405,7 +425,14 @@ class BubblewrapSandbox(SandboxBackend):
         self._namespace_restrictions = namespace_restrictions
         self._seccomp = seccomp
         self._allowed_mounts = list(allowed_mounts or [])
+        self._state_root: Optional[Path] = None
         self._pending_fds: List[int] = []
+
+    def _writable_state_root(self) -> Path:
+        """Resolve/create the default user-state mount exactly once."""
+        if self._state_root is None:
+            self._state_root = _prepare_victor_state_root()
+        return self._state_root
 
     def available(self) -> bool:
         """True on Linux with the ``bwrap`` binary on PATH."""
@@ -420,22 +447,34 @@ class BubblewrapSandbox(SandboxBackend):
         """Build the ``bwrap`` argv that wraps ``argv``."""
         flags: List[str] = ["bwrap", "--die-with-parent", "--new-session"]
 
-        # System roots: read-only (--ro-bind-try tolerates missing paths).
-        for root in _BWRAP_SYSTEM_ROOTS:
-            flags += ["--ro-bind-try", root, root]
+        # Start from a read-only host root. Writable policy is opt-in below through the
+        # workspace, Victor state, operator mounts, and the private tmpfs.
+        flags += ["--ro-bind", "/", "/"]
 
         # Minimal /proc, /dev and a private /tmp.
         flags += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
 
-        # Working directory: writable in workspace-only mode, else read-only.
+        # Workspace is writable only in workspace-only mode. The Victor user-state root is an
+        # additional default in that mode; operator allow-lists remain independent.
+        writable_mounts: dict[Path, str] = {}
         if cwd is not None:
-            cwd_str = str(Path(cwd))
-            bind = "--bind" if self._workspace_only else "--ro-bind"
-            flags += [bind, cwd_str, cwd_str]
+            cwd_path = _absolute_mount_path(cwd)
+            if self._workspace_only:
+                writable_mounts[cwd_path] = "--bind"
+            else:
+                flags += ["--ro-bind", str(cwd_path), str(cwd_path)]
 
-        # Extra writable mounts the operator allow-listed.
+        if self._workspace_only:
+            writable_mounts[self._writable_state_root()] = "--bind"
         for mount in self._allowed_mounts:
-            flags += ["--bind-try", mount, mount]
+            if str(mount).strip():
+                writable_mounts.setdefault(_absolute_mount_path(mount), "--bind-try")
+
+        # Mount broad roots before nested roots. This preserves a workspace nested beneath the
+        # state root and a state root nested beneath the workspace without either mount masking
+        # the more specific exception.
+        for mount, bind in sorted(writable_mounts.items(), key=lambda item: len(item[0].parts)):
+            flags += [bind, str(mount), str(mount)]
 
         if self._namespace_restrictions:
             flags += ["--unshare-pid", "--unshare-ipc"]
@@ -471,6 +510,13 @@ class SeatbeltSandbox(SandboxBackend):
         """Configure the seatbelt policy from sandbox settings."""
         self._workspace_only = workspace_only
         self._network_isolation = network_isolation
+        self._state_root: Optional[Path] = None
+
+    def _writable_state_root(self) -> Path:
+        """Resolve/create the default user-state exception exactly once."""
+        if self._state_root is None:
+            self._state_root = _prepare_victor_state_root()
+        return self._state_root
 
     def available(self) -> bool:
         """True on macOS with the ``sandbox-exec`` binary on PATH."""
@@ -491,9 +537,10 @@ class SeatbeltSandbox(SandboxBackend):
         ]
 
         if self._workspace_only:
-            # Writes are scoped to the workspace and temp dirs.
+            # Writes are scoped to the workspace, Victor state, and temp dirs.
             if cwd is not None:
-                lines.append(f'(allow file-write* (subpath "{Path(cwd)}"))')
+                lines.append(f'(allow file-write* (subpath "{_absolute_mount_path(cwd)}"))')
+            lines.append(f'(allow file-write* (subpath "{self._writable_state_root()}"))')
             for tmp in _SEATBELT_WRITABLE_TEMP:
                 lines.append(f'(allow file-write* (subpath "{tmp}"))')
         else:
