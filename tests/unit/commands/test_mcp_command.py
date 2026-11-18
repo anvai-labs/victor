@@ -253,3 +253,74 @@ class TestMcpListTools:
         result = runner.invoke(mcp_app, ["list-tools"])
         assert result.exit_code == 0, result.output
         assert "shell" in result.output
+
+
+def _patch_http_runner():
+    """Patch the HTTP server runner so --http never binds a socket."""
+    from unittest.mock import patch
+
+    return patch(
+        "victor.integrations.mcp.server.run_mcp_server_http",
+        new=_RecordingRunner(),
+    )
+
+
+class _RecordingRunner:
+    """Stands in for run_mcp_server_http, recording its kwargs."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, *args, **kwargs):
+        import asyncio
+
+        self.calls.append(kwargs or args)
+        return asyncio.sleep(0, result=None)
+
+
+class TestMcpHttpMode:
+    def _invoke(self, args, monkeypatch, env_key=None):
+        monkeypatch.delenv("VICTOR_API_KEY", raising=False)
+        if env_key is not None:
+            monkeypatch.setenv("VICTOR_API_KEY", env_key)
+        with _patch_http_runner() as recorder:
+            result = runner.invoke(mcp_app, args)
+        return result, recorder
+
+    def test_http_with_api_key_reaches_runner(self, monkeypatch):
+        result, recorder = self._invoke(
+            ["--http", "--http-port", "9001", "--api-key", "sk-test"], monkeypatch
+        )
+        assert result.exit_code == 0, result.output
+        assert len(recorder.calls) == 1
+        call = recorder.calls[0]
+        assert call["port"] == 9001
+        assert call["api_key"] == "sk-test"
+
+    def test_http_default_port_is_8808(self, monkeypatch):
+        result, recorder = self._invoke(["--http", "--api-key", "sk-test"], monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert recorder.calls[0]["port"] == 8808
+
+    def test_http_falls_back_to_env_api_key(self, monkeypatch):
+        result, recorder = self._invoke(["--http"], monkeypatch, env_key="sk-env")
+        assert result.exit_code == 0, result.output
+        assert recorder.calls[0]["api_key"] == "sk-env"
+
+    def test_missing_api_key_exits_1_without_starting(self, monkeypatch):
+        result, recorder = self._invoke(["--http", "--http-port", "9001"], monkeypatch)
+        assert result.exit_code == 1
+        assert recorder.calls == []
+        assert "api" in result.output.lower()
+
+    def test_http_and_stdio_are_mutually_exclusive(self, monkeypatch):
+        result, recorder = self._invoke(["--http", "--stdio", "--api-key", "sk-test"], monkeypatch)
+        assert result.exit_code == 1
+        assert recorder.calls == []
+
+    def test_no_stdio_without_http_rejected(self, monkeypatch):
+        """The formerly dead --no-stdio branch now points at --http."""
+        result, recorder = self._invoke(["--no-stdio"], monkeypatch)
+        assert result.exit_code == 1
+        assert recorder.calls == []
+        assert "--http" in result.output
