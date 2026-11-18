@@ -150,6 +150,16 @@ class ToolSettings(BaseModel):
             "enveloped."
         ),
     )
+    # Canary blocking floor (ADR-037 decision 3, non-negotiable tier):
+    # a session canary token appearing in any outbound tool argument
+    # hard-fails the action (deterministic exfiltration block).
+    canary_blocking_enabled: bool = Field(
+        default=True,
+        description=(
+            "Block any tool call whose arguments contain the session canary "
+            "token from a provenance envelope (ADR-037 exfiltration floor)."
+        ),
+    )
 
     # Tool output preview configuration (user display only, does NOT affect LLM)
     tool_output_preview_enabled: bool = Field(

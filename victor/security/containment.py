@@ -31,7 +31,7 @@ from __future__ import annotations
 import secrets
 from contextvars import ContextVar
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 # Envelope delimiters. Content that itself contains the closing delimiter is
 # neutralized (a space is inserted into the tag) so an envelope closes exactly
@@ -112,6 +112,43 @@ def wrap_untrusted(
     )
 
 
+def find_canary_in_value(value: Any, canary: str, _path: str = "") -> Optional[str]:
+    """Return the dotted path of the first occurrence of ``canary`` in ``value``.
+
+    Deterministic exfiltration check (ADR-037 decision 3): walks JSON-able
+    tool arguments (dicts, lists, strings; other scalars ignored) looking
+    for the exact canary token. Returns ``None`` when absent.
+
+    Args:
+        value: The structure to scan (tool arguments).
+        canary: The exact session canary token to look for.
+        _path: Internal accumulator for the dotted report path.
+
+    Returns:
+        A dotted path such as ``command`` or ``files[0].content`` naming
+        where the canary appears, or ``None``.
+    """
+    if isinstance(value, str):
+        if canary and canary in value:
+            return _path or "<root>"
+        return None
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child = f"{_path}.{key}" if _path else str(key)
+            hit = find_canary_in_value(item, canary, child)
+            if hit is not None:
+                return hit
+        return None
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            child = f"{_path}[{index}]" if _path else f"[{index}]"
+            hit = find_canary_in_value(item, canary, child)
+            if hit is not None:
+                return hit
+        return None
+    return None
+
+
 __all__ = [
     "UntrustedSourceClass",
     "ENVELOPE_OPEN",
@@ -121,4 +158,5 @@ __all__ = [
     "current_session_canary",
     "reset_session_canary",
     "wrap_untrusted",
+    "find_canary_in_value",
 ]
