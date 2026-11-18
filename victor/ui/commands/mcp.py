@@ -2,21 +2,23 @@ import typer
 import logging
 import sys
 import os
-import inspect
-import importlib
 import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from rich.console import Console
 from victor.ui.console import get_console
 
 from victor.config.secure_paths import secure_create_file
 from victor.config.settings import get_project_paths
 from victor.core.async_utils import run_sync
 from victor.core.yaml_utils import safe_dump, safe_load
+from victor.integrations.mcp.discovery import discover_tools, register_discovered_tools
 from victor.integrations.mcp.registry import MCPRegistry, MCPServerConfig
-from victor.integrations.mcp.server import MCPServer
+from victor.integrations.mcp.server import (
+    MCPServer,
+    apply_graph_tool_flag,
+    register_graph_index_resource,
+)
 from victor.tools.registry import ToolRegistry
 from victor.ui.commands.utils import setup_logging
 
@@ -39,13 +41,18 @@ def mcp(
         "-l",
         help="Set logging level (defaults to WARNING or VICTOR_LOG_LEVEL env var)",
     ),
+    no_graph_tools: bool = typer.Option(
+        False,
+        "--no-graph-tools",
+        help="Disable codegraph query tools for this server process",
+    ),
 ):
     """Run Victor as an MCP server."""
     if ctx.invoked_subcommand is None:
-        _mcp(stdio, log_level)
+        _mcp(stdio, log_level, no_graph_tools)
 
 
-def _mcp(stdio: bool, log_level: Optional[str]):
+def _mcp(stdio: bool, log_level: Optional[str], no_graph_tools: bool = False):
     # Configure logging to stderr (stdout is for MCP protocol)
     # Validate and normalize log level
     if log_level is not None:
@@ -57,48 +64,67 @@ def _mcp(stdio: bool, log_level: Optional[str]):
     setup_logging(command="mcp", cli_log_level=log_level, stream=sys.stderr)
 
     if stdio:
-        run_sync(_run_mcp_server())
+        run_sync(_run_mcp_server(no_graph_tools=no_graph_tools))
     else:
         console.print("[red]Only stdio mode is currently supported[/]")
         raise typer.Exit(1)
 
 
-async def _run_mcp_server() -> None:
+async def _run_mcp_server(no_graph_tools: bool = False) -> None:
     """Run MCP server with all registered tools."""
-    # Create tool registry
+    # Graph tools are enabled for the explicit-MCP-launch process (B3);
+    # --no-graph-tools opts out. Runtime override > env precedence.
+    apply_graph_tool_flag(no_graph_tools)
+
+    # Unified tool discovery (single source of truth, FEP-0049-followup B1)
     registry = ToolRegistry()
+    registered_tools_count = register_discovered_tools(registry)
 
-    # Dynamic tool discovery (same pattern as orchestrator)
-    tools_dir = os.path.join(os.path.dirname(__file__), "..", "..", "tools")
-    excluded_files = {"__init__.py", "base.py", "decorators.py", "semantic_selector.py"}
-    registered_tools_count = 0
+    # Launch-time sandbox admission (B2): on failure the server still starts
+    # but every tools/call is refused (fail-closed).
+    from victor.integrations.mcp.server import _admit_or_refuse
 
-    for filename in os.listdir(tools_dir):
-        if filename.endswith(".py") and filename not in excluded_files:
-            module_name = f"victor.tools.{filename[:-3]}"
-            try:
-                module = importlib.import_module(module_name)
-                for _name, obj in inspect.getmembers(module):
-                    if inspect.isfunction(obj) and getattr(obj, "_is_tool", False):
-                        registry.register(obj)
-                        registered_tools_count += 1
-            except Exception as e:
-                print(
-                    f"Warning: Failed to load tools from {module_name}: {e}",
-                    file=sys.stderr,
-                )
+    workspace_root = Path(os.getcwd())
+    exec_context, admission_refusal = _admit_or_refuse(workspace_root)
 
     server = MCPServer(
         name="Victor MCP Server",
         version="1.0.0",
         tool_registry=registry,
+        exec_context=exec_context,
+        admission_refusal=admission_refusal,
     )
+    register_graph_index_resource(server, workspace_root)
 
+    posture = "sandboxed (admitted policy)" if exec_context else "ADMISSION REFUSAL (fail-closed)"
     print(
-        f"Victor MCP Server starting with {registered_tools_count} tools",
+        f"Victor MCP Server starting with {registered_tools_count} tools; " f"posture: {posture}",
         file=sys.stderr,
     )
     await server.start_stdio_server()
+
+
+@mcp_app.command("list-tools")
+def mcp_list_tools() -> None:
+    """Print the deterministic MCP tool inventory (name, description, cost tier).
+
+    Dry-run of the unified discovery used by the MCP server: the output
+    order matches the live tools/list ordering (sorted by tool name).
+    """
+
+    def _resolved_name(tool: Any) -> str:
+        return tool.Tool.name if hasattr(tool, "Tool") else tool.name
+
+    tools = sorted(discover_tools(), key=_resolved_name)
+    for tool in tools:
+        name = tool.Tool.name if hasattr(tool, "Tool") else tool.name
+        description = (
+            tool.Tool.description if hasattr(tool, "Tool") else tool.description
+        ) or "No description"
+        cost_tier = getattr(tool.Tool if hasattr(tool, "Tool") else tool, "cost_tier", None)
+        tier = getattr(cost_tier, "value", None) or "unknown"
+        print(f"{name}\t{tier}\t{description}")
+    print(f"{len(tools)} tool(s)")
 
 
 def _parse_env_pairs(pairs: List[str]) -> Dict[str, str]:
