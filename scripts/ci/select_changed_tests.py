@@ -1248,6 +1248,14 @@ RELATED_TESTS = {
         "tests/unit/agent/test_mcp_registry_discovery.py",
         "tests/unit/security/test_mcp_policy_boundary.py",
     ),
+    "victor/integrations/mcp/standalone_http.py": (
+        "tests/unit/integrations/mcp/test_standalone_http.py",
+        "tests/unit/integrations/mcp/test_http_transport.py",
+    ),
+    "victor/integrations/mcp/http_transport.py": (
+        "tests/unit/integrations/mcp/test_http_transport.py",
+        "tests/unit/integrations/mcp/test_standalone_http.py",
+    ),
     "victor/agent/mcp_connector.py": (
         "tests/unit/agent/test_mcp_connector.py",
         "tests/unit/security/test_mcp_policy_boundary.py",
