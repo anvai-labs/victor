@@ -55,6 +55,14 @@ def test_channels_isolate_latest_records_between_runs():
     assert second.latest is not None and second.latest.content == "two"
 
 
+def test_turn_record_rejects_embedded_credential_fields():
+    turn = _turn()
+    turn.response.metadata = {"api_key": "not-a-real-secret"}
+
+    with pytest.raises(ValueError, match="Refusing durable turn field 'api_key'"):
+        TurnRecord.from_turn_result(turn)
+
+
 def test_turn_record_rejects_embedded_unknown_values():
     turn = _turn()
     turn.response.metadata = {"runtime_handle": object()}
@@ -63,15 +71,58 @@ def test_turn_record_rejects_embedded_unknown_values():
         TurnRecord.from_turn_result(turn)
 
 
-async def test_completed_node_observation_survives_durable_checkpoint_failure():
+def test_turn_record_rejects_unknown_disposition():
+    turn = _turn()
+    turn.disposition = "keep-going"
+
+    with pytest.raises(TypeError, match="Unknown turn disposition: 'keep-going'"):
+        TurnRecord.from_turn_result(turn)
+
+
+def test_turn_record_projects_sorted_json_values():
+    turn = _turn()
+    turn.response.metadata = {"tags": {"b", "a"}}
+
+    record = TurnRecord.from_turn_result(turn)
+
+    assert record.response.metadata["tags"] == ["a", "b"]
+
+
+def test_turn_record_rejects_non_string_completion_content():
+    turn = _turn()
+    turn.response.content = object()
+
+    with pytest.raises(TypeError, match="Completion content of type object is not JSON-compatible"):
+        TurnRecord.from_turn_result(turn)
+
+
+def test_turn_record_rejects_non_finite_numbers():
+    turn = _turn()
+    turn.response.metadata = {"score": float("inf")}
+
+    with pytest.raises(TypeError, match="Non-finite floats are not JSON-compatible"):
+        TurnRecord.from_turn_result(turn)
+
+
+async def test_completed_act_record_survives_durable_checkpoint_failure():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from victor.framework.agentic_graph.executor import _turn_record_observer
+    from victor.framework.agentic_graph.nodes import act_node
+    from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
     class FailingCheckpointer(MemoryCheckpointer):
         async def save(self, _checkpoint):
             raise RuntimeError("durable write failed")
 
-    async def act(state):
-        return {**state, "value": state["value"] + 1}
+    turn_executor = SimpleNamespace(execute_turn=AsyncMock(return_value=_turn("completed")))
+    channel = TurnRecordChannel()
 
-    graph = StateGraph(dict)
+    async def act(state):
+        return await act_node(state, turn_executor=turn_executor)
+
+    graph = StateGraph(AgenticLoopStateModel)
     graph.add_node("act", act)
     graph.set_entry_point("act")
     graph.add_edge("act", END)
@@ -81,18 +132,15 @@ async def test_completed_node_observation_survives_durable_checkpoint_failure():
             checkpoint_after_nodes={"act"},
         )
     )
-    events: list[str] = []
-
-    async def observer(event, _node, _state, _message, _duration):
-        events.append(event)
 
     result = await graph.compile().invoke(
-        {"value": 0},
+        AgenticLoopStateModel(query="task"),
         config=config,
         thread_id="checkpoint-failure",
-        node_observer=observer,
+        node_observer=_turn_record_observer(channel),
     )
 
     assert result.success is False
     assert result.error == "durable write failed"
-    assert "complete" in events
+    assert channel.latest is not None
+    assert channel.latest.content == "completed"

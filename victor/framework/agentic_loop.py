@@ -4436,11 +4436,10 @@ class AgenticLoop(TopologyPlanningMixin):
                     if isinstance(original_intent_raw, ActionIntent)
                     else ActionIntent(original_intent_raw)
                 )
-            except ValueError:
-                logger.warning(
-                    "Ignoring invalid original intent in StateGraph state: %r",
-                    original_intent_raw,
-                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"StateGraph state has invalid original intent: {original_intent_raw!r}"
+                ) from exc
         outcome = await self.evaluate_completed_turn(
             typed_perception,
             live_action_result,

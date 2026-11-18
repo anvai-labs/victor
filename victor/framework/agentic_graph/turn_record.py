@@ -24,6 +24,8 @@ objects through a module-global ContextVar.
 
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
@@ -32,19 +34,54 @@ from pydantic import BaseModel, Field
 
 TURN_RECORD_SCHEMA_VERSION = "victor.turn.record.v1"
 
+# Exact lowercase field names that must never enter durable turn state.  This is
+# deliberately a fail-closed denylist for common credential/raw-provider fields;
+# unknown object types are rejected separately by _durable_value().
+_NON_DURABLE_FIELD_NAMES = frozenset(
+    {
+        "access_token",
+        "api_key",
+        "authorization",
+        "client_secret",
+        "credential",
+        "credentials",
+        "password",
+        "provider_response",
+        "raw_provider_response",
+        "raw_response",
+        "refresh_token",
+        "secret",
+        "virtual_key",
+    }
+)
+
 
 def _durable_value(value: Any) -> Any:
     """Return a JSON-compatible projection without accepting runtime handles."""
+    if isinstance(value, float) and not math.isfinite(value):
+        raise TypeError("Non-finite floats are not JSON-compatible")
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, Enum):
         return _durable_value(value.value)
     if isinstance(value, dict):
-        return {str(key): _durable_value(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
+        durable: Dict[str, Any] = {}
+        for key, item in value.items():
+            durable_key = str(key)
+            if durable_key.lower() in _NON_DURABLE_FIELD_NAMES:
+                raise ValueError(f"Refusing durable turn field {durable_key!r}")
+            durable[durable_key] = _durable_value(item)
+        return durable
+    if isinstance(value, (set, frozenset)):
+        projected = [_durable_value(item) for item in value]
+        return sorted(
+            projected,
+            key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),
+        )
+    if isinstance(value, (list, tuple)):
         return [_durable_value(item) for item in value]
     if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
+        return _durable_value(value.model_dump(mode="json"))
     raise TypeError(f"Value of type {type(value).__name__} is not JSON-compatible")
 
 
@@ -66,8 +103,15 @@ class TurnResponseRecord(BaseModel):
         usage = getattr(response, "usage", None)
         model = getattr(response, "model", None)
         metadata = getattr(response, "metadata", None)
+        content = getattr(response, "content", "")
+        if content is None:
+            content = ""
+        elif not isinstance(content, str):
+            raise TypeError(
+                f"Completion content of type {type(content).__name__} is not JSON-compatible"
+            )
         return cls(
-            content=str(getattr(response, "content", "") or ""),
+            content=content,
             role=str(_durable_value(getattr(response, "role", "assistant")) or "assistant"),
             tool_calls=(
                 _durable_value(tool_calls) if isinstance(tool_calls, (list, tuple)) else None
@@ -110,17 +154,19 @@ class TurnRecord(BaseModel):
 
     @classmethod
     def from_turn_result(cls, result: Any) -> "TurnRecord":
-        disposition = getattr(result, "disposition", "continue")
+        disposition = getattr(result, "disposition", None)
         from victor.agent.services.turn_execution_runtime import TurnDisposition
 
-        if isinstance(disposition, TurnDisposition):
+        if disposition is None:
+            disposition_value = TurnDisposition.CONTINUE.value
+        elif isinstance(disposition, TurnDisposition):
             disposition_value = disposition.value
         elif isinstance(disposition, str) and disposition in {
             member.value for member in TurnDisposition
         }:
             disposition_value = disposition
         else:
-            disposition_value = TurnDisposition.CONTINUE.value
+            raise TypeError(f"Unknown turn disposition: {disposition!r}")
         tool_results = getattr(result, "tool_results", None)
         follow_ups = getattr(result, "follow_up_suggestions", None)
         signatures = getattr(result, "tool_signatures", None)
