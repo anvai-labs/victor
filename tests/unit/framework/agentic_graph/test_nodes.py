@@ -123,6 +123,35 @@ class TestPerceiveNode:
         assert result.original_intent == "ambiguous"
 
     @pytest.mark.asyncio
+    async def test_perceive_node_unwraps_runtime_intelligence_snapshot(self):
+        """The graph consumes the snapshot's nested Perception, not snapshot internals."""
+        perception = MagicMock(
+            intent="read_only",
+            complexity="low",
+            confidence=0.9,
+        )
+        from victor.agent.services.runtime_intelligence import RuntimeIntelligenceSnapshot
+
+        snapshot = RuntimeIntelligenceSnapshot(
+            query="Explain this repository",
+            perception=perception,
+            task_analysis=MagicMock(task_type="research"),
+        )
+        runtime_intelligence = AsyncMock(analyze_turn=AsyncMock(return_value=snapshot))
+
+        result = await perceive_node(
+            create_initial_state(query="Explain this repository"),
+            runtime_intelligence=runtime_intelligence,
+        )
+
+        assert result.perception == {
+            "intent": "read_only",
+            "complexity": "low",
+            "confidence": 0.9,
+        }
+        assert result.task_type == "research"
+
+    @pytest.mark.asyncio
     async def test_perceive_node_rejects_invalid_service_intent(self):
         runtime_intelligence = AsyncMock()
         runtime_intelligence.analyze_turn = AsyncMock(

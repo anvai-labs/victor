@@ -147,7 +147,7 @@ def _serve(
     elif api_keys:
         console.print("[green]API-key auth enabled via VICTOR_API_KEYS.[/]")
 
-    run_sync(
+    coroutine = (
         _run_fastapi_server(
             host,
             port,
@@ -155,9 +155,19 @@ def _serve(
             mode,
             enable_hitl,
             hitl_auth_token,
-            api_keys=api_keys or None,
+            api_keys=api_keys,
+        )
+        if api_keys
+        else _run_fastapi_server(
+            host,
+            port,
+            profile,
+            mode,
+            enable_hitl,
+            hitl_auth_token,
         )
     )
+    run_sync(coroutine)
 
 
 def _print_agent_api_quickstart(host: str, port: int, api_key: str) -> None:

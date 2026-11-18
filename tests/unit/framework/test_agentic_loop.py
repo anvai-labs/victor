@@ -421,6 +421,60 @@ class TestAgenticLoop:
         assert resolved_context.session_id == "session-123"
         assert resolved_context.metadata["prompt_orchestrator"] is prompt_orchestrator
 
+    def test_stategraph_prepares_explicit_streaming_context(self):
+        """Every StateGraph context source passes through one preparation boundary."""
+        prompt_orchestrator = object()
+        execution_context = RuntimeExecutionContext(
+            session_id="streaming-session",
+            settings=SimpleNamespace(),
+            state=None,
+            container=MagicMock(),
+            services=MagicMock(),
+            metadata={},
+        )
+        loop = AgenticLoop(
+            orchestrator=None,
+            execution_context=execution_context,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
+
+        with patch(
+            "victor.agent.prompt_orchestrator.get_prompt_orchestrator",
+            return_value=prompt_orchestrator,
+        ):
+            resolved = loop._resolve_stategraph_execution_context()
+
+        assert resolved is not execution_context
+        assert resolved.session_id == "streaming-session"
+        assert resolved.prompt_orchestrator is prompt_orchestrator
+
+    def test_stategraph_explicit_context_wins_over_orchestrator_context(self):
+        """The streaming surface's explicit context cannot be replaced by the host."""
+        prompt_orchestrator = object()
+        execution_context = RuntimeExecutionContext(
+            session_id="explicit",
+            settings=SimpleNamespace(),
+            state=None,
+            container=MagicMock(),
+            services=MagicMock(),
+            metadata={"prompt_orchestrator": prompt_orchestrator},
+        )
+        orchestrator = MagicMock()
+        orchestrator._execution_context = MagicMock(session_id="orchestrator")
+        loop = AgenticLoop(
+            orchestrator=orchestrator,
+            execution_context=execution_context,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
+
+        resolved = loop._resolve_stategraph_execution_context()
+
+        assert resolved is execution_context
+        assert resolved.session_id == "explicit"
+        assert resolved.prompt_orchestrator is prompt_orchestrator
+
     async def test_run_with_stategraph_forwards_conversation_history(self):
         """StateGraph path should preserve prior-turn context at the executor seam."""
         loop = self._make_loop(orchestrator=MagicMock(spec=[]), max_iterations=1)

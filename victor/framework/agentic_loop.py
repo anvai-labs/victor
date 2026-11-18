@@ -593,6 +593,21 @@ class TurnEvaluationOutcome:
 _UNSET_INTENT: Any = object()
 
 
+@dataclass
+class _GraphEvaluatorAdapter:
+    """Adapt the loop's shared evaluation seam to the graph dependency contract."""
+
+    _evaluate: Any
+
+    async def evaluate(
+        self,
+        perception: Any,
+        action_result: Any,
+        state: Dict[str, Any],
+    ) -> Any:
+        return await self._evaluate(perception, action_result, state)
+
+
 class AgenticLoop(TopologyPlanningMixin):
     """Complete agentic loop integrating existing Victor components.
 
@@ -4369,11 +4384,9 @@ class AgenticLoop(TopologyPlanningMixin):
 
             _AgenticLoopGraphExecutor = _Executor
 
+        # The resolver includes the streaming surface's explicit context override;
+        # either composition-root source must receive the same required collaborators.
         execution_context = self._resolve_stategraph_execution_context()
-        if execution_context is None:
-            # FOU-D5f: streaming-loop construction has orchestrator=None; the
-            # surface-provided context (services/session) is the fallback.
-            execution_context = getattr(self, "execution_context_override", None)
         graph_executor = _AgenticLoopGraphExecutor(
             execution_context=execution_context,
             max_iterations=self.max_iterations,
@@ -4389,7 +4402,7 @@ class AgenticLoop(TopologyPlanningMixin):
             graph_executor.planning_coordinator = self.orchestrator.planning_coordinator
         # The graph must share the loop EVALUATE seam (including effect, criteria,
         # disposition and controller post-filters), not call its internal evaluator directly.
-        graph_executor.evaluator = self.evaluate_graph_turn
+        graph_executor.evaluator = _GraphEvaluatorAdapter(self.evaluate_graph_turn)
         if self.fulfillment is not None:
             graph_executor.fulfillment_detector = self.fulfillment
 
@@ -4833,27 +4846,33 @@ class AgenticLoop(TopologyPlanningMixin):
                 yield iteration
 
     def _resolve_stategraph_execution_context(self) -> Any:
-        """Resolve the explicit execution context for StateGraph execution."""
-        from victor.runtime.context import resolve_execution_context
+        """Resolve and prepare the single StateGraph context composition boundary.
 
-        execution_context = resolve_execution_context(self.orchestrator)
+        Explicit per-loop context wins over orchestrator-owned context.  Every accepted
+        ``RuntimeExecutionContext`` then receives the graph-required prompt collaborator
+        before graph construction, regardless of whether the buffered or streaming surface
+        created the loop.  The prompt node itself remains free of module-global fallback.
+        """
+        from victor.runtime.context import RuntimeExecutionContext, resolve_execution_context
+
+        # This is deliberately the only context-source decision for StateGraph.  Keeping
+        # it here prevents each caller from having to know which graph nodes are enabled.
+        execution_context = self.execution_context_override
+        if execution_context is None:
+            execution_context = resolve_execution_context(self.orchestrator)
         if execution_context is None:
             return self.orchestrator
-
-        try:
-            from victor.runtime.context import RuntimeExecutionContext
-
-            if not isinstance(execution_context, RuntimeExecutionContext):
-                return execution_context
-        except Exception:
+        if not isinstance(execution_context, RuntimeExecutionContext):
             return execution_context
 
-        prompt_orchestrator = getattr(self.orchestrator, "_prompt_orchestrator", None)
+        prompt_orchestrator = execution_context.prompt_orchestrator
         if prompt_orchestrator is None:
+            prompt_orchestrator = getattr(self.orchestrator, "_prompt_orchestrator", None)
+        if prompt_orchestrator is None:
+            # Transitional shared-service discovery belongs at this composition boundary,
+            # not in the prompt node.  Once PromptOrchestrator is container-owned this
+            # fallback can be removed without changing node contracts.
             from victor.agent.prompt_orchestrator import get_prompt_orchestrator
 
             prompt_orchestrator = get_prompt_orchestrator()
-
-        if execution_context.prompt_orchestrator is prompt_orchestrator:
-            return execution_context
         return execution_context.with_prompt_orchestrator(prompt_orchestrator)
