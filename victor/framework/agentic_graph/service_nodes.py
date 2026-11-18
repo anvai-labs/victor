@@ -506,7 +506,8 @@ def inject_execution_context(
     # at _resolve_execution_context prefers). Only serializable fields go
     # into the context dict.
     context = dict(state.context or {})
-    if execution_context.session_id:
-        context["session_id"] = execution_context.session_id
+    session_id = getattr(execution_context, "session_id", None)
+    if session_id:
+        context["session_id"] = session_id
 
     return state.model_copy(update={"context": context})
