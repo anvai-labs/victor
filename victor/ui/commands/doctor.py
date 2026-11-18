@@ -428,6 +428,67 @@ class DoctorChecks:
         except Exception:  # pack absent or its API changed: nothing to report
             pass
 
+    def check_mcp_clients(self) -> None:
+        """Detect installed MCP clients and print the exact attach command.
+
+        Victor's MCP server exposes its tools + code intelligence to any MCP
+        client; the adoption friction is only knowing the one-liner. Probe
+        the well-known client config paths and surface the matching command
+        per detected client (mirrors the posture-check pattern: report, and
+        hand the user the exact next command).
+        """
+
+        home = os.path.expanduser("~")
+        clients = [
+            (
+                "Claude Code",
+                os.path.join(home, ".claude.json"),
+                "claude mcp add victor -- victor mcp",
+            ),
+            (
+                "Cursor",
+                os.path.join(home, ".cursor", "mcp.json"),
+                'Add to ~/.cursor/mcp.json: {"mcpServers": {"victor": '
+                '{"command": "victor", "args": ["mcp"]}}}',
+            ),
+            (
+                "Claude Desktop",
+                os.path.join(
+                    home,
+                    "Library",
+                    "Application Support",
+                    "Claude",
+                    "claude_desktop_config.json",
+                ),
+                'Add to claude_desktop_config.json: {"mcpServers": {"victor": '
+                '{"command": "victor", "args": ["mcp"]}}}',
+            ),
+        ]
+        detected = [(name, cmd) for name, path, cmd in clients if os.path.exists(path)]
+        if detected:
+            self.add_check(
+                name="MCP Clients",
+                severity=Severity.INFO,
+                message=(
+                    "Detected: "
+                    + ", ".join(name for name, _ in detected)
+                    + " - attach Victor's toolbox + code intelligence with: "
+                    + " | ".join(cmd for _, cmd in detected)
+                ),
+                suggestion="Run `victor mcp list-tools` to preview the inventory",
+            )
+        else:
+            self.add_check(
+                name="MCP Clients",
+                severity=Severity.INFO,
+                message=(
+                    "No MCP clients detected - expose Victor's tools + code "
+                    "intelligence to Claude Code/Cursor/Claude Desktop via "
+                    "`claude mcp add victor -- victor mcp` (docs/reference/"
+                    "api/mcp-server.md)"
+                ),
+            )
+
     def check_sandbox_posture(self) -> None:
         """Report the effective sandbox posture (ADR-035).
 
@@ -934,6 +995,7 @@ class DoctorChecks:
         self.check_native_extensions()
         self.check_graph_indexing()
         self.check_sandbox_posture()
+        self.check_mcp_clients()
         self.check_api_keys()
         self.check_local_providers()
         self.check_inferflux()
