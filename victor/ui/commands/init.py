@@ -769,6 +769,38 @@ def _ensure_airgapped_env(env_path: Path) -> Optional[bool]:
     return True
 
 
+def _quickstart_runner(**kwargs: Any) -> Any:
+    """Indirection so tests can stub the quickstart entry point.
+
+    Returns a :class:`~victor.ui.commands.quickstart.QuickstartResult`; the
+    lazy import keeps `victor init --help` (and every other subcommand) from
+    paying for the quickstart module.
+    """
+    from victor.ui.commands.quickstart import run_quickstart_sync
+
+    return run_quickstart_sync(**kwargs)
+
+
+def _maybe_run_quickstart(*, quickstart: bool, assume_yes: bool, interactive: bool) -> Any:
+    """Run the quickstart step unless the user opted out with --no-quickstart.
+
+    Non-interactive runs (``--no-interactive`` or ``--yes``) auto-accept model
+    pulls and provisioning; interactive runs ask. Failures never abort init —
+    they are reported and the normal init flow continues.
+
+    When ``init()`` is called programmatically (tests, scripts), Typer passes
+    ``OptionInfo`` objects rather than parsed bools; quickstart then stays off
+    (the same guard the agentic-synthesis path uses) so library callers never
+    trigger network probes or model downloads implicitly.
+    """
+    if quickstart is not True:
+        return None
+    result = _quickstart_runner(assume_yes=assume_yes or not interactive, interactive=interactive)
+    if result is not None and getattr(result, "status", None) == "failed":
+        console.print("[yellow]![/] Quickstart failed — continuing with init anyway.[/]")
+    return result
+
+
 @init_app.callback(invoke_without_command=True)
 def init(
     ctx: typer.Context,
@@ -854,6 +886,20 @@ def init(
         help="Log level: DEBUG, INFO, WARNING, ERROR (default: WARNING).",
         case_sensitive=False,
     ),
+    quickstart: bool = typer.Option(
+        True,
+        "--quickstart/--no-quickstart",
+        help=(
+            "Detect/choose/provision a local inference server first (Ollama, "
+            "llama.cpp, InferFlux) so 'victor chat' works right after init."
+        ),
+    ),
+    assume_yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Assume yes for quickstart prompts (model pulls, downloads, smoke test).",
+    ),
 ) -> None:
     """Initialize project context and configuration."""
     from victor.ui.commands.utils import setup_logging
@@ -878,6 +924,14 @@ def init(
         exit_code = run_onboarding()
         raise typer.Exit(exit_code)
     if ctx.invoked_subcommand is None:
+        # Step 0: quickstart — make sure a local inference server exists so
+        # 'victor chat' works immediately after init. --no-quickstart escapes.
+        _maybe_run_quickstart(
+            quickstart=quickstart,
+            assume_yes=assume_yes,
+            interactive=interactive is True,
+        )
+
         paths = get_project_paths()
 
         # Step 1: Global config setup

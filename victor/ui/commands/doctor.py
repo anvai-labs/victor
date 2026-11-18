@@ -565,6 +565,86 @@ class DoctorChecks:
                 ),
             )
 
+    def check_local_llama_server(self) -> None:
+        """Check the quickstart-managed llama.cpp daemon (healthz, 2s budget).
+
+        Mirrors :meth:`check_inferflux`: a healthy daemon is a success, a PID
+        file whose daemon no longer answers ``/health`` is a warning (stale
+        daemon), and no daemon at all is informational — the llama.cpp
+        provisioning path is a quickstart last resort, not a requirement.
+        """
+        import httpx
+
+        from victor.ui.commands.quickstart import LLAMACPP_BASE_URL
+
+        pid_file = self._get_effective_config_dir() / "llama-server.pid"
+        pid: str | None = None
+        if pid_file.exists():
+            try:
+                pid = pid_file.read_text().strip()
+            except OSError:
+                pid = None
+
+        try:
+            response = httpx.get(LLAMACPP_BASE_URL + "/health", timeout=2.0)
+        except Exception:
+            if pid:
+                self.add_check(
+                    name="Local Server: llama.cpp daemon",
+                    severity=Severity.WARNING,
+                    message=f"Managed llama-server daemon (PID {pid}) is not responding",
+                    suggestion=(
+                        "Remove the stale PID file and re-run 'victor init' to restart it: "
+                        f"rm {pid_file}"
+                    ),
+                )
+            else:
+                self.add_check(
+                    name="Local Server: llama.cpp",
+                    severity=Severity.INFO,
+                    message=f"No llama.cpp server running on {LLAMACPP_BASE_URL}",
+                    suggestion=(
+                        "'victor init' can download and start one automatically "
+                        "(or use Ollama instead)"
+                    ),
+                )
+            return
+
+        if response.status_code == 200:
+            try:
+                ok = response.json().get("status") == "ok"
+            except Exception:  # noqa: BLE001 — non-JSON 200 still means alive
+                ok = True
+            if ok:
+                self.add_check(
+                    name="Local Server: llama.cpp",
+                    severity=Severity.SUCCESS,
+                    message=(
+                        "llama.cpp server healthy at http://localhost:8080"
+                        + (f" (PID {pid})" if pid else "")
+                    ),
+                )
+                return
+
+        if pid:
+            self.add_check(
+                name="Local Server: llama.cpp daemon",
+                severity=Severity.WARNING,
+                message=f"Managed llama-server daemon (PID {pid}) returned "
+                f"HTTP {response.status_code}",
+                suggestion=f"Check the daemon log in {self._get_effective_config_dir()}",
+            )
+        else:
+            self.add_check(
+                name="Local Server: llama.cpp",
+                severity=Severity.INFO,
+                message=f"No llama.cpp server running on {LLAMACPP_BASE_URL}",
+                suggestion=(
+                    "'victor init' can download and start one automatically "
+                    "(or use Ollama instead)"
+                ),
+            )
+
     def check_default_model(self) -> None:
         """Check if default model is available in Ollama."""
         try:
@@ -786,6 +866,7 @@ class DoctorChecks:
         self.check_api_keys()
         self.check_local_providers()
         self.check_inferflux()
+        self.check_local_llama_server()
         self.check_default_model()  # Phase 6: Check model existence
         self.check_config_directory()
         self.check_performance_settings()
