@@ -106,6 +106,17 @@ class FanoutBudgetExceeded(ValueError):
     """
 
 
+class FanoutInputBudgetExceeded(ValueError):
+    """A fan-out's aggregate branch-input payload size exceeded
+    ``max_fanout_input_bytes`` (or a payload was unmeasurable under the
+    budget).
+
+    Raised before any branch effect: oversized admission is rejected, not
+    truncated. TD-03: a semaphore alone cannot bound fan-out memory —
+    inputs must be bounded pre-effect or spilled.
+    """
+
+
 @dataclass
 class Edge:
     """Represents an edge between nodes."""
