@@ -76,35 +76,82 @@ _SECCOMP_RET_ALLOW = 0x7FFF0000
 _SECCOMP_RET_ERRNO = 0x00050000
 _EPERM = 1
 
-# Syscall numbers DENIED inside the sandbox, per architecture. The list
-# targets sandbox escape and kernel-integrity surfaces: mounts, namespace
-# manipulation, module loading, kexec, ptrace-style inspection, BPF, the
+# Syscall numbers DENIED inside the sandbox, per architecture. Derived from
+# the Kubernetes/containerd RuntimeDefault seccomp posture (the same baseline
+# the Omnigent reference adopts), restricted to what the kABI-fixed syscall
+# tables actually define per arch. Targets: mounts (legacy AND the new
+# mount API), namespace manipulation, module loading, kexec, ptrace-style
+# inspection, BPF, kernel observability, clock setters, NUMA policy, the
 # keyring API and handle-based name lookup. Everything not listed is ALLOWED
 # (deny-list posture — a workspace shell still needs the vast majority of
-# syscalls). Unknown architectures fail closed (all syscalls denied).
+# syscalls). Unknown architectures fail closed (all syscalls denied), which
+# also covers the compat-ABI seccomp footgun (int $0x80 / x32): unlisted
+# ABIs get EPERM across the board rather than translated allow rules.
+# Numbers verified against asm/unistd_64.h (x86_64) and the preprocessed
+# asm-generic table (aarch64) — several commonly cited values differ per
+# arch (e.g. kexec_file_load is 320 on x86_64 but 294 on aarch64).
 _SECCOMP_DENY_SYSCALLS: dict = {
     "x86_64": (
         165,  # mount
         166,  # umount2
-        203,  # pivot_root
+        155,  # pivot_root
+        161,  # chroot
+        428,  # open_tree
+        429,  # move_mount
+        430,  # fsopen
+        431,  # fsconfig
+        432,  # fsmount
+        433,  # fspick
+        442,  # mount_setattr
         272,  # unshare
         308,  # setns
-        321,  # bpf
-        101,  # ptrace
-        298,  # perf_event_open
-        246,  # kexec_load
-        294,  # kexec_file_load
         175,  # init_module
         313,  # finit_module
         176,  # delete_module
+        174,  # create_module
+        178,  # query_module
+        177,  # get_kernel_syms
+        246,  # kexec_load
+        320,  # kexec_file_load
         304,  # open_by_handle_at
         303,  # name_to_handle_at
-        250,  # keyctl
-        248,  # add_key
-        249,  # request_key
+        180,  # nfsservctl
+        139,  # sysfs
+        156,  # _sysctl
+        136,  # ustat
+        134,  # uselib
+        179,  # quotactl
+        443,  # quotactl_fd
+        321,  # bpf
+        101,  # ptrace
+        298,  # perf_event_open
+        323,  # userfaultfd
+        312,  # kcmp
+        212,  # lookup_dcookie
+        300,  # fanotify_init
+        227,  # clock_settime
+        164,  # settimeofday
+        103,  # syslog (kernel ring buffer)
         169,  # reboot
+        163,  # acct
         167,  # swapon
         168,  # swapoff
+        237,  # mbind
+        256,  # migrate_pages
+        279,  # move_pages
+        238,  # set_mempolicy
+        239,  # get_mempolicy
+        450,  # set_mempolicy_home_node
+        172,  # iopl
+        173,  # ioperm
+        170,  # sethostname
+        171,  # setdomainname
+        153,  # vhangup
+        438,  # pidfd_getfd
+        440,  # process_madvise
+        248,  # add_key
+        249,  # request_key
+        250,  # keyctl
         310,  # process_vm_readv
         311,  # process_vm_writev
     ),
@@ -112,88 +159,162 @@ _SECCOMP_DENY_SYSCALLS: dict = {
         40,  # mount
         39,  # umount2
         41,  # pivot_root
-        266,  # unshare
+        51,  # chroot
+        428,  # open_tree
+        429,  # move_mount
+        430,  # fsopen
+        431,  # fsconfig
+        432,  # fsmount
+        433,  # fspick
+        442,  # mount_setattr
+        97,  # unshare
         268,  # setns
-        280,  # bpf
-        117,  # ptrace
-        241,  # perf_event_open
+        105,  # init_module
+        273,  # finit_module
+        106,  # delete_module
         104,  # kexec_load
         294,  # kexec_file_load
-        105,  # init_module
-        313,  # finit_module
-        106,  # delete_module
         265,  # open_by_handle_at
         264,  # name_to_handle_at
         219,  # keyctl
         217,  # add_key
         218,  # request_key
+        280,  # bpf
+        117,  # ptrace
+        241,  # perf_event_open
+        282,  # userfaultfd
+        272,  # kcmp
+        18,  # lookup_dcookie
+        262,  # fanotify_init
+        112,  # clock_settime
+        170,  # settimeofday
         142,  # reboot
+        116,  # syslog (kernel ring buffer)
         224,  # swapon
         225,  # swapoff
+        89,  # acct
+        235,  # mbind
+        238,  # migrate_pages
+        239,  # move_pages
+        237,  # set_mempolicy
+        236,  # get_mempolicy
+        450,  # set_mempolicy_home_node
+        161,  # sethostname
+        162,  # setdomainname
+        58,  # vhangup
+        438,  # pidfd_getfd
+        440,  # process_madvise
         270,  # process_vm_readv
         271,  # process_vm_writev
+        60,  # quotactl
+        443,  # quotactl_fd
     ),
 }
+
+# clone() flags that create namespaces. clone() itself must stay allowed
+# (threads), so it is denied only when its flag argument carries one of
+# these — the argument-filtered rule Omnigent layers on top of the baseline.
+_CLONE_NEW_FLAG_MASK = (
+    0x00020000  # CLONE_NEWNS
+    | 0x02000000  # CLONE_NEWCGROUP
+    | 0x04000000  # CLONE_NEWUTS
+    | 0x08000000  # CLONE_NEWIPC
+    | 0x10000000  # CLONE_NEWUSER
+    | 0x20000000  # CLONE_NEWPID
+    | 0x40000000  # CLONE_NEWNET
+)
+# clone3() takes its flags through a struct pointer that cBPF cannot
+# inspect; glibc falls back to clone() for thread creation, and kernel
+# seccomp + no-new-privs remain in force for it.
+_CLONE_NR = {"x86_64": 56, "aarch64": 220}
+
+# seccomp_data offsets: nr=0, arch=4, args[0]=16.
+_SECCOMP_DATA_NR = 0
+_SECCOMP_DATA_ARCH = 4
+_SECCOMP_DATA_ARG0 = 16
 
 # Classic-BPF instruction classes (linux/filter.h).
 _BPF_LD_W_ABS = 0x20
 _BPF_JMP_JEQ_K = 0x15
+_BPF_ALU_AND_K = 0x54
 _BPF_RET_K = 0x06
+
+# Per-arch section size: ld nr + n denies + clone jeq + ld args + and + jeq
+# + deny ret + allow ret.
+_SECTION_FIXED = 7
+
+
+def _emit_arch_section(insns: List[Any], deny_nrs: tuple, clone_nr: int) -> None:
+    """Append one architecture section (deny list + clone flag filter).
+
+    Layout (offsets computed from the running instruction index, never
+    hand-counted)::
+
+        ld [0]                          (syscall nr)
+        jeq nr -> deny ; ...            (n deny rules)
+        jeq clone_nr -> flag-check      (jf -> allow)
+        ld [16]                         (args[0] = clone flags)
+        and _CLONE_NEW_FLAG_MASK
+        jeq 0 -> allow                  (jf -> deny: namespace flags present)
+        ret ERRNO(EPERM)                (deny)
+        ret ALLOW
+    """
+    base = len(insns)
+    n = len(deny_nrs)
+    deny_idx = base + 1 + n + 4
+    allow_idx = deny_idx + 1
+    clone_jeq_idx = base + 1 + n
+
+    insns.append((_BPF_LD_W_ABS, 0, 0, _SECCOMP_DATA_NR))
+    for i, nr in enumerate(deny_nrs):
+        jt = deny_idx - (base + 2 + i)
+        # jf=0: cBPF offsets are relative to pc+1, so fall-through to the
+        # next deny check is offset 0 (a value of 1 silently SKIPS a check).
+        insns.append((_BPF_JMP_JEQ_K, jt, 0, nr))
+    # clone(): allow unless the flags request a namespace. jt=0 lands on the
+    # args load at clone_jeq_idx+1 (offsets are relative to pc+1).
+    insns.append((_BPF_JMP_JEQ_K, 0, allow_idx - (clone_jeq_idx + 1), clone_nr))
+    insns.append((_BPF_LD_W_ABS, 0, 0, _SECCOMP_DATA_ARG0))
+    insns.append((_BPF_ALU_AND_K, 0, 0, _CLONE_NEW_FLAG_MASK))
+    # Flag test sits at clone_jeq_idx+3, so offsets are relative to +4.
+    insns.append(
+        (
+            _BPF_JMP_JEQ_K,
+            allow_idx - (clone_jeq_idx + 4),
+            deny_idx - (clone_jeq_idx + 4),
+            0,
+        )
+    )
+    insns.append((_BPF_RET_K, 0, 0, _SECCOMP_RET_ERRNO | _EPERM))
+    insns.append((_BPF_RET_K, 0, 0, _SECCOMP_RET_ALLOW))
 
 
 def build_seccomp_deny_program() -> bytes:
     """Build the classic-BPF deny-list program handed to ``bwrap --seccomp``.
 
-    Layout (jump offsets are relative to the NEXT instruction)::
+    Layout::
 
         0        ld [4]                    (arch)
         1        jeq X86_64   -> x86 section, fall -> 2
         2        jeq AARCH64  -> arm section, fall -> 3
         3        ret ERRNO(EPERM)         (unknown arch fails CLOSED)
-        4..      x86: ld [0]; jeq nr -> deny; ... ; deny ret; allow ret
-        ...      arm: same shape
+        4..      per-arch sections from :func:`_emit_arch_section`
 
     Returns:
         The packed ``sock_filter`` program as bytes (one instruction = 8
         bytes: u16 code, u8 jt, u8 jf, u32 k).
     """
-
-    def _ld(off: int):
-        return (_BPF_LD_W_ABS, 0, 0, off)
-
-    def _jeq(k: int, jt: int, jf: int):
-        return (_BPF_JMP_JEQ_K, jt, jf, k)
-
-    def _ret(k: int):
-        return (_BPF_RET_K, 0, 0, k)
-
-    deny_x86 = _SECCOMP_DENY_SYSCALLS["x86_64"]
-    deny_arm = _SECCOMP_DENY_SYSCALLS["aarch64"]
-    n1, n2 = len(deny_x86), len(deny_arm)
-    ret_errno = _ret(_SECCOMP_RET_ERRNO | _EPERM)
-    ret_allow = _ret(_SECCOMP_RET_ALLOW)
-
-    insns: List[Any] = []
-
-    # Arch dispatch (indices 0-3).
-    insns.append(_ld(4))  # 0: arch
-    insns.append(_jeq(_AUDIT_ARCH_X86_64, jt=2, jf=1))  # 1: -> x86 ld (idx 4); jf -> 2
-    insns.append(_jeq(_AUDIT_ARCH_AARCH64, jt=4 + n1, jf=0))  # 2: -> arm ld (idx 7+n1); jf -> 3
-    insns.append(ret_errno)  # 3: unknown arch fail-closed
-
-    # x86_64 section: ld nr (idx 4), n1 jeqs (5..4+n1), deny (5+n1), allow (6+n1).
-    insns.append(_ld(0))  # 4: syscall nr
-    for i, nr in enumerate(deny_x86):
-        insns.append(_jeq(nr, jt=n1 - 1 - i, jf=1))
-    insns.append(ret_errno)  # 5+n1
-    insns.append(ret_allow)  # 6+n1
-
-    # aarch64 section: ld nr (idx 7+n1), n2 jeqs, deny, allow.
-    insns.append(_ld(0))  # 7+n1
-    for i, nr in enumerate(deny_arm):
-        insns.append(_jeq(nr, jt=n2 - 1 - i, jf=1))
-    insns.append(ret_errno)
-    insns.append(ret_allow)
+    n1 = len(_SECCOMP_DENY_SYSCALLS["x86_64"])
+    insns: List[Any] = [
+        (_BPF_LD_W_ABS, 0, 0, _SECCOMP_DATA_ARCH),  # 0: arch
+        # 1: -> x86 ld (idx 4); jf -> 2 (arm check)
+        (_BPF_JMP_JEQ_K, 2, 0, _AUDIT_ARCH_X86_64),
+        # 2: -> arm ld (idx 4 + n1 + _SECTION_FIXED); jf -> 3
+        (_BPF_JMP_JEQ_K, 4 + n1 + _SECTION_FIXED - 3, 0, _AUDIT_ARCH_AARCH64),
+        (_BPF_RET_K, 0, 0, _SECCOMP_RET_ERRNO | _EPERM),  # 3: unknown arch
+    ]
+    _emit_arch_section(insns, _SECCOMP_DENY_SYSCALLS["x86_64"], _CLONE_NR["x86_64"])
+    _emit_arch_section(insns, _SECCOMP_DENY_SYSCALLS["aarch64"], _CLONE_NR["aarch64"])
 
     return b"".join(struct.pack("<HBBI", code, jt, jf, k) for code, jt, jf, k in insns)
 

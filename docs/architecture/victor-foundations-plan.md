@@ -144,6 +144,18 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
   stash, byte-identical).
 - **Plumbing**: `pass_fds` threaded through `run_managed_process` + sync `subprocess.run`;
   backend `take_pass_fds()`; shell-mode branch covered by a regression test (fd dropped).
+- **S1a follow-up (fou/s1a-seccomp-fix)**: post-merge adversarial pass vs the
+  Omnigent reference found the shipped cBPF chain had fall-through offsets
+  relative to `pc` instead of `pc+1` — the kernel silently skipped alternate
+  deny checks (pivot_root enforced nowhere; several numbers plain wrong, e.g.
+  x86_64 pivot_root is 155 not 203, kexec_file_load 320 not 294; aarch64
+  unshare 97 not 266 — 266 is clock_adjtime, a collateral deny). Fixed with a
+  symbolic-offset section emitter + kernel-truth tests: direct seccomp(2)
+  load validation, full BPF emulator over the verified deny set (now derived
+  from the k8s RuntimeDefault posture, ~60 syscalls/arch), clone(CLONE_NEW*)
+  argument filter added, live probes `unshare=EPERM pivot_root=EPERM
+  cloneNS=EPERM fork=OK`. ALSO: compat-ABI footgun (int $0x80) covered by
+  unknown-arch deny-all.
 - **Pending for S1b gate**: macOS CI-matrix qualification of the deny-default Seatbelt
   profile (local host is Linux; profile construction covered by unit tests only).
 
