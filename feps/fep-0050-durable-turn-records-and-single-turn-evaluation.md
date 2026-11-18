@@ -57,6 +57,8 @@ The canonical agentic state is a frozen Pydantic value object, not a mutable dic
 
 A plain dict remains the generic StateGraph compatibility format and the legacy migration input. A dataclass was rejected as the canonical representation because it provides fewer validation and JSON-mode guarantees. A DAO was rejected as live state because it would give workflow values persistence identity and hide service behavior inside state. Recursive runtime-handle-aware copying is therefore compatibility support for legacy dict graphs; canonical agentic execution uses shallow immutable value copies plus explicit collaborators.
 
+The run's original action intent is an explicit durable scalar, captured from the first PERCEIVE boundary and preserved separately from later perception drift. It is authorization scope, not the current turn's descriptive intent: continuation guidance may preserve that scope, but must not upgrade a read-only request into write behavior because a later turn reclassified itself. Legacy states without the scalar fall back to their current perception for compatibility.
+
 This also avoids treating serialization as a reason to flatten the domain model. The durable projection is typed, versioned, and reconstructable, while non-JSON runtime behavior remains in collaborators that are rebuilt for the resumed run.
 
 ### Durable turn record
@@ -162,6 +164,7 @@ The framework gains an additive compile option. Existing generic StateGraph chec
 - [ ] ACT is checkpointed; PROMPT/PERCEIVE/PLAN/EVALUATE are not.
 - [ ] Interrupt-before and interrupt-after save regardless of `checkpoint_after_nodes`.
 - [ ] Buffered, streamed, and StateGraph paths use the same completed-turn evaluation owner.
+- [ ] Run-owned original intent survives perception drift without upgrading authorization scope.
 - [ ] Terminal policy errors propagate through node, runtime, executor, stream, and loop boundaries.
 - [ ] Documentation claims turn-boundary streaming parity, not token-level parity.
 

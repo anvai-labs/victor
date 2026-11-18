@@ -139,6 +139,9 @@ class AgenticLoopStateModel(BaseModel):
 
     # Perception results
     perception: Optional[Dict[str, Any]] = Field(default=None)
+    # Run-owned authorization scope, captured from the first perception and
+    # deliberately distinct from later perception drift during continuation.
+    original_intent: Optional[str] = Field(default=None)
     task_type: Optional[str] = Field(default=None)
     complexity: Optional[str] = Field(default=None)
 

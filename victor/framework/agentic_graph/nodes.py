@@ -161,6 +161,7 @@ async def perceive_node(
             update={
                 "stage": "perceive",
                 "perception": perception,
+                "original_intent": state.original_intent or perception["intent"],
                 "task_type": task_type,
                 "complexity": complexity,
                 "iteration": state.iteration + 1,
@@ -182,6 +183,7 @@ async def perceive_node(
                     "confidence": 0.5,
                     "error": str(e),
                 },
+                "original_intent": state.original_intent or "query",
                 "task_type": "general",
                 "complexity": "medium",
                 "iteration": state.iteration + 1,

@@ -115,6 +115,42 @@ class TestPerceiveNode:
         assert result.stage == "perceive"
         assert result.iteration == 1
 
+    @pytest.mark.asyncio
+    async def test_perceive_node_preserves_run_owned_intent_across_drift(self):
+        """Later perception drift cannot rewrite the run's authorization scope."""
+        state = create_initial_state(query="Explain this repository")
+        state = state.model_copy(update={"original_intent": "read_only"})
+        perception = MagicMock(
+            intent="write_allowed",
+            complexity="medium",
+            task_analysis=MagicMock(task_type="research"),
+            confidence=0.9,
+        )
+        runtime_intelligence = AsyncMock(analyze_turn=AsyncMock(return_value=perception))
+
+        result = await perceive_node(state, runtime_intelligence=runtime_intelligence)
+
+        assert result.perception["intent"] == "write_allowed"
+        assert result.original_intent == "read_only"
+        assert result.model_dump(mode="json")["original_intent"] == "read_only"
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_captures_first_intent_as_durable_primitive(self):
+        """The first perception establishes the run-owned intent as JSON data."""
+        state = create_initial_state(query="Explain this repository")
+        perception = MagicMock(
+            intent="read_only",
+            complexity="medium",
+            task_analysis=MagicMock(task_type="research"),
+            confidence=0.9,
+        )
+        runtime_intelligence = AsyncMock(analyze_turn=AsyncMock(return_value=perception))
+
+        result = await perceive_node(state, runtime_intelligence=runtime_intelligence)
+
+        assert result.original_intent == "read_only"
+        assert result.model_dump(mode="json")["original_intent"] == "read_only"
+
 
 class TestPlanNode:
     """Tests for plan_node."""

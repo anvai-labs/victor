@@ -590,6 +590,9 @@ class TurnEvaluationOutcome:
     turn_decision: TurnDecision
 
 
+_UNSET_INTENT: Any = object()
+
+
 class AgenticLoop(TopologyPlanningMixin):
     """Complete agentic loop integrating existing Victor components.
 
@@ -888,6 +891,7 @@ class AgenticLoop(TopologyPlanningMixin):
         *,
         iteration: int,
         max_iterations: Optional[int] = None,
+        original_intent: Any = _UNSET_INTENT,
     ) -> TurnEvaluationOutcome:
         """Own every observation made after one completed ACT boundary.
 
@@ -918,7 +922,11 @@ class AgenticLoop(TopologyPlanningMixin):
             state,
             iteration=iteration,
             max_iterations=effective_max,
-            intent=getattr(perception, "intent", None),
+            intent=(
+                original_intent
+                if original_intent is not _UNSET_INTENT
+                else getattr(perception, "intent", None)
+            ),
         )
         if evaluation.decision == EvaluationDecision.COMPLETE:
             evaluation = self._apply_turn_disposition(
@@ -1001,6 +1009,7 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        original_intent: Any = _UNSET_INTENT
         # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
         # funded iteration, so a best-effort run always terminates with an
         # honest terminal report rather than a forced RETRY. Consolidation
@@ -1220,6 +1229,8 @@ class AgenticLoop(TopologyPlanningMixin):
                     lambda: self._analyze_turn(query, context, conversation_history)
                 )
                 iteration.perception = perception
+                if i == 1:
+                    original_intent = perception.intent
                 self._last_perception = perception  # Cache for next iteration check
 
                 # Update task_type from perception for more accurate gating
@@ -1367,6 +1378,7 @@ class AgenticLoop(TopologyPlanningMixin):
                         state,
                         iteration=i,
                         max_iterations=effective_max,
+                        original_intent=original_intent,
                     )
                 )
                 evaluation = turn_outcome.evaluation
@@ -2298,6 +2310,7 @@ class AgenticLoop(TopologyPlanningMixin):
         state: Dict[str, Any] = {"query": query, **(context or {})}
         self._reset_run_state()
         effective_max = self.max_iterations
+        original_intent: Any = _UNSET_INTENT
         # FEP-0043: the criteria gate yields (COMPLETE stands) on the final
         # funded iteration, so a best-effort run always terminates with an
         # honest terminal report rather than a forced RETRY. Consolidation
@@ -2327,6 +2340,8 @@ class AgenticLoop(TopologyPlanningMixin):
                 perception = await _loop_guards.run(
                     lambda: self._analyze_turn(query, context, conversation_history)
                 )
+                if i == 1:
+                    original_intent = perception.intent
                 self._last_perception = perception
                 state["iteration"] = i
                 if getattr(perception, "task_analysis", None):
@@ -2386,6 +2401,7 @@ class AgenticLoop(TopologyPlanningMixin):
                         state,
                         iteration=i,
                         max_iterations=effective_max,
+                        original_intent=original_intent,
                     )
                 )
                 evaluation = turn_outcome.evaluation
@@ -4411,10 +4427,25 @@ class AgenticLoop(TopologyPlanningMixin):
         if typed_perception is None:
             raise RuntimeError("StateGraph execution produced no usable perception")
 
+        original_intent: Any = _UNSET_INTENT
+        original_intent_raw = graph_state.get("original_intent")
+        if original_intent_raw is not None:
+            try:
+                original_intent = (
+                    original_intent_raw
+                    if isinstance(original_intent_raw, ActionIntent)
+                    else ActionIntent(original_intent_raw)
+                )
+            except ValueError:
+                logger.warning(
+                    "Ignoring invalid original intent in StateGraph state: %r",
+                    original_intent_raw,
+                )
         outcome = await self.evaluate_completed_turn(
             typed_perception,
             live_action_result,
             graph_state,
+            original_intent=original_intent,
             iteration=int(graph_state.get("iteration", 0) or 0),
             max_iterations=int(
                 graph_state.get("max_iterations", self.max_iterations) or self.max_iterations
