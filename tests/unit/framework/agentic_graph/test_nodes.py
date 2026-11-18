@@ -841,6 +841,25 @@ class TestTurnResultFlowsToEvaluator:
         assert published is not None and published.content == "SOAK-OK"
         assert completed.to_dict()["action_result"]["schema_version"] == "victor.turn.record.v1"
 
+    async def test_stategraph_act_truncates_degenerate_intra_turn_repetition(self):
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.agentic_graph.turn_record import TurnRecordChannel
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        sentence = "Let me check the remote tracking state of the branch. "
+        turn = self._turn(sentence * 200)
+        te = SimpleNamespace(execute_turn=AsyncMock(return_value=turn))
+        state = AgenticLoopStateModel(query="Check the branch state.", max_iterations=5)
+        channel = TurnRecordChannel()
+
+        completed = await act_node(state, turn_executor=te, turn_record_channel=channel)
+
+        assert turn.response.content.count("remote tracking state") == 1
+        assert completed.action_result.content.count("remote tracking state") == 1
+        assert channel.latest_live is turn
+
     async def test_evaluate_node_passes_turn_result_to_evaluator(self):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock

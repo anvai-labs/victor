@@ -181,7 +181,7 @@ async def test_stategraph_executor_applies_verification_gate(monkeypatch):
     loop = make_loop(verifier, retries=1)
     loop.config.executor = AgenticLoopExecutor.STATEGRAPH
     executor = _fake_graph_executor([_graph_result(), _graph_result()])
-    loop._create_stategraph_executor = lambda: executor
+    loop._create_stategraph_executor = lambda turn_record_channel=None: executor
 
     result = await loop.run("task")
 
@@ -210,7 +210,7 @@ async def test_stategraph_executor_passing_verifier_runs_once(monkeypatch):
     loop = make_loop(verifier, retries=1)
     loop.config.executor = AgenticLoopExecutor.STATEGRAPH
     executor = _fake_graph_executor([_graph_result()])
-    loop._create_stategraph_executor = lambda: executor
+    loop._create_stategraph_executor = lambda turn_record_channel=None: executor
 
     result = await loop.run("task")
 
@@ -229,7 +229,7 @@ async def test_stategraph_executor_budget_exhaustion_stops_reentry(monkeypatch):
     loop = make_loop(verifier, retries=1)  # budget: 1 retry
     loop.config.executor = AgenticLoopExecutor.STATEGRAPH
     executor = _fake_graph_executor([_graph_result(), _graph_result(), _graph_result()])
-    loop._create_stategraph_executor = lambda: executor
+    loop._create_stategraph_executor = lambda turn_record_channel=None: executor
 
     result = await loop.run("task")
 

@@ -431,6 +431,7 @@ def _build_fast_path_plan(state: AgenticLoopStateModel) -> Dict[str, Any]:
 async def act_node(
     state: AgenticLoopStateModel,
     turn_executor: Optional[Any] = None,
+    turn_record_channel: Optional[Any] = None,
 ) -> AgenticLoopStateModel:
     """ACT stage: Execute the plan.
 
@@ -464,6 +465,21 @@ async def act_node(
                 is_qa_task=is_qa_task,
             )
 
+            response = getattr(result, "response", None)
+            if response is not None:
+                from victor.agent.streaming.repetition_guard import (
+                    IntraTurnRepetitionDetector,
+                )
+
+                repetition = IntraTurnRepetitionDetector()
+                repeated = repetition.feed(getattr(response, "content", "") or "")
+                if repeated is not None:
+                    response.content = response.content[
+                        : repetition.truncation_point(response.content)
+                    ]
+
+            if turn_record_channel is not None:
+                turn_record_channel.publish_live(result)
             record = TurnRecord.from_turn_result(result)
 
             return state.model_copy(

@@ -598,6 +598,7 @@ class _GraphEvaluatorAdapter:
     """Adapt the loop's shared evaluation seam to the graph dependency contract."""
 
     _evaluate: Any
+    _live_action_result: Any = None
 
     async def evaluate(
         self,
@@ -605,6 +606,11 @@ class _GraphEvaluatorAdapter:
         action_result: Any,
         state: Dict[str, Any],
     ) -> Any:
+        live_resolver = self._live_action_result
+        if callable(live_resolver):
+            live_action_result = live_resolver()
+            if live_action_result is not None:
+                action_result = live_action_result
         return await self._evaluate(perception, action_result, state)
 
 
@@ -997,8 +1003,10 @@ class AgenticLoop(TopologyPlanningMixin):
                 )
             except LoopSpinError as spin:
                 logger.warning("[AgenticLoop] stategraph run terminated by spin guard: %s", spin)
-                record = _turn_records.latest
-                action_result = record.to_turn_result() if record is not None else None
+                action_result = _turn_records.latest_live
+                if action_result is None:
+                    record = _turn_records.latest
+                    action_result = record.to_turn_result() if record is not None else None
                 final_state: Dict[str, Any] = {"query": query}
                 if action_result is not None:
                     final_state["action_result"] = action_result
@@ -4372,7 +4380,10 @@ class AgenticLoop(TopologyPlanningMixin):
 
         return False
 
-    def _create_stategraph_executor(self) -> Any:
+    def _create_stategraph_executor(
+        self,
+        turn_record_channel: Optional[TurnRecordChannel] = None,
+    ) -> Any:
         """Create a configured StateGraph executor with shared service wiring."""
         global _AgenticLoopGraphExecutor
 
@@ -4393,6 +4404,7 @@ class AgenticLoop(TopologyPlanningMixin):
             enable_fulfillment=self.enable_fulfillment_check,
             enable_adaptive_iterations=self.enable_adaptive_iterations,
         )
+        graph_executor.turn_record_channel = turn_record_channel
 
         if self.turn_executor is not None:
             graph_executor.turn_executor = self.turn_executor
@@ -4402,7 +4414,12 @@ class AgenticLoop(TopologyPlanningMixin):
             graph_executor.planning_coordinator = self.orchestrator.planning_coordinator
         # The graph must share the loop EVALUATE seam (including effect, criteria,
         # disposition and controller post-filters), not call its internal evaluator directly.
-        graph_executor.evaluator = _GraphEvaluatorAdapter(self.evaluate_graph_turn)
+        graph_executor.evaluator = _GraphEvaluatorAdapter(
+            self.evaluate_graph_turn,
+            _live_action_result=(
+                lambda: turn_record_channel.latest_live if turn_record_channel is not None else None
+            ),
+        )
         if self.fulfillment is not None:
             graph_executor.fulfillment_detector = self.fulfillment
 
@@ -4701,7 +4718,9 @@ class AgenticLoop(TopologyPlanningMixin):
 
         try:
             self._reset_run_state()
-            graph_executor = self._create_stategraph_executor()
+            graph_executor = self._create_stategraph_executor(
+                turn_record_channel=turn_record_channel
+            )
 
             # Run the graph
             graph_result = await graph_executor.run(
@@ -4757,8 +4776,14 @@ class AgenticLoop(TopologyPlanningMixin):
 
             final_state = graph_result.metadata.get("final_state", {})
 
-            latest_record = turn_record_channel.latest if turn_record_channel is not None else None
-            legacy_turn_result = latest_record.to_turn_result() if latest_record else None
+            legacy_turn_result = (
+                turn_record_channel.latest_live if turn_record_channel is not None else None
+            )
+            if legacy_turn_result is None:
+                latest_record = (
+                    turn_record_channel.latest if turn_record_channel is not None else None
+                )
+                legacy_turn_result = latest_record.to_turn_result() if latest_record else None
             if legacy_turn_result is not None:
                 final_state = {**final_state, "action_result": legacy_turn_result}
 
@@ -4827,7 +4852,7 @@ class AgenticLoop(TopologyPlanningMixin):
         turn_record_channel: Optional[TurnRecordChannel] = None,
     ) -> AsyncIterator[LoopIteration]:
         """Stream agentic-loop iterations through the StateGraph executor."""
-        graph_executor = self._create_stategraph_executor()
+        graph_executor = self._create_stategraph_executor(turn_record_channel=turn_record_channel)
 
         async for event in graph_executor.stream(
             query=query,

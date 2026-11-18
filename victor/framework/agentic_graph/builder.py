@@ -55,6 +55,7 @@ class AgenticLoopDependencies:
     planning_coordinator: Optional[Any] = None
     use_llm_planning: Optional[bool] = None
     turn_executor: Optional[Any] = None
+    turn_record_channel: Optional[Any] = None
     evaluator: Optional[Any] = None
     fulfillment_detector: Optional[Any] = None
     resolvers: dict[str, Callable[[], Any]] = field(default_factory=dict)
@@ -281,7 +282,7 @@ def create_agentic_loop_graph(
             act_node,
             max_iterations=max_iterations,
             dependencies=resolved_dependencies,
-            dependency_names=("turn_executor",),
+            dependency_names=("turn_executor", "turn_record_channel"),
         ),
     )
 
