@@ -35,6 +35,21 @@ def mcp(
         "--stdio/--no-stdio",
         help="Run in stdio mode (for MCP clients)",
     ),
+    http: bool = typer.Option(
+        False,
+        "--http",
+        help="Run as a streamable-HTTP server (requires --api-key or VICTOR_API_KEY)",
+    ),
+    http_port: int = typer.Option(
+        8808,
+        "--http-port",
+        help="Port for --http mode",
+    ),
+    api_key: Optional[str] = typer.Option(
+        None,
+        "--api-key",
+        help="Bearer API key for --http mode (falls back to VICTOR_API_KEY)",
+    ),
     log_level: Optional[str] = typer.Option(
         None,
         "--log-level",
@@ -49,10 +64,32 @@ def mcp(
 ):
     """Run Victor as an MCP server."""
     if ctx.invoked_subcommand is None:
-        _mcp(stdio, log_level, no_graph_tools)
+        # typer>=0.27 vendors its own click and no longer depends on the
+        # click package at all, so the enum must come from typer's copy
+        # (click.core.ParameterSource is a DIFFERENT enum and never matches).
+        from typer._click.core import ParameterSource
+
+        if http and ctx.get_parameter_source("stdio") == ParameterSource.COMMANDLINE:
+            console.print("[red]--http and --stdio are mutually exclusive[/]")
+            raise typer.Exit(1)
+        _mcp(
+            stdio,
+            log_level,
+            no_graph_tools,
+            http=http,
+            http_port=http_port,
+            api_key=api_key,
+        )
 
 
-def _mcp(stdio: bool, log_level: Optional[str], no_graph_tools: bool = False):
+def _mcp(
+    stdio: bool,
+    log_level: Optional[str],
+    no_graph_tools: bool = False,
+    http: bool = False,
+    http_port: int = 8808,
+    api_key: Optional[str] = None,
+):
     # Configure logging to stderr (stdout is for MCP protocol)
     # Validate and normalize log level
     if log_level is not None:
@@ -63,13 +100,34 @@ def _mcp(stdio: bool, log_level: Optional[str], no_graph_tools: bool = False):
     # Use centralized logging config (MCP has specific settings in logging_config.yaml)
     setup_logging(command="mcp", cli_log_level=log_level, stream=sys.stderr)
 
+    if http:
+        # Fail-closed auth: MCP tools execute code, so the HTTP endpoint
+        # must never start without a Bearer key. No anonymous escape.
+        from victor.integrations.mcp.server import run_mcp_server_http
+
+        resolved_key = api_key or os.environ.get("VICTOR_API_KEY")
+        if not resolved_key:
+            console.print(
+                "[red]--http requires --api-key or the VICTOR_API_KEY environment "
+                "variable (MCP tools execute code; unauthenticated HTTP MCP is "
+                "refused fail-closed)[/]"
+            )
+            raise typer.Exit(1)
+        run_sync(
+            run_mcp_server_http(no_graph_tools=no_graph_tools, port=http_port, api_key=resolved_key)
+        )
+        return
+
     if stdio:
         # Preserve the callee's default: only an explicit CLI opt-out is a
         # meaningful bridge argument.
         coroutine = _run_mcp_server(no_graph_tools=True) if no_graph_tools else _run_mcp_server()
         run_sync(coroutine)
     else:
-        console.print("[red]Only stdio mode is currently supported[/]")
+        console.print(
+            "[red]--no-stdio alone is not a mode; use --http (with --api-key or "
+            "VICTOR_API_KEY) for the streamable-HTTP server, or --stdio[/]"
+        )
         raise typer.Exit(1)
 
 

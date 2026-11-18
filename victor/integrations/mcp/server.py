@@ -928,6 +928,39 @@ async def run_mcp_server_stdio(no_graph_tools: bool = False) -> None:
     await assembly.server.start_stdio_server()
 
 
+async def run_mcp_server_http(
+    no_graph_tools: bool = False,
+    host: str = "127.0.0.1",
+    port: int = 8808,
+    api_key: Optional[str] = None,
+) -> None:
+    """Run MCP server over the streamable-HTTP transport (``victor mcp --http``).
+
+    Same transport-agnostic assembly as stdio, different adapter. Auth is
+    fail-closed: an empty ``api_key`` raises before any socket is bound —
+    an unauthenticated MCP HTTP endpoint executes code for anyone.
+    """
+    import os
+
+    import uvicorn
+
+    from victor.integrations.mcp.assembly import create_mcp_server
+    from victor.integrations.mcp.standalone_http import create_standalone_app
+
+    if not api_key or not api_key.strip():
+        raise ValueError(
+            "MCP HTTP mode requires an API key (--api-key or VICTOR_API_KEY); "
+            "unauthenticated MCP over HTTP executes code for anyone (fail-closed)."
+        )
+
+    workspace_root = Path(os.getcwd())
+    assembly = create_mcp_server(workspace_root, no_graph_tools=no_graph_tools)
+    app = create_standalone_app(assembly.server, api_key.strip())
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    await uvicorn.Server(config).serve()
+
+
 def main() -> None:
     """CLI entry point for the ``victor-mcp-server`` console script."""
     if "--no-graph-tools" in sys.argv:

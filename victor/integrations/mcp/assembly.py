@@ -31,16 +31,18 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from victor.integrations.mcp.discovery import register_discovered_tools
 from victor.integrations.mcp.server import (
-    MCPServer,
     _admit_or_refuse,
     apply_graph_tool_flag,
     register_graph_index_resource,
 )
 from victor.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from victor.integrations.mcp.server import MCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,14 @@ def create_mcp_server(
     exec_context: Any = None
     registered_count = 0
     registry: Optional[ToolRegistry] = None
+
+    # MCPServer is imported at CALL time, not module time: binding it at
+    # import would bake in whatever ``victor.integrations.mcp.server``
+    # MCPServer (or its test monkeypatch stand-in) happened to be bound
+    # when this module was FIRST imported — permanently, surviving the
+    # patch's own undo. Late import keeps each assembly call honest.
+    from victor.integrations.mcp.server import MCPServer
+
     try:
         registry = ToolRegistry()
         apply_graph_tool_flag(no_graph_tools)

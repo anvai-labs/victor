@@ -69,6 +69,9 @@ from victor.integrations.api.routes.team_routes import (
     create_router as create_team_router,
 )
 from victor.integrations.api.routes.mcp_routes import create_router as create_mcp_router
+from victor.integrations.api.routes.mcp_transport_routes import (
+    create_router as create_mcp_transport_router,
+)
 from victor.integrations.api.routes.lsp_routes import create_router as create_lsp_router
 from victor.integrations.api.routes.websocket_routes import (
     create_router as create_websocket_router,
@@ -95,6 +98,7 @@ _ROUTER_FACTORIES = [
     create_plan_router,
     create_team_router,
     create_mcp_router,
+    create_mcp_transport_router,
     create_lsp_router,
     create_websocket_router,
     create_viz_router,
@@ -131,6 +135,7 @@ __all__ = [
     "create_plan_router",
     "create_team_router",
     "create_mcp_router",
+    "create_mcp_transport_router",
     "create_lsp_router",
     "create_websocket_router",
 ]

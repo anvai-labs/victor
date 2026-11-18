@@ -79,6 +79,30 @@ class TestGraphToolFlag:
         reset_feature_flag_manager()
 
 
+class TestAssemblyLateBinding:
+    def test_mcpserver_is_late_bound(self, workspace):
+        """Regression (Phase 3 ordering leak): assembly must read
+        ``server.MCPServer`` at CALL time. A module-time binding bakes in
+        whatever test monkeypatch stand-in was active at first import and
+        survives the patch's undo — polluting every later consumer."""
+        import victor.integrations.mcp.server as server_module
+        from victor.integrations.mcp.server import MCPServer as RealMCPServer
+
+        class FakeServer:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def register_resource(self, *args, **kwargs):
+                return None
+
+        with patch.object(server_module, "MCPServer", FakeServer):
+            patched = create_mcp_server(workspace)
+        assert isinstance(patched.server, FakeServer)
+
+        unpatched = create_mcp_server(workspace)
+        assert isinstance(unpatched.server, RealMCPServer)
+
+
 class TestAdmission:
     def test_fail_closed_on_bad_settings(self, workspace):
         """Simulates a settings-read failure: admission returns a refusal,
