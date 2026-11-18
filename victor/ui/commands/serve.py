@@ -3,7 +3,6 @@ import os
 
 import typer
 from typing import Dict, Optional
-from rich.console import Console
 from rich.panel import Panel
 from victor.ui.console import get_console
 
@@ -61,6 +60,15 @@ def serve(
         help="Bearer token for HITL endpoints (or set HITL_AUTH_TOKEN env var)",
         envvar="HITL_AUTH_TOKEN",
     ),
+    generate_api_key: bool = typer.Option(
+        False,
+        "--generate-api-key",
+        help=(
+            "Generate an API key, print a working streaming-curl example, "
+            "and start the server with key auth enabled (agent API in 60 "
+            "seconds)"
+        ),
+    ),
 ):
     """Start the Victor API server for IDE integrations.
 
@@ -84,6 +92,8 @@ def _serve(
     mode: str,
     enable_hitl: bool = False,
     hitl_auth_token: Optional[str] = None,
+    *,
+    generate_api_key: bool = False,
 ):
     # Normalize log level if provided
     if log_level is not None:
@@ -126,7 +136,58 @@ def _serve(
         )
     )
 
-    run_sync(_run_fastapi_server(host, port, profile, mode, enable_hitl, hitl_auth_token))
+    generated_key: Optional[str] = None
+    api_keys = _api_keys_from_env()
+    if generate_api_key:
+        import secrets
+
+        generated_key = f"victor-{secrets.token_urlsafe(32)}"
+        api_keys = {generated_key: "quickstart"}
+        _print_agent_api_quickstart(host, port, generated_key)
+    elif api_keys:
+        console.print("[green]API-key auth enabled via VICTOR_API_KEYS.[/]")
+
+    coroutine = (
+        _run_fastapi_server(
+            host,
+            port,
+            profile,
+            mode,
+            enable_hitl,
+            hitl_auth_token,
+            api_keys=api_keys,
+        )
+        if api_keys
+        else _run_fastapi_server(
+            host,
+            port,
+            profile,
+            mode,
+            enable_hitl,
+            hitl_auth_token,
+        )
+    )
+    run_sync(coroutine)
+
+
+def _print_agent_api_quickstart(host: str, port: int, api_key: str) -> None:
+    """Print the 60-second agent API quickstart: key + working curl."""
+    base = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://127.0.0.1:{port}"
+    console.print(
+        Panel(
+            "[bold]Agent API in 60 seconds[/]\n\n"
+            f"API key: [cyan]{api_key}[/]\n\n"
+            "[dim]Streaming chat:[/]\n"
+            f"  curl -N -X POST {base}/chat -H 'Authorization: Bearer {api_key}'"
+            " -H 'Content-Type: application/json'"
+            ' -d \'{"message": "Explain this repo", "stream": true}\'\n\n'
+            f"[dim]OpenAPI docs:[/] {base}/docs (auth-gated endpoints; "
+            "use the key as a Bearer token)\n\n"
+            f"[dim]Store it:[/] export VICTOR_API_KEYS={api_key}:quickstart",
+            title="Agent API",
+            border_style="green",
+        )
+    )
 
 
 def _api_keys_from_env() -> Dict[str, str]:
@@ -158,6 +219,7 @@ async def _run_fastapi_server(
     mode: str,
     enable_hitl: bool = False,
     hitl_auth_token: Optional[str] = None,
+    api_keys: Optional[Dict[str, str]] = None,
 ) -> None:
     """Run the FastAPI server (modern backend with OpenAPI docs)."""
     try:
@@ -168,7 +230,8 @@ async def _run_fastapi_server(
         from victor.integrations.api.fastapi_server import VictorFastAPIServer
         from victor.framework.session_config import SessionConfig
 
-        api_keys = _api_keys_from_env()
+        if api_keys is None:
+            api_keys = _api_keys_from_env()
         server = VictorFastAPIServer(
             host=host,
             port=port,
@@ -180,8 +243,8 @@ async def _run_fastapi_server(
         )
         if api_keys:
             console.print(
-                f"[green]API-key auth enabled for {len(api_keys)} key(s) "
-                f"(VICTOR_API_KEYS); docs endpoints disabled.[/]"
+                f"[green]API-key auth enabled for {len(api_keys)} key(s); "
+                f"docs endpoints disabled.[/]"
             )
 
         config = uvicorn.Config(

@@ -652,6 +652,44 @@ async def test_execute_via_agentic_loop_passes_conversation_history_to_loop():
 
 
 @pytest.mark.asyncio
+async def test_execute_via_agentic_loop_passes_orchestrator_execution_context_to_loop():
+    """Buffered StateGraph execution must compose with the owning runtime context."""
+    execution_context = SimpleNamespace(session_id="buffered-session")
+    executor = _make_executor()
+    executor._chat_context.settings.chat_max_iterations = 5
+    executor._provider_context.task_classifier = SimpleNamespace(
+        classify=MagicMock(return_value=SimpleNamespace(tool_budget=1))
+    )
+    executor._is_question_only = MagicMock(return_value=False)
+    executor._orchestrator = SimpleNamespace(_execution_context=execution_context)
+
+    response = CompletionResponse(content="done", role="assistant")
+    loop_instance = MagicMock()
+    loop_instance.run = AsyncMock(
+        return_value=LoopResult(
+            success=True,
+            final_state={},
+            total_duration=0.0,
+            iterations=[
+                LoopIteration(
+                    iteration=1,
+                    stage=LoopStage.ACT,
+                    action_result=SimpleNamespace(response=response),
+                )
+            ],
+        )
+    )
+
+    with patch(
+        "victor.framework.agentic_loop.AgenticLoop", return_value=loop_instance
+    ) as loop_class:
+        result = await executor._execute_via_agentic_loop("hello", max_iterations=5)
+
+    assert result is response
+    assert loop_class.call_args.kwargs["execution_context"] is execution_context
+
+
+@pytest.mark.asyncio
 async def test_execute_via_agentic_loop_seeds_tool_budget_above_ten():
     """When the tool service budget is > 10, it should be seeded into the
     initial context so _select_topology doesn't fall back to the hardcoded

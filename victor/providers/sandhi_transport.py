@@ -147,6 +147,20 @@ KNOWN_CONTRACT_MINOR = 14
 # extensions copy once the installed runtime speaks >= this.
 _W3D_TYPED_FIELDS_MINOR = 4
 
+# Stream-timeout ceilings shared by the transport validators and the
+# settings-layer pydantic fields (single source: timeout_profile.py is the
+# documented inventory home; these are the enforcement constants).
+_SANDHI_STREAM_TIMEOUT_MAX_SECS: float = 600.0
+_SANDHI_BODY_TIMEOUT_MAX_SECS: float = 840.0
+_SANDHI_BODY_TIMEOUT_MIN_MS = 1
+
+# First chat-contract minor that parses x-sandhi-stream-body-budget-ms
+# (sandhi 0.21.0). MUST match the gateway's declared bump — the sandhi
+# session owns the authoritative number; until confirmed, the header is
+# dropped (with a one-time warning) for older bindings rather than sent
+# blind.
+_STREAM_BODY_BUDGET_MINOR = 14  # body-budget shipped with contract minor 14 (#1895, post-#1891)
+
 # Non-openai families whose sandhi encoder is a NATIVE translator (it clones
 # extensions[<family>] as the base request body). Victor's neutral mixin builds
 # an OpenAI-shaped bucket, so re-labeling it to these keys lets openai-shaped
@@ -920,14 +934,37 @@ class SandhiTypedProviderMixin:
                 pass
         return declared
 
+    @staticmethod
+    def _validated_sandhi_timeout(
+        value: Any, *, label: str, hi: float, min_ms: int | None = None
+    ) -> float:
+        """Shared validator for the sandhi extra-config stream-timeout knobs.
+
+        One validation site per knob class: bool rejection, finite-number
+        coercion, positive-ceiling bounds, and (for the body budget) the
+        one-millisecond floor. Mode-independent — a misconfiguration fails
+        the same way in gateway and direct dispatch.
+        """
+        floor = (
+            f"one millisecond and {hi:g} seconds" if min_ms is not None else f"0 and {hi:g} seconds"
+        )
+        if isinstance(value, bool):
+            raise ValueError(f"{label} must be finite and between {floor}")
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{label} must be a finite number of seconds") from None
+        if not math.isfinite(numeric) or numeric <= 0 or numeric > hi:
+            raise ValueError(f"{label} must be finite and between {floor}")
+        if min_ms is not None and numeric * 1000 < min_ms:
+            raise ValueError(f"{label} must represent at least {min_ms} milliseconds")
+        return numeric
+
     def _sandhi_stream_idle_timeout(self) -> float:
         value = (getattr(self, "extra_config", None) or {}).get("stream_idle_timeout_secs", 90.0)
-        if isinstance(value, bool):
-            raise ValueError("stream idle timeout must be finite and between 0 and 600 seconds")
-        value = float(value)
-        if not math.isfinite(value) or not 0 < value <= 600:
-            raise ValueError("stream idle timeout must be finite and between 0 and 600 seconds")
-        return value
+        return self._validated_sandhi_timeout(
+            value, label="stream idle timeout", hi=_SANDHI_STREAM_TIMEOUT_MAX_SECS
+        )
 
     def _sandhi_stream_setup_timeout(self) -> float:
         """Stream-setup (time-to-first-byte) budget forwarded to Sandhi.
@@ -937,12 +974,9 @@ class SandhiTypedProviderMixin:
         prompts), overridable per provider via ``stream_setup_timeout_secs``.
         """
         value = (getattr(self, "extra_config", None) or {}).get("stream_setup_timeout_secs", 90.0)
-        if isinstance(value, bool):
-            raise ValueError("stream setup timeout must be finite and between 0 and 600 seconds")
-        value = float(value)
-        if not math.isfinite(value) or not 0 < value <= 600:
-            raise ValueError("stream setup timeout must be finite and between 0 and 600 seconds")
-        return value
+        return self._validated_sandhi_timeout(
+            value, label="stream setup timeout", hi=_SANDHI_STREAM_TIMEOUT_MAX_SECS
+        )
 
     def _sandhi_stream_body_timeout_secs(self) -> Optional[float]:
         """Optional body-duration hint sent to gateway policy preflight.
@@ -954,22 +988,42 @@ class SandhiTypedProviderMixin:
         value = (getattr(self, "extra_config", None) or {}).get("stream_body_timeout_secs")
         if value is None:
             return None
-        if isinstance(value, bool):
-            raise ValueError("stream body timeout must be finite and between 0 and 840 seconds")
-        numeric = float(value)
-        if not math.isfinite(numeric) or not 0 < numeric <= 840 or numeric * 1000 < 1:
-            raise ValueError(
-                "stream body timeout must be finite, between one millisecond and 840 seconds"
-            )
-        return numeric
+        return self._validated_sandhi_timeout(
+            value,
+            label="stream body timeout",
+            hi=_SANDHI_BODY_TIMEOUT_MAX_SECS,
+            min_ms=_SANDHI_BODY_TIMEOUT_MIN_MS,
+        )
 
-    def _sandhi_stream_wire_headers(self) -> Dict[str, str]:
+    def _sandhi_base_wire_headers(self) -> Dict[str, str]:
+        """Gateway per-call headers shared by the streaming and buffered paths.
+
+        Single construction site so the two dispatch modes cannot drift
+        (blocked-header filtering, step-id headers, etc.)."""
         if self._gateway_overrides() is None:
             return {}
-        headers = _gateway_wire_headers(_wire_call_headers())
+        return _gateway_wire_headers(_wire_call_headers())
+
+    def _sandhi_stream_wire_headers(self) -> Dict[str, str]:
+        # Validate unconditionally: a misconfigured knob must fail the same
+        # way in direct mode as in gateway mode (fail fast, not silently no-op).
         body_timeout = self._sandhi_stream_body_timeout_secs()
-        if body_timeout is not None:
-            headers["x-sandhi-stream-body-budget-ms"] = str(int(body_timeout * 1000))
+        headers = self._sandhi_base_wire_headers()
+        if body_timeout is None:
+            return headers
+        if installed_chat_contract_minor() >= _STREAM_BODY_BUDGET_MINOR:
+            # round(), not int(): fractional-millisecond budgets must not be
+            # silently floored below the caller's requested value.
+            headers["x-sandhi-stream-body-budget-ms"] = str(round(body_timeout * 1000))
+        else:
+            logger.warning(
+                "stream_body_timeout_secs is set but the installed sandhi "
+                "binding (chat contract minor %d) predates the body-budget "
+                "preflight (needs minor %d); the knob is inert for this "
+                "connection.",
+                installed_chat_contract_minor(),
+                _STREAM_BODY_BUDGET_MINOR,
+            )
         return headers
 
     def _sandhi_timeout(self) -> float:
@@ -1219,11 +1273,7 @@ class SandhiTypedProviderMixin:
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
         # Per-call step headers (gateway mode only — direct mode stays byte-identical).
-        call_headers = (
-            _gateway_wire_headers(_wire_call_headers())
-            if self._gateway_overrides() is not None
-            else {}
-        )
+        call_headers = self._sandhi_base_wire_headers()
         wire_headers = json.dumps(call_headers) if call_headers else None
         try:
             value = await asyncio.wait_for(

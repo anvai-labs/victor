@@ -123,6 +123,35 @@ class TestPerceiveNode:
         assert result.original_intent == "ambiguous"
 
     @pytest.mark.asyncio
+    async def test_perceive_node_unwraps_runtime_intelligence_snapshot(self):
+        """The graph consumes the snapshot's nested Perception, not snapshot internals."""
+        perception = MagicMock(
+            intent="read_only",
+            complexity="low",
+            confidence=0.9,
+        )
+        from victor.agent.services.runtime_intelligence import RuntimeIntelligenceSnapshot
+
+        snapshot = RuntimeIntelligenceSnapshot(
+            query="Explain this repository",
+            perception=perception,
+            task_analysis=MagicMock(task_type="research"),
+        )
+        runtime_intelligence = AsyncMock(analyze_turn=AsyncMock(return_value=snapshot))
+
+        result = await perceive_node(
+            create_initial_state(query="Explain this repository"),
+            runtime_intelligence=runtime_intelligence,
+        )
+
+        assert result.perception == {
+            "intent": "read_only",
+            "complexity": "low",
+            "confidence": 0.9,
+        }
+        assert result.task_type == "research"
+
+    @pytest.mark.asyncio
     async def test_perceive_node_rejects_invalid_service_intent(self):
         runtime_intelligence = AsyncMock()
         runtime_intelligence.analyze_turn = AsyncMock(
@@ -811,6 +840,25 @@ class TestTurnResultFlowsToEvaluator:
         published = channel.latest
         assert published is not None and published.content == "SOAK-OK"
         assert completed.to_dict()["action_result"]["schema_version"] == "victor.turn.record.v1"
+
+    async def test_stategraph_act_truncates_degenerate_intra_turn_repetition(self):
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.agentic_graph.turn_record import TurnRecordChannel
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        sentence = "Let me check the remote tracking state of the branch. "
+        turn = self._turn(sentence * 200)
+        te = SimpleNamespace(execute_turn=AsyncMock(return_value=turn))
+        state = AgenticLoopStateModel(query="Check the branch state.", max_iterations=5)
+        channel = TurnRecordChannel()
+
+        completed = await act_node(state, turn_executor=te, turn_record_channel=channel)
+
+        assert turn.response.content.count("remote tracking state") == 1
+        assert completed.action_result.content.count("remote tracking state") == 1
+        assert channel.latest_live is turn
 
     async def test_evaluate_node_passes_turn_result_to_evaluator(self):
         from types import SimpleNamespace

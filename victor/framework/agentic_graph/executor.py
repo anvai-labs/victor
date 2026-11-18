@@ -163,6 +163,22 @@ def _turn_record_observer(
         if isinstance(record, TurnRecord):
             channel.publish(record)
 
+    async def observe_checkpoint_failure(
+        node_id: str,
+        state: Any,
+        _error: Optional[str],
+        _duration: float,
+    ) -> None:
+        # Durable checkpoint failure must not publicly announce node completion,
+        # but the completed ACT projection remains recoverable for this run.
+        if node_id != "act" or channel is None:
+            return
+        record = getattr(state, "action_result", None)
+        if isinstance(record, TurnRecord):
+            channel.publish(record)
+
+    observe.observe_checkpoint_failure = observe_checkpoint_failure
+
     return observe
 
 
@@ -228,6 +244,7 @@ class AgenticLoopGraphExecutor:
         self.runtime_intelligence: Optional[Any] = None
         self.planning_coordinator: Optional[Any] = None
         self.turn_executor: Optional[TurnExecutor] = None
+        self.turn_record_channel: Optional[TurnRecordChannel] = None
         self.evaluator: Optional[Any] = None
         self.fulfillment_detector: Optional[Any] = None
         self.dependencies = AgenticLoopDependencies(
@@ -237,6 +254,7 @@ class AgenticLoopGraphExecutor:
                 "planning_coordinator": lambda: self.planning_coordinator,
                 "use_llm_planning": lambda: self.planning_coordinator is not None,
                 "turn_executor": lambda: self.turn_executor,
+                "turn_record_channel": lambda: self.turn_record_channel,
                 "evaluator": lambda: self.evaluator,
                 "fulfillment_detector": lambda: self.fulfillment_detector,
             }

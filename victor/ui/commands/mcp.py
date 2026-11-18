@@ -64,7 +64,10 @@ def _mcp(stdio: bool, log_level: Optional[str], no_graph_tools: bool = False):
     setup_logging(command="mcp", cli_log_level=log_level, stream=sys.stderr)
 
     if stdio:
-        run_sync(_run_mcp_server(no_graph_tools=no_graph_tools))
+        # Preserve the callee's default: only an explicit CLI opt-out is a
+        # meaningful bridge argument.
+        coroutine = _run_mcp_server(no_graph_tools=True) if no_graph_tools else _run_mcp_server()
+        run_sync(coroutine)
     else:
         console.print("[red]Only stdio mode is currently supported[/]")
         raise typer.Exit(1)

@@ -593,6 +593,27 @@ class TurnEvaluationOutcome:
 _UNSET_INTENT: Any = object()
 
 
+@dataclass
+class _GraphEvaluatorAdapter:
+    """Adapt the loop's shared evaluation seam to the graph dependency contract."""
+
+    _evaluate: Any
+    _live_action_result: Any = None
+
+    async def evaluate(
+        self,
+        perception: Any,
+        action_result: Any,
+        state: Dict[str, Any],
+    ) -> Any:
+        live_resolver = self._live_action_result
+        if callable(live_resolver):
+            live_action_result = live_resolver()
+            if live_action_result is not None:
+                action_result = live_action_result
+        return await self._evaluate(perception, action_result, state)
+
+
 class AgenticLoop(TopologyPlanningMixin):
     """Complete agentic loop integrating existing Victor components.
 
@@ -982,8 +1003,10 @@ class AgenticLoop(TopologyPlanningMixin):
                 )
             except LoopSpinError as spin:
                 logger.warning("[AgenticLoop] stategraph run terminated by spin guard: %s", spin)
-                record = _turn_records.latest
-                action_result = record.to_turn_result() if record is not None else None
+                action_result = _turn_records.latest_live
+                if action_result is None:
+                    record = _turn_records.latest
+                    action_result = record.to_turn_result() if record is not None else None
                 final_state: Dict[str, Any] = {"query": query}
                 if action_result is not None:
                     final_state["action_result"] = action_result
@@ -4357,7 +4380,10 @@ class AgenticLoop(TopologyPlanningMixin):
 
         return False
 
-    def _create_stategraph_executor(self) -> Any:
+    def _create_stategraph_executor(
+        self,
+        turn_record_channel: Optional[TurnRecordChannel] = None,
+    ) -> Any:
         """Create a configured StateGraph executor with shared service wiring."""
         global _AgenticLoopGraphExecutor
 
@@ -4369,17 +4395,16 @@ class AgenticLoop(TopologyPlanningMixin):
 
             _AgenticLoopGraphExecutor = _Executor
 
+        # The resolver includes the streaming surface's explicit context override;
+        # either composition-root source must receive the same required collaborators.
         execution_context = self._resolve_stategraph_execution_context()
-        if execution_context is None:
-            # FOU-D5f: streaming-loop construction has orchestrator=None; the
-            # surface-provided context (services/session) is the fallback.
-            execution_context = getattr(self, "execution_context_override", None)
         graph_executor = _AgenticLoopGraphExecutor(
             execution_context=execution_context,
             max_iterations=self.max_iterations,
             enable_fulfillment=self.enable_fulfillment_check,
             enable_adaptive_iterations=self.enable_adaptive_iterations,
         )
+        graph_executor.turn_record_channel = turn_record_channel
 
         if self.turn_executor is not None:
             graph_executor.turn_executor = self.turn_executor
@@ -4389,7 +4414,12 @@ class AgenticLoop(TopologyPlanningMixin):
             graph_executor.planning_coordinator = self.orchestrator.planning_coordinator
         # The graph must share the loop EVALUATE seam (including effect, criteria,
         # disposition and controller post-filters), not call its internal evaluator directly.
-        graph_executor.evaluator = self.evaluate_graph_turn
+        graph_executor.evaluator = _GraphEvaluatorAdapter(
+            self.evaluate_graph_turn,
+            _live_action_result=(
+                lambda: turn_record_channel.latest_live if turn_record_channel is not None else None
+            ),
+        )
         if self.fulfillment is not None:
             graph_executor.fulfillment_detector = self.fulfillment
 
@@ -4688,7 +4718,9 @@ class AgenticLoop(TopologyPlanningMixin):
 
         try:
             self._reset_run_state()
-            graph_executor = self._create_stategraph_executor()
+            graph_executor = self._create_stategraph_executor(
+                turn_record_channel=turn_record_channel
+            )
 
             # Run the graph
             graph_result = await graph_executor.run(
@@ -4744,8 +4776,14 @@ class AgenticLoop(TopologyPlanningMixin):
 
             final_state = graph_result.metadata.get("final_state", {})
 
-            latest_record = turn_record_channel.latest if turn_record_channel is not None else None
-            legacy_turn_result = latest_record.to_turn_result() if latest_record else None
+            legacy_turn_result = (
+                turn_record_channel.latest_live if turn_record_channel is not None else None
+            )
+            if legacy_turn_result is None:
+                latest_record = (
+                    turn_record_channel.latest if turn_record_channel is not None else None
+                )
+                legacy_turn_result = latest_record.to_turn_result() if latest_record else None
             if legacy_turn_result is not None:
                 final_state = {**final_state, "action_result": legacy_turn_result}
 
@@ -4814,7 +4852,7 @@ class AgenticLoop(TopologyPlanningMixin):
         turn_record_channel: Optional[TurnRecordChannel] = None,
     ) -> AsyncIterator[LoopIteration]:
         """Stream agentic-loop iterations through the StateGraph executor."""
-        graph_executor = self._create_stategraph_executor()
+        graph_executor = self._create_stategraph_executor(turn_record_channel=turn_record_channel)
 
         async for event in graph_executor.stream(
             query=query,
@@ -4833,27 +4871,33 @@ class AgenticLoop(TopologyPlanningMixin):
                 yield iteration
 
     def _resolve_stategraph_execution_context(self) -> Any:
-        """Resolve the explicit execution context for StateGraph execution."""
-        from victor.runtime.context import resolve_execution_context
+        """Resolve and prepare the single StateGraph context composition boundary.
 
-        execution_context = resolve_execution_context(self.orchestrator)
+        Explicit per-loop context wins over orchestrator-owned context.  Every accepted
+        ``RuntimeExecutionContext`` then receives the graph-required prompt collaborator
+        before graph construction, regardless of whether the buffered or streaming surface
+        created the loop.  The prompt node itself remains free of module-global fallback.
+        """
+        from victor.runtime.context import RuntimeExecutionContext, resolve_execution_context
+
+        # This is deliberately the only context-source decision for StateGraph.  Keeping
+        # it here prevents each caller from having to know which graph nodes are enabled.
+        execution_context = self.execution_context_override
+        if execution_context is None:
+            execution_context = resolve_execution_context(self.orchestrator)
         if execution_context is None:
             return self.orchestrator
-
-        try:
-            from victor.runtime.context import RuntimeExecutionContext
-
-            if not isinstance(execution_context, RuntimeExecutionContext):
-                return execution_context
-        except Exception:
+        if not isinstance(execution_context, RuntimeExecutionContext):
             return execution_context
 
-        prompt_orchestrator = getattr(self.orchestrator, "_prompt_orchestrator", None)
+        prompt_orchestrator = execution_context.prompt_orchestrator
         if prompt_orchestrator is None:
+            prompt_orchestrator = getattr(self.orchestrator, "_prompt_orchestrator", None)
+        if prompt_orchestrator is None:
+            # Transitional shared-service discovery belongs at this composition boundary,
+            # not in the prompt node.  Once PromptOrchestrator is container-owned this
+            # fallback can be removed without changing node contracts.
             from victor.agent.prompt_orchestrator import get_prompt_orchestrator
 
             prompt_orchestrator = get_prompt_orchestrator()
-
-        if execution_context.prompt_orchestrator is prompt_orchestrator:
-            return execution_context
         return execution_context.with_prompt_orchestrator(prompt_orchestrator)

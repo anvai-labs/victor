@@ -98,3 +98,26 @@ def test_growing_input_cannot_extend_captured_hash_budget(tmp_path, monkeypatch)
     with pytest.raises(RuntimeError, match="changed"):
         module.artifact(index)
     assert sizes == [initial_size, 1]
+
+
+class TestImplementationOrdering:
+    """Adversarial-review follow-up: implementation key order is deterministic
+    and derived from the allowlist (single source of truth)."""
+
+    def test_implementation_keys_are_sorted(self):
+        pytest.importorskip("victor_codegraph.embeddings")
+        from scripts.benchmark_scip_scope import implementation
+
+        keys = list(implementation().keys())
+        assert keys == sorted(keys)
+
+    def test_allowlist_drives_implementation(self):
+        pytest.importorskip("victor_codegraph.embeddings")
+        from scripts.benchmark_scip_scope import _BENCHMARK_MODULE_ALLOWLIST, implementation
+
+        result = implementation()
+        # Every allowlisted module that imports successfully appears; the only
+        # sanctioned absence is the optional pre-scip_documents reference.
+        for module_name in _BENCHMARK_MODULE_ALLOWLIST:
+            name = module_name.rsplit(".", 1)[-1]
+            assert name in result

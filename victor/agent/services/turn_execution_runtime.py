@@ -63,6 +63,7 @@ from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
 from victor.core.provider_messages import CompletionResponse
 from victor.framework.agentic_loop_executor import AgenticLoopExecutor
+from victor.runtime.context import resolve_execution_context
 
 if TYPE_CHECKING:
     from victor.framework.agentic_loop import LoopResult
@@ -1206,6 +1207,7 @@ class TurnExecutor:
         runtime_intelligence = getattr(orchestrator, "_runtime_intelligence", None)
         loop = AgenticLoop(
             orchestrator=None,
+            execution_context=resolve_execution_context(orchestrator),
             turn_executor=self,
             runtime_intelligence=runtime_intelligence,
             max_iterations=iteration_budget,

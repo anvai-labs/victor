@@ -505,7 +505,10 @@ def process_tool_results_with_context(
                         "images": images,
                         "tool_diagnostics": tool_diagnostics,
                         "was_pruned": was_pruned,
-                        "pruning_info": pruning_info,
+                        # Pruning metadata is preview diagnostics. Keep its durable
+                        # representation bounded and JSON-safe; TurnRecord rejects
+                        # arbitrary live dataclasses at the graph boundary.
+                        "pruning_info": (str(pruning_info) if pruning_info is not None else None),
                         "tool_call_id": tool_call_id,
                         "content": content,
                         "skipped": skipped,
