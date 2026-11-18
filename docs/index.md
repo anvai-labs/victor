@@ -8,9 +8,9 @@
     Victor is a contract-first agent framework for tool use, compiled workflows and
     multi-agent coordination across local and cloud providers.
 
-    **Prepared source candidate:** Victor AI 0.31.0 (2026-11-17), pinning the
-    qualified `sandhi-gateway==0.20.0` binding. **Published baseline:** Victor AI
-    0.30.0 (2026-11-16), which pinned `sandhi-gateway==0.20.0`.
+    **Prepared maintenance candidate:** Victor AI 0.31.1 (2026-11-18), pinning the
+    published `sandhi-gateway==0.21.0` binding. **Published baseline:** Victor AI
+    0.31.0 (2026-11-18), which pinned `sandhi-gateway==0.20.0`.
 
 **Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.12+
 
@@ -72,10 +72,10 @@ flowchart TB
 
 ## Delivery State
 
-| Surface | Current 0.31.0 source-candidate state | Remaining work |
+| Surface | Current 0.31.1 maintenance-candidate state | Remaining work |
 | --- | --- | --- |
-| Release and artifacts | Victor AI/native 0.31.0 source metadata is prepared; 0.30.0 remains the published artifact baseline | Protected release workflow, registry verification and installed-artifact smoke remain open. |
-| Execution contract | Current source pins the digest-qualified official `sandhi-gateway==0.20.0` binding | No managed-service upgrade, live provider call or unattended operation is claimed. |
+| Release and artifacts | Victor AI/native 0.31.0 artifacts are published; 0.31.1 source metadata is prepared for the Sandhi alignment maintenance | Protected release workflow, registry verification and installed-artifact smoke remain open. |
+| Execution contract | Current source pins the official `sandhi-gateway==0.21.0` binding | No managed-service upgrade, live provider call or unattended operation is claimed. |
 | Tool supply and teams | Unified turn pipeline, expanded formations, isolation and usage guards are included | Acceptance gaps remain tracked; this release does not certify every live formation. |
 | Runtime structure | Service-owned turn frame, lifecycle-owned retry, durable graph checkpoints and StateGraph deadline/verification/streaming parity are present | Broader runtime inversion, general client routing, broader graph continuation and retained safety gaps remain open. |
 | RL measurement and sessions | Outcome-category schema v10, structured shell/graph diagnostics and server-owned scoped session admission are included | Broader learner/provider-routing optimization remains data-gated. |
@@ -212,8 +212,8 @@ Contributions use conventional commits and the checks documented in the PR workf
 
 ## Current work and historical evidence
 
-The [roadmap](roadmap.md) distinguishes the prepared 0.31.0 source candidate,
-the published 0.30.0 artifact baseline, and unfinished structural work. The
+The [roadmap](roadmap.md) distinguishes the prepared 0.31.1 maintenance candidate,
+the published 0.31.0 artifact baseline, and unfinished structural work. The
 [Stage C reassessment](architecture/stage-c-reassessment.md) is a dated
 2026-10-04 snapshot, not the current release-status page.
 The [September co-design review](reviews/2026-09-03-codesign/README.md) preserves dated findings;
