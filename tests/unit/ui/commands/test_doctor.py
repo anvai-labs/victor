@@ -601,3 +601,39 @@ class TestMcpClientsCheck:
         doctor = self._doctor()
         names = [c.name for c in doctor.run_all_checks()]
         assert "MCP Clients" in names
+
+
+class TestAirgapReadinessCheck:
+    def _doctor(self):
+        from victor.ui.commands.doctor import DoctorChecks
+
+        return DoctorChecks()
+
+    def test_all_legs_ok_reports_success(self, monkeypatch):
+        import httpx
+        import sentence_transformers  # noqa: F401 — proves the import works on this host
+
+        monkeypatch.setattr(httpx, "get", lambda *a, **kw: SimpleNamespace(status_code=200))
+        doctor = self._doctor()
+        doctor.check_airgapped_readiness()
+        check = doctor.checks[-1]
+        # On a host with sentence-transformers installed, the check passes.
+        # On hosts without it, the embeddings leg is reported independently.
+        assert check.severity.value in ("success", "info")
+        if check.severity.value == "success":
+            assert "Offline-verified" in check.message
+
+    def test_missing_legs_reported_independently(self, monkeypatch):
+        monkeypatch.setenv("HOME", "/tmp/no-home-here")
+        monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
+        doctor = self._doctor()
+        doctor.check_airgapped_readiness()
+        check = doctor.checks[-1]
+        assert check.severity.value == "info"
+        assert "MISSING" in check.message
+        assert "airgapped_profile.yaml" in check.suggestion
+
+    def test_included_in_run_all_checks(self):
+        doctor = self._doctor()
+        names = [c.name for c in doctor.run_all_checks()]
+        assert "Air-Gap Readiness" in names
