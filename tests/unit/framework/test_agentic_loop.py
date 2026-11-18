@@ -377,7 +377,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 return SimpleNamespace(
                     success=True,
                     iterations=1,
@@ -418,7 +420,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 captured["query"] = query
                 captured["context"] = context
                 captured["conversation_history"] = conversation_history
@@ -461,7 +465,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 return SimpleNamespace(
                     success=True,
                     iterations=1,
@@ -581,7 +587,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 return SimpleNamespace(
                     success=False,
                     iterations=1,
@@ -2019,7 +2027,9 @@ class TestStream:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def stream(self, query, context=None, conversation_history=None):
+            async def stream(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 captured["query"] = query
                 captured["context"] = context
                 captured["conversation_history"] = conversation_history
