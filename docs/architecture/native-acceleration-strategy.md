@@ -310,6 +310,58 @@ platform support, and deployment dependencies conflict with predictable CLI and 
      the batch wall time to those components; only then choose the fix (batched JSON
      serialization, hoisted lookups, or precomputed ordering).
 
+   **Write-path attribution COMPLETE (2026-11-18, `scripts/benchmark_persist_batch.py`):
+   no rewrite is justified — the residual time is SQLite doing the write volume.**
+   The prescribed profiling step ran: a deterministic benchmark builds realistic
+   flush batches (shapes measured from this repo's live project.db: ~311 nodes/file at
+   94% statements, ~767 edges/file in the observed type mix, absolute file hints on
+   100% of edge metadata) and times one `_IndexingStreamPipeline._flush`-shaped
+   `write_batch` with perf_counter brackets per statement group (cProfile only as
+   supporting evidence, per the tiny-call-count lesson).
+
+   Attribution, cold 200-file flush (3,431 symbol + 57,752 statement nodes,
+   2,541 symbol + 150,982 CCG edges), total wall 4,325 ms on the WSL bench host:
+
+   | component                                   | wall ms | share |
+   |---------------------------------------------|--------:|------:|
+   | SQLite `executemany` — node/edge ON CONFLICT upserts | 3,004 | 69% |
+   | Python row prep on the loop (per-row `json.dumps`, canonical-path, tuple build) | ~700 | 16% |
+   | dangling-guard SELECTs + parent ordering     |     213 |   5% |
+   | `BEGIN`/`COMMIT` (WAL auto-checkpoint backfill) | 254  |   6% |
+   | per-file mtime upserts (20 executor hops + hash) | ~43 |   1% |
+
+   Findings that close the question:
+
+   - **The executemany statements ARE the cost** (~11.5 µs/edge row, ~19.7 µs/node
+     row, fresh inserts; ~1.5x on the ON CONFLICT UPDATE re-index path). The SQL is
+     already `executemany`-batched, every plan is a PK/secondary-index search
+     (`EXPLAIN QUERY PLAN` printed by `--explain` — no missing index), and the
+     COALESCE subqueries short-circuit because 100% of real edge rows carry a file.
+     There is no Python-side orchestration defect left to fix; the earlier "~550s in
+     row preparation" hypothesis was an artifact of pre-memoization measurements
+     (the canonical-path cache already landed).
+   - **`json.dumps` is the only real Python item** (0.38 s cProfile cumtime per
+     214,706 dumps ≈ 13 s per full index) — an order of magnitude below the rewrite
+     bar, and already irreducible without changing row shapes.
+   - **Commit cost GROWS with database size** (245 ms → 3.3 s per flush as the bench
+     DB accumulates) because one flush writes far more WAL than the 2000-page (8 MB)
+     auto-checkpoint threshold, so every commit backfills the whole WAL. This is
+     inherent total work, not a defect: with `wal_autocheckpoint=0` the commit falls
+     to 58–117 ms but the WAL grows 109 → 691 MB across four flushes. `synchronous`
+     is already NORMAL (the project DB manager's `_configure_connection`), so there
+     is no fsync knob left either. On the real 3 GB index this backfill is plausibly
+     the single largest persist component — the only lever would be checkpoint
+     scheduling/threshold tuning, a durability-adjacent policy decision for the
+     project-DB owners, not a store-local fix.
+   - **Guards, ordering, and mtime are all ≤5%** — the previously suspected
+     `_select_known_node_ids`/`_drop_dangling_edge_rows` chunked SELECTs (~7 ms per
+     20-file flush) and `_order_rows_parents_first` (~1.3 ms) are innocent.
+
+   Per the gate in this document: attribution first, and the attribution says STOP —
+   remaining persist cost is proportional to actual bytes written into SQLite plus
+   WAL backfill. No `benchmark_persist_batch.py`-motivated production change was
+   made in this step.
+
 ### Harvest environment constraint (2026-10-25, landed)
 
 The python tier-3 harvest ran **2,980 s** (half the full-index wall clock):
