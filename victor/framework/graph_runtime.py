@@ -378,13 +378,13 @@ async def _run_graph_execution_loop(
                     resume_target = pending_nodes[0] if pending_nodes else end_node_token
                 else:
                     resume_target = _resolve_resume_target(get_next_node, current_node, state)
-            await checkpoint_manager.save_checkpoint(
-                thread_id, current_node, state, next_node=resume_target, completed=True
-            )
             if node_observer is not None:
                 await node_observer(
                     "complete", current_node, state, None, time.time() - node_start_time
                 )
+            await checkpoint_manager.save_checkpoint(
+                thread_id, current_node, state, next_node=resume_target, completed=True
+            )
             active_node = None
             if record_state_history:
                 state_history.append((current_node, snapshot_state(state)))

@@ -45,7 +45,7 @@ def _durable_value(value: Any) -> Any:
         return [_durable_value(item) for item in value]
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json")
-    return str(value)
+    raise TypeError(f"Value of type {type(value).__name__} is not JSON-compatible")
 
 
 class TurnResponseRecord(BaseModel):
