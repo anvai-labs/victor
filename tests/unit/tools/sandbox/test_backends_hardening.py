@@ -49,10 +49,11 @@ class TestSettingsDefaults:
         """ADR-035: the bwrap seccomp filter is default-on."""
         assert SandboxSettings().sandbox_seccomp is True
 
-    def test_resolver_reads_network_default_on(self):
+    def test_resolver_reads_network_default_on(self, monkeypatch):
         """An object with no network attribute still resolves isolation ON."""
         from types import SimpleNamespace
 
+        monkeypatch.setattr(sb.BubblewrapSandbox, "available", lambda self: True)
         settings = SimpleNamespace(sandbox_policy="required")
         backend = sb.resolve_sandbox_backend(settings)
         assert isinstance(backend, BubblewrapSandbox)
@@ -91,9 +92,10 @@ class TestBubblewrapHardening:
         assert "--seccomp" not in argv
         assert sandbox.take_pass_fds() == []
 
-    def test_resolver_threads_settings_seccomp(self):
+    def test_resolver_threads_settings_seccomp(self, monkeypatch):
         from types import SimpleNamespace
 
+        monkeypatch.setattr(sb.BubblewrapSandbox, "available", lambda self: True)
         settings = SimpleNamespace(
             sandbox_policy="required",
             sandbox_seccomp=False,
