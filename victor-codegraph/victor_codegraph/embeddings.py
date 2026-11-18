@@ -13,7 +13,7 @@ from itertools import islice
 import math
 from numbers import Real
 import re
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .model import CodeSymbol
 
@@ -44,7 +44,7 @@ class EmbeddingProfile:
             raise ValueError("invalid embedding dimension")
         if type(self.max_tokens) is not int or not 1 <= self.max_tokens <= 32768:
             raise ValueError("invalid embedding token limit")
-        if self.text_contract != "symbol-summary-v1":
+        if self.text_contract not in _TEXT_CONTRACTS:
             raise ValueError("unsupported embedding text contract")
         if type(self.normalize) is not bool or not isinstance(self.query_prefix, str):
             raise ValueError("invalid embedding preprocessing")
@@ -54,10 +54,23 @@ class EmbeddingProfile:
         return _digest(json.dumps(asdict(self), sort_keys=True, separators=(",", ":")))
 
 
+_TEXT_CONTRACTS = frozenset({"symbol-summary-v1", "chunk-source-v1"})
+
 BGE_SMALL_PROFILE = EmbeddingProfile(
     model_id="BAAI/bge-small-en-v1.5",
     revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
     dimension=384,
+)
+
+# Intent tier: embeds SOURCE text of code chunks (chunk-source-v1). Same
+# pinned model/revision as the symbol-summary tier; the distinct
+# text_contract gives it a distinct profile identity, so the two tiers can
+# never be mixed in one store.
+CHUNK_SOURCE_PROFILE = EmbeddingProfile(
+    model_id="BAAI/bge-small-en-v1.5",
+    revision="5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+    dimension=384,
+    text_contract="chunk-source-v1",
 )
 
 
@@ -128,6 +141,62 @@ def embed_symbols(
                     profile.identity,
                     _digest(text),
                     _digest(symbol.source_code),
+                    tuple(vector),
+                )
+            )
+    return result
+
+
+@dataclass(frozen=True)
+class ChunkEmbedding:
+    chunk_id: str
+    symbol_id: str
+    profile_id: str
+    input_hash: str
+    source_hash: str
+    values: tuple[float, ...]
+
+
+def embed_chunks(
+    chunks: Sequence[Any],
+    encode: Callable[[list[str]], Iterable[Iterable[float]]],
+    profile: EmbeddingProfile,
+    *,
+    source_hashes: Mapping[str, str] | None = None,
+    batch_size: int = 32,
+) -> list[ChunkEmbedding]:
+    """Prepare, batch and validate chunk-source embeddings for the intent tier.
+
+    Mirrors :func:`embed_symbols` exactly: batch cap, vector validation,
+    duplicate/empty identity rejection. ``chunks`` are ``CodeChunk``-shaped
+    objects (``chunk_id``, ``text``, ``symbol_id``, ``metadata``).
+    ``source_hashes`` optionally maps file path -> manifest content hash;
+    the file path is read from ``chunk.metadata["file_path"]`` when present,
+    falling back to the chunk's own source digest discipline.
+    """
+    if type(batch_size) is not int or not 1 <= batch_size <= 512:
+        raise ValueError("embedding batch size must be between 1 and 512")
+    ids = [c.chunk_id for c in chunks]
+    if len(set(ids)) != len(ids) or any(not cid for cid in ids):
+        raise ValueError("empty or duplicate canonical chunk identity")
+    result = []
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start : start + batch_size]
+        texts = [c.text for c in batch]
+        vectors = validate_vectors(encode(texts), count=len(texts), dimension=profile.dimension)
+        for chunk, vector in zip(batch, vectors, strict=True):
+            file_path = chunk.metadata.get("file_path", "")
+            manifest_hash = (source_hashes or {}).get(file_path)
+            # Verbatim manifest hash when supplied (it is already the
+            # sha256 content contract); otherwise digest the chunk text.
+            source_hash = manifest_hash or _digest(chunk.text)
+            result.append(
+                ChunkEmbedding(
+                    chunk.chunk_id,
+                    chunk.symbol_id,
+                    profile.identity,
+                    _digest(chunk.text),
+                    source_hash,
                     tuple(vector),
                 )
             )
