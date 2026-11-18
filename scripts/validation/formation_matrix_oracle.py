@@ -42,9 +42,13 @@ def _evaluate(path: Path, name: str) -> dict[str, Any]:
         "failures": [],
     }
     try:
+        resolved = path.resolve()
+        project_root = Path(__file__).resolve().parents[2]
+        if not resolved.is_relative_to(project_root):
+            raise ValueError(f"Candidate path escapes project tree: {resolved}")
         namespace: dict[str, Any] = {"__name__": "matrix_candidate", "__file__": str(path)}
         # No stale .pyc or member pytest/conftest can supply the implementation.
-        exec(compile(path.read_bytes(), str(path), "exec"), namespace)
+        exec(compile(path.read_bytes(), str(path), "exec"), namespace)  # nosemgrep: python.lang.security.audit.exec-detected.exec-detected
         function = namespace[name]
         for value in INPUTS:
             actual = function(value)
