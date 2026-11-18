@@ -16,14 +16,27 @@ from .adapter import relation_to_record, symbol_to_record, to_proxima_records
 from .config import ChunkConfig
 from .embeddings import (
     BGE_SMALL_PROFILE,
+    CHUNK_SOURCE_PROFILE,
+    ChunkEmbedding,
     EmbeddingProfile,
     SymbolEmbedding,
     SentenceTransformerEncoder,
     embedding_text,
+    embed_chunks,
     embed_symbols,
     validate_vectors,
 )
 from .languages import detect_language
+from .merkle import (
+    MerkleDiff,
+    MerkleFormatError,
+    MerkleTree,
+    build_merkle_tree,
+    changed_subtrees,
+    deserialize_tree,
+    diff_merkle,
+    serialize_tree,
+)
 from .model import (
     CapabilityTier,
     LINE_BASE,
@@ -54,15 +67,22 @@ from .repository_index import (
     relation_key,
 )
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 __all__ = [
     "__version__",
     "BGE_SMALL_PROFILE",
     "EmbeddingProfile",
+    "CHUNK_SOURCE_PROFILE",
+    "ChunkEmbedding",
     "SymbolEmbedding",
     "SentenceTransformerEncoder",
     "embedding_text",
+    "build_merkle_tree",
+    "changed_subtrees",
+    "deserialize_tree",
+    "diff_merkle",
+    "embed_chunks",
     "embed_symbols",
     "validate_vectors",
     "chunk",
@@ -74,6 +94,13 @@ __all__ = [
     "read_source_text",
     "build_manifest",
     "diff_manifest",
+    "diff_merkle",
+    "serialize_tree",
+    "deserialize_tree",
+    "changed_subtrees",
+    "MerkleDiff",
+    "MerkleFormatError",
+    "MerkleTree",
     "iter_changed_files",
     "ManifestDiff",
     "ChunkConfig",

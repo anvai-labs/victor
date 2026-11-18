@@ -46,6 +46,7 @@ T = TypeVar("T")
 _NODE_TABLE = Tables.GRAPH_NODE
 _EDGE_TABLE = Tables.GRAPH_EDGE
 _MTIME_TABLE = Tables.GRAPH_FILE_MTIME
+_INTENT_STATE_TABLE = Tables.INTENT_FILE_STATE
 _FTS_TABLE = f"{_NODE_TABLE}_fts"
 # Write-path cache bound: distinct path strings are bounded by the corpus
 # file count in practice; the cap only guards pathological variety.
@@ -95,6 +96,19 @@ CREATE TABLE IF NOT EXISTS {_MTIME_TABLE} (
     mtime REAL NOT NULL,
     indexed_at REAL NOT NULL,
     content_hash TEXT
+);
+
+-- Intent-tier per-file sync state (FEP-0049): the committed marker for
+-- "this file's chunk embeddings are stored in the vector table under
+-- profile_id". Vectors commit FIRST (idempotent by deterministic
+-- chunk_id), this row LAST - a crash between the two re-embeds identical
+-- vectors on the next run. First-run fallback for the previous manifest
+-- is graph_file_mtime.content_hash (same manifest contract).
+CREATE TABLE IF NOT EXISTS intent_file_state (
+    file TEXT PRIMARY KEY,
+    source_hash TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    synced_at REAL NOT NULL
 );
 
 -- Indexes for fast lookups
@@ -981,6 +995,63 @@ class SqliteGraphStore(GraphStoreProtocol):
             """,
             (file, mtime, time.time(), content_hash),
         )
+
+    def record_intent_synced(self, file: str, source_hash: str, profile_id: str) -> None:
+        """Commit the intent-tier sync marker AFTER the vectors are stored.
+
+        Ordering contract (FEP-0049): vectors first (idempotent by
+        deterministic chunk_id), this row last — a crash between the two
+        re-embeds identical vectors on the next run.
+        """
+        import time
+
+        with self._connect() as conn:
+            conn.execute(
+                f"""
+                INSERT INTO {_INTENT_STATE_TABLE}(file, source_hash, profile_id, synced_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(file) DO UPDATE SET
+                    source_hash=excluded.source_hash,
+                    profile_id=excluded.profile_id,
+                    synced_at=excluded.synced_at
+                """,
+                (file, source_hash, profile_id, time.time()),
+            )
+
+    def intent_synced_manifest(self) -> dict[str, str]:
+        """Files whose chunk embeddings are committed, path -> source_hash.
+
+        This IS the previous manifest for the next incremental sync. Files
+        whose stored profile_id differs from ``profile_id`` are excluded by
+        :meth:`intent_stale_files` handling, not here (the raw map is what
+        the Merkle walk compares).
+        """
+        with self._connect() as conn:
+            rows = conn.execute(f"SELECT file, source_hash FROM {_INTENT_STATE_TABLE}").fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
+
+    def intent_stale_files(self, profile_id: str) -> list[str]:
+        """Files synced under a DIFFERENT profile (model/contract change).
+
+        Such files must be fully re-embedded; the vector metadata check is
+        authoritative, this is the cheap pre-filter.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT file FROM {_INTENT_STATE_TABLE} WHERE profile_id != ?",
+                (profile_id,),
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
+    def clear_intent_state(self) -> None:
+        """Drop all sync markers (full-rebuild path)."""
+        with self._connect() as conn:
+            conn.execute(f"DELETE FROM {_INTENT_STATE_TABLE}")
+
+    def delete_intent_state_for_file(self, file: str) -> None:
+        """Drop one file's sync marker (removed-file path)."""
+        with self._connect() as conn:
+            conn.execute(f"DELETE FROM {_INTENT_STATE_TABLE} WHERE file = ?", (file,))
 
     def _delete_by_file_conn(self, conn: sqlite3.Connection, file: str) -> None:
         """Delete all nodes, edges, and mtimes for a specific file."""

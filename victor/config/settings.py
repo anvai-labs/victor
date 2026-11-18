@@ -891,6 +891,7 @@ class Settings(BaseSettings):
             "codebase_dimension": "search.codebase_dimension",
             "codebase_batch_size": "search.codebase_batch_size",
             "codebase_structural_indexing_enabled": "search.codebase_structural_indexing_enabled",
+            "codebase_intent_indexing_enabled": "search.codebase_intent_indexing_enabled",
             "codebase_chunking_strategy": "search.codebase_chunking_strategy",
             "codebase_chunk_size": "search.codebase_chunk_size",
             "codebase_chunk_overlap": "search.codebase_chunk_overlap",

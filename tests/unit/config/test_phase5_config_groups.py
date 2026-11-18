@@ -28,6 +28,8 @@ class TestEmbeddingSettings:
         assert settings.codebase_dimension == 384
         assert settings.codebase_batch_size == 32
         assert settings.codebase_structural_indexing_enabled is False
+        # FEP-0049: intent-tier flag ships off by default (ADR-036 graduation).
+        assert settings.codebase_intent_indexing_enabled is False
         assert settings.codebase_chunking_strategy == "victor_codegraph"
         assert settings.codebase_chunk_size == 500
         assert settings.codebase_chunk_overlap == 50

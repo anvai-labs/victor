@@ -148,6 +148,31 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
   (executor.assert_not_awaited); clean args + no-session-canary +
   disabled-knob negative tests.
 - Selector targets + tool-pipeline ripple suites green (997 passed).
+## FOU-A0 evidence: codegraph intent tier (2026-11-18, FEP-0049)
+
+Parallel track to the FOU ladder (adoption/X-axis capability). Cursor-comparison
+concluded complement split: Victor holds structure, Cursor holds intent; this
+program adds the intent tier without giving up the structural model.
+
+- **FEP-0049** (feps/fep-0049-intent-tier-merkle-sync.md): two-tier embedding
+  model (symbol-summary shipped; chunk-source new), Merkle discipline derived
+  from the flat manifest, LanceDB code_chunks table + intent_file_state in
+  graph sqlite, ADR-036 graduation plan.
+- **Phase 1 (#1915, victor-codegraph 0.15.0, IN REVIEW)**: merkle.py
+  (directory->file->CHUNK leaf granularity; minimal frontier diff; O(1) root
+  shortcut; chunk-precise changed_chunks work set) + CHUNK_SOURCE_PROFILE +
+  embed_chunks with the SymbolEmbedding staleness discipline. 290 package
+  tests green.
+- **Phase 2 (#1916, MERGED into the phase-1 branch)**: IntentIndexStore
+  (LanceDB code_chunks + intent_file_state in graph sqlite; crash-safety by
+  commit ordering; symbol_oid correlation; embedding_ref never written —
+  guard test); codebase_intent_indexing_enabled flag. 9 tests.
+- **Phase 3 NEXT**: intent_sync.py (Merkle-driven incremental embedding in
+  GraphIndexingPipeline, root-shortcut, delete-then-upsert per file) + CLI
+  --intent. **Phase 4**: seeding intent leg (per-leg normalization) +
+  graph similar --mode intent + graph_semantic_search mode.
+
+
 ## FOU-S1b evidence (2026-11-18, fou/s1b-posture-flip)
 
 - **RED**: 11 of 15 new posture tests failed on develop (default was
