@@ -5,9 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.31.0] - Source candidate, 2026-11-17
+## [0.31.1] - Maintenance candidate, 2026-11-18
 
-Prepared package version: **0.31.0**. This source candidate is not yet released.
+Prepared package version: **0.31.1**.
+
+### Changed
+
+- Align the mandatory Sandhi consumer with published `sandhi-gateway==0.21.0`
+  across the project manifest and root, API, and CPU-embeddings deployment locks.
+  The official wheel keeps the same generated Python contract, wire schema v1 and
+  chat-contract minor 14; Sandhi 0.21 additionally owns exact streaming body-budget
+  policy. Runtime installation errors and current architecture references now name
+  the aligned pin. A separately operated Sandhi service still requires its own
+  deployment and provider acceptance decision.
+- Advance Victor AI and Victor Native release metadata to 0.31.1 and carry the
+  changes already merged to develop since 0.31.0: doctor air-gap readiness
+  (#1933), the ADR-036 graduation-battery test skeleton (#1937), and MCP JSON-RPC
+  notification/integer-id session semantics (#1938).
+
+## [0.31.0] - Published 2026-11-18
+
+Published package version: **0.31.0**.
 
 ### Added
 

@@ -1804,8 +1804,8 @@ async def test_sandhi_stream_idle_timeout_passes_through_chunks():
     assert "world" in chunks[1]
 
 
-def test_known_contract_minor_tracks_gateway_020():
-    """Handoff fix: sandhi-gateway 0.20.0 ships CHAT_CONTRACT_MINOR 14;
+def test_known_contract_minor_tracks_gateway_021():
+    """Handoff fix: sandhi-gateway 0.21.0 ships CHAT_CONTRACT_MINOR 14;
     victor's known minor was 9, causing a contract-mismatch warning."""
     from victor.providers.sandhi_transport import KNOWN_CONTRACT_MINOR
 
