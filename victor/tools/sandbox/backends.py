@@ -61,8 +61,10 @@ _BWRAP_SYSTEM_ROOTS = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt"
 # /var/folders; /private/tmp is the real path behind /tmp).
 _SEATBELT_WRITABLE_TEMP = ("/tmp", "/private/tmp", "/var/folders")
 
-# Guard so the fail-open warning is emitted at most once per process.
-_warned_unavailable = False
+# Warn-once bookkeeping, per category ("preferred_degraded",
+# "opt_out_disabled") so one category's warning can never permanently
+# suppress another's.
+_warned_categories: set = set()
 
 
 # -- seccomp deny filter (classic BPF) ---------------------------------------
@@ -525,12 +527,11 @@ class PolicyUnavailable(RuntimeError):
         self.reason = reason
 
 
-def _warn_once(message: str) -> None:
-    """Emit the fail-open warning at most once per process."""
-    global _warned_unavailable
-    if not _warned_unavailable:
+def _warn_once(category: str, message: str) -> None:
+    """Emit ``message`` once per process for ``category``."""
+    if category not in _warned_categories:
         logger.warning(message)
-        _warned_unavailable = True
+        _warned_categories.add(category)
 
 
 class SandboxRequiredUnavailableError(RuntimeError):
@@ -549,21 +550,31 @@ class SandboxRequiredUnavailableError(RuntimeError):
 
 
 def effective_sandbox_policy(sandbox_settings: Any) -> str:
-    """Resolve the effective policy from settings.
+    """Resolve the effective policy from settings (ADR-035, fail-closed).
 
-    An explicit (non-``None``) ``sandbox_policy`` wins; ``None``/absent
-    derives from the legacy ``sandbox_enabled`` bool, which maps to
-    ``preferred`` when true (its historical fail-open semantics). Missing
-    settings mean disabled.
+    Resolution order:
+
+    1. Explicit ``sandbox_policy`` in settings (``disabled`` /
+       ``preferred`` / ``required``) wins.
+    2. The ``VICTOR_SANDBOX_POLICY`` environment variable (same values;
+       invalid values are ignored).
+    3. **Default: ``required``.** Shell execution is wrapped by an
+       available sandbox or the caller refuses dispatch (fail-closed).
+       The historical ``sandbox_enabled`` bool no longer maps to the
+       fail-open ``preferred`` — that mode is now explicit opt-in only.
     """
-    if sandbox_settings is None:
-        return "disabled"
-    policy = getattr(sandbox_settings, "sandbox_policy", None)
-    if policy in ("disabled", "preferred", "required"):
-        return policy
-    if bool(getattr(sandbox_settings, "sandbox_enabled", False)):
-        return "preferred"
-    return "disabled"
+    if sandbox_settings is not None:
+        policy = getattr(sandbox_settings, "sandbox_policy", None)
+        if isinstance(policy, str):
+            policy = policy.strip().lower()
+            if policy in ("disabled", "preferred", "required"):
+                return policy
+    import os
+
+    env_policy = os.environ.get("VICTOR_SANDBOX_POLICY", "").strip().lower()
+    if env_policy in ("disabled", "preferred", "required"):
+        return env_policy
+    return "required"
 
 
 def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
@@ -571,7 +582,8 @@ def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
 
     Policy semantics:
 
-    * ``disabled`` — :class:`NoneSandbox`, silently (historical default).
+    * ``disabled`` — :class:`NoneSandbox` with a one-time opt-out warning
+      (explicit opt-out only; the default posture is ``required``).
     * ``preferred`` — fail-open: unavailable backend/platform degrades to
       :class:`NoneSandbox` with a one-time DEGRADED warning.
     * ``required`` — fail-closed: raises
@@ -591,6 +603,15 @@ def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
     """
     policy = effective_sandbox_policy(sandbox_settings)
     if policy == "disabled":
+        # Explicit opt-out (ADR-035 decision 2): unsandboxed execution is
+        # now always a deliberate choice — warn once so sessions know.
+        _warn_once(
+            "opt_out_disabled",
+            "Sandbox policy is 'disabled' (explicit opt-out via settings or "
+            "VICTOR_SANDBOX_POLICY): tools are running UNSANDBOXED. "
+            "Set sandbox_policy to 'required' or unset the override to "
+            "restore isolation.",
+        )
         return NoneSandbox()
 
     workspace_only = getattr(sandbox_settings, "sandbox_filesystem_mode", "workspace-only") == (
@@ -620,11 +641,14 @@ def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
             raise SandboxRequiredUnavailableError(
                 "unsupported_platform",
                 f"Sandbox policy is 'required' but platform '{system}' has no "
-                "enforcing backend; refusing execution (fail-closed).",
+                "enforcing backend; refusing execution (fail-closed). "
+                "Escape hatch: set sandbox_policy: 'disabled' in settings or "
+                "VICTOR_SANDBOX_POLICY=disabled in the environment.",
             )
         _warn_once(
+            "preferred_degraded",
             f"Sandbox enabled but unsupported platform '{system}'; "
-            "running tools UNSANDBOXED (fail-open). [DEGRADED]"
+            "running tools UNSANDBOXED (fail-open). [DEGRADED]",
         )
         return NoneSandbox()
 
@@ -634,12 +658,15 @@ def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
                 "binary_missing",
                 f"Sandbox policy is 'required' but the '{backend.type_name}' backend is "
                 f"unavailable (binary missing on {system}); refusing execution "
-                "(fail-closed). Install the sandbox binary to enable isolation.",
+                "(fail-closed). Install the sandbox binary to enable isolation, "
+                "or set sandbox_policy: 'disabled' in settings / "
+                "VICTOR_SANDBOX_POLICY=disabled in the environment to opt out.",
             )
         _warn_once(
+            "preferred_degraded",
             f"Sandbox enabled but the '{backend.type_name}' backend is unavailable "
             f"(binary missing on {system}); running tools UNSANDBOXED (fail-open). "
-            "Install the sandbox binary to enable isolation. [DEGRADED]"
+            "Install the sandbox binary to enable isolation. [DEGRADED]",
         )
         return NoneSandbox()
 
@@ -692,6 +719,30 @@ def resolve_required_launch(sandbox_settings: Any) -> RequiredLaunchDecision:
     return RequiredLaunchDecision(required_active=True, backend=backend)
 
 
+def _effective_policy_from_settings(*, on_error: str) -> str:
+    """Effective policy from the global settings read; ``on_error`` when
+    the read fails. Shared by the observability surface and the executor's
+    HB-02 guard so there is exactly one settings-read derivation."""
+    try:
+        from victor.config.settings import get_settings
+
+        return effective_sandbox_policy(getattr(get_settings(), "sandbox", None))
+    except Exception:
+        return on_error
+
+
+def current_sandbox_posture() -> str:
+    """Effective sandbox posture from global settings (observability seam).
+
+    Used by the ``/system/status`` surface and doctor-style reporting so
+    operators can see the ADR-035 posture a session is actually running
+    under (``required`` / ``preferred`` / ``disabled``). A failed settings
+    read reports ``unknown`` — never mask an unknowable-policy state
+    (NEXT-01) as if enforcement were healthy.
+    """
+    return _effective_policy_from_settings(on_error="unknown")
+
+
 __all__ = [
     "SandboxBackend",
     "NoneSandbox",
@@ -701,6 +752,8 @@ __all__ = [
     "PolicyUnavailable",
     "RequiredLaunchDecision",
     "build_seccomp_deny_program",
+    "_effective_policy_from_settings",
+    "current_sandbox_posture",
     "effective_sandbox_policy",
     "resolve_required_launch",
     "resolve_sandbox_backend",
