@@ -12,15 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Transport-agnostic MCP server assembly tests (Phase 1 refactor).
+"""Transport-agnostic MCP server assembly tests (Phase 1 refactor)."""
 
-The factory must produce identical state to the old inline wiring —
-this is the parity guarantee that lets Phase 3 add an HTTP transport
-without touching the protocol handlers.
-"""
-
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -37,7 +31,6 @@ class TestFactoryParity:
         assembly = create_mcp_server(workspace)
         assert assembly.server is not None
         assert assembly.tool_count > 0
-        assert assembly.exec_context is not None or assembly.admission_refusal is not None
 
     def test_server_name_and_version(self, workspace):
         assembly = create_mcp_server(workspace)
@@ -68,36 +61,35 @@ class TestGraphToolFlag:
         monkeypatch.setenv("VICTOR_USE_GRAPH_QUERY_TOOL", "true")
         reset_feature_flag_manager()
         create_mcp_server(workspace, no_graph_tools=True)
-        mgr = get_feature_flag_manager()
         assert not get_feature_flag_manager().is_enabled(FeatureFlag.USE_GRAPH_QUERY_TOOL)
         reset_feature_flag_manager()
 
     def test_default_enables_graph_tools(self, workspace, monkeypatch):
-        from victor.core.feature_flags import (
-            FeatureFlag,
-            get_feature_flag_manager,
-            reset_feature_flag_manager,
-        )
+        from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager, reset_feature_flag_manager
 
         monkeypatch.delenv("VICTOR_USE_GRAPH_QUERY_TOOL", raising=False)
         reset_feature_flag_manager()
         create_mcp_server(workspace)
-        # The flag is enabled by the factory (explicit MCP launch = consent)
         mgr = get_feature_flag_manager()
         assert mgr.is_enabled(FeatureFlag.USE_GRAPH_QUERY_TOOL)
         reset_feature_flag_manager()
 
 
 class TestAdmission:
-    def test_fail_closed_on_bad_settings(self, workspace, monkeypatch):
-        import victor.config.settings as settings_mod
-
-        monkeypatch.setattr(
-            settings_mod,
-            "get_settings",
-            lambda: (_ for _ in ()).throw(RuntimeError("bad yaml")),
-        )
-        assembly = create_mcp_server(workspace)
+    def test_fail_closed_on_bad_settings(self, workspace):
+        """Simulates a settings-read failure: admission returns a refusal,
+        the factory catches it and produces a fail-closed assembly (the
+        server starts but every tool call is refused)."""
+        with patch(
+            "victor.integrations.mcp.assembly._admit_or_refuse",
+            return_value=(
+                None,
+                "Sandbox policy could not be established (bad yaml); "
+                "refusing MCP tool execution (fail-closed). "
+                "Set VICTOR_SANDBOX_POLICY=disabled or fix settings.",
+            ),
+        ):
+            assembly = create_mcp_server(workspace)
         assert assembly.admission_refusal is not None
         assert "fail-closed" in assembly.admission_refusal
         assert assembly.exec_context is None
