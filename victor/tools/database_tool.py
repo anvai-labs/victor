@@ -17,6 +17,7 @@
 Consolidates all database operations into a single tool for better token efficiency.
 Supports multiple database types:
 - SQLite (built-in, no dependencies)
+- DuckDB (requires duckdb; also enables Parquet/Iceberg/CSV file queries)
 - PostgreSQL (requires psycopg2)
 - MySQL (requires mysql-connector-python)
 - SQL Server (requires pyodbc)
@@ -247,6 +248,37 @@ async def _connect_sqlserver(
         return {"success": False, "error": f"SQL Server connection failed: {str(e)}"}
 
 
+async def _connect_duckdb(
+    database: str, connection_pool: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Connect to DuckDB (file path, or ':memory:' for in-memory analytics).
+
+    Parquet/Iceberg/CSV files can be queried over this connection without
+    loading them as tables, e.g. SELECT * FROM read_parquet('file.parquet') LIMIT 10,
+    or registered as views: CREATE VIEW t AS SELECT * FROM read_parquet('file.parquet').
+    """
+    pool = connection_pool if connection_pool is not None else _connections
+    try:
+        import duckdb
+
+        conn = duckdb.connect(database if database else ":memory:")
+        connection_id = f"duckdb_{id(conn)}"
+        pool[connection_id] = conn
+
+        return {
+            "success": True,
+            "connection_id": connection_id,
+            "message": f"Connected to DuckDB database: {database or ':memory:'}",
+        }
+    except ImportError:
+        return {
+            "success": False,
+            "error": "DuckDB support requires: pip install 'victor-ai[data]' (or pip install duckdb)",
+        }
+    except Exception as e:
+        return {"success": False, "error": f"DuckDB connection failed: {str(e)}"}
+
+
 async def _do_connect(
     database: str,
     db_type: str,
@@ -259,6 +291,8 @@ async def _do_connect(
     """Internal connect handler."""
     if db_type == "sqlite":
         return await _connect_sqlite(database, connection_pool)
+    elif db_type == "duckdb":
+        return await _connect_duckdb(database, connection_pool)
     elif db_type == "postgresql":
         return await _connect_postgresql(
             {
@@ -389,6 +423,11 @@ async def _do_tables(
 
         if connection_id.startswith("sqlite"):
             sql = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        elif connection_id.startswith("duckdb"):
+            sql = (
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'main' ORDER BY table_name"
+            )
         elif connection_id.startswith("postgresql"):
             sql = "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
         elif connection_id.startswith("mysql"):
@@ -432,6 +471,18 @@ async def _do_describe(
                     "type": row[2],
                     "nullable": not row[3],
                     "primary_key": bool(row[5]),
+                }
+                for row in rows
+            ]
+
+        elif connection_id.startswith("duckdb"):
+            cursor.execute(f'DESCRIBE SELECT * FROM "{table}"')
+            rows = cursor.fetchall()
+            columns = [
+                {
+                    "name": row[0],
+                    "type": row[1],
+                    "nullable": row[2] == "YES",
                 }
                 for row in rows
             ]
@@ -551,6 +602,8 @@ async def _do_disconnect(
         "SELECT",
         "postgres",
         "mysql",
+        "duckdb",
+        "parquet",
         "database file",
         ".db",
         ".sqlite",
@@ -565,6 +618,10 @@ async def _do_disconnect(
         "sqlite3",
         "postgres",
         "mysql",
+        "duckdb",
+        "parquet",
+        "iceberg",
+        "analytics",
         "schema",
         "db",
         "rows",
@@ -583,9 +640,16 @@ async def database(
     """
     Execute SQL queries and manage database schemas.
 
+    Supported db_types: sqlite, duckdb, postgresql, mysql, sqlserver.
+
     For SQLite database files (.db, .sqlite), you can either:
     1. Use this tool: database(action="connect", connection=DatabaseConnection(db_type="sqlite", database="path/to/file.db"))
     2. Use shell: shell(cmd='sqlite3 file.db ".tables"') for quick inspection
+
+    For DuckDB / Parquet / Iceberg (requires pip install 'victor-ai[data]'):
+    1. database(action="connect", connection=DatabaseConnection(db_type="duckdb", database=":memory:"))
+    2. Query files directly: database(action="query", connection_id=..., sql="SELECT * FROM read_parquet('data.parquet') LIMIT 10")
+    3. Or register views first: sql="CREATE VIEW t AS SELECT * FROM read_parquet('data.parquet')" (needs allow_modifications=True)
 
     Actions:
     - connect: Connect to a database

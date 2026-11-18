@@ -133,6 +133,12 @@ embeddings = [
     "lancedb>=0.6.0",
     "pyarrow>=14.0",
 ]
+# Data analytics: DuckDB support in the database tool (SQLite/Parquet/Iceberg/
+# CSV file queries via read_parquet & friends). Import site is lazy/guarded,
+# so the base install degrades gracefully without it.
+data = [
+    "duckdb>=1.0",
+]
 
 # ProximaDB vector store / embedding provider (optional backend).
 # Imported lazily with graceful ImportError fallback in
@@ -199,6 +205,7 @@ dev = [
     # TUI tests (tests/unit/ui/tui/) — textual moved from core to a tui extra
     "textual>=0.89",
     "pyarrow>=14.0",
+    "duckdb>=1.0",  # DuckDB/parquet tests for the database tool
     # Fuzzy matching for robust classification
     "Levenshtein>=0.25.1",  # Fast C implementation for typo tolerance
     # Testing
@@ -271,6 +278,7 @@ ci = [
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
     "pyarrow>=14.0",
+    "duckdb>=1.0",  # DuckDB/parquet tests for the database tool
 
     # Core test dependencies
     "pytest>=8.0,<9.3",  # pytest 9.2 is allowed when benchmark integrations require pytest-benchmark>=5.3.1

@@ -415,3 +415,102 @@ async def test_describe_binds_catalog_table_name(backend):
     assert name not in sql
     assert parameters == (name,)
     assert "%s" in sql
+
+
+try:
+    import duckdb  # noqa: F401
+
+    DUCKDB_AVAILABLE = True
+except ImportError:
+    DUCKDB_AVAILABLE = False
+
+
+class TestDuckDB:
+    """DuckDB support: connect, query, parquet files, introspection."""
+
+    @pytest.mark.asyncio
+    async def test_connect_unsupported_without_duckdb(self):
+        """Without the optional dependency the failure is actionable, not a crash."""
+        if DUCKDB_AVAILABLE:
+            pytest.skip("duckdb installed; testing the guarded-error path needs it absent")
+        conn = DatabaseConnection(database=":memory:", db_type="duckdb")
+        result = await database(action="connect", connection=conn)
+        assert result["success"] is False
+        assert "duckdb" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(not DUCKDB_AVAILABLE, reason="duckdb not installed")
+    async def test_connect_query_tables_describe(self):
+        """Full round trip: connect :memory:, create a table (modifications on),
+        query it, list tables, describe it, disconnect."""
+        conn = DatabaseConnection(database=":memory:", db_type="duckdb")
+        result = await database(action="connect", connection=conn)
+        assert result["success"] is True
+        connection_id = result["connection_id"]
+        assert "duckdb_" in connection_id
+        try:
+            create = await database(
+                action="query",
+                connection_id=connection_id,
+                sql="CREATE TABLE t (id INTEGER, name VARCHAR)",
+                allow_modifications=True,
+            )
+            assert create["success"] is True
+            await database(
+                action="query",
+                connection_id=connection_id,
+                sql="INSERT INTO t VALUES (1, 'alpha'), (2, 'beta')",
+                allow_modifications=True,
+            )
+            query = await database(
+                action="query",
+                connection_id=connection_id,
+                sql="SELECT COUNT(*) AS n FROM t",
+            )
+            assert query["success"] is True
+            assert query["rows"][0]["n"] == 2
+
+            tables = await database(action="tables", connection_id=connection_id)
+            assert tables["success"] is True
+            assert "t" in tables["tables"]
+
+            describe = await database(action="describe", connection_id=connection_id, table="t")
+            assert describe["success"] is True
+            names = [c["name"] for c in describe["columns"]]
+            assert "id" in names and "name" in names
+        finally:
+            await database(action="disconnect", connection_id=connection_id)
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(not DUCKDB_AVAILABLE, reason="duckdb not installed")
+    async def test_parquet_file_query(self):
+        """Parquet files query directly over an in-memory DuckDB connection."""
+        import tempfile
+
+        duckdb_conn = duckdb.connect()
+        parquet_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+                parquet_path = f.name
+            duckdb_conn.execute(
+                "COPY (SELECT * FROM (VALUES (1, 'x'), (2, 'y'), (3, 'z')) "
+                "AS t(id, letter)) TO ? (FORMAT PARQUET)",
+                [parquet_path],
+            )
+        finally:
+            duckdb_conn.close()
+
+        conn = DatabaseConnection(database=":memory:", db_type="duckdb")
+        result = await database(action="connect", connection=conn)
+        assert result["success"] is True
+        try:
+            query = await database(
+                action="query",
+                connection_id=result["connection_id"],
+                sql=f"SELECT COUNT(*) AS n FROM read_parquet('{parquet_path}')",
+            )
+            assert query["success"] is True
+            assert query["rows"][0]["n"] == 3
+        finally:
+            await database(action="disconnect", connection_id=result["connection_id"])
+            os.unlink(parquet_path)
