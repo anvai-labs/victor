@@ -29,14 +29,19 @@ Each node is a pure function that receives state and returns updated state.
 
 from __future__ import annotations
 
-from victor.core.errors import ProviderPolicyError
+from victor.agent.loop_guards import LoopSpinError
+from victor.core.errors import AgentError, ProviderPolicyError, is_terminal_agent_error
 
 import logging
-from contextvars import ContextVar
 from typing import Any, Dict, Optional
 
+from victor.agent.action_authorizer import ActionIntent
 from victor.framework.agentic_graph._state_utils import normalize_state_argument
 from victor.framework.agentic_graph.state import AgenticLoopStateModel
+from victor.framework.agentic_graph.turn_record import (
+    TURN_RECORD_SCHEMA_VERSION,
+    TurnRecord,
+)
 from victor.framework.evaluation_nodes import EvaluationDecision
 
 logger = logging.getLogger(__name__)
@@ -55,29 +60,49 @@ def _confidence_value(value: Any) -> float:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.5
 
 
+def _action_intent(value: Any) -> ActionIntent:
+    """Validate perception intent at the StateGraph boundary."""
+    if isinstance(value, ActionIntent):
+        return value
+    value = getattr(value, "value", value)
+    if not isinstance(value, str):
+        raise ValueError(f"Perception returned a non-string action intent: {value!r}")
+    try:
+        return ActionIntent(value)
+    except ValueError as exc:
+        raise ValueError(f"Perception returned an invalid action intent: {value!r}") from exc
+
+
 # =============================================================================
 # PERCEIVE Node
 # =============================================================================
 
 
-_last_turn_result: ContextVar[Optional[Any]] = ContextVar(
-    "agentic_graph_last_turn_result", default=None
-)
+def _turn_record_from_action(action_result: Any) -> Optional[TurnRecord]:
+    """Coerce canonical and legacy graph ACT payloads to a durable record."""
+    if isinstance(action_result, TurnRecord):
+        return action_result
+    if not isinstance(action_result, dict):
+        return None
+    if action_result.get("schema_version") == TURN_RECORD_SCHEMA_VERSION:
+        try:
+            return TurnRecord.model_validate(action_result)
+        except ValueError:
+            return None
+    return None
 
 
-def set_last_turn_result(turn: Any) -> None:
-    """Publish the current ACT TurnResult to the EVALUATE node (FOU-D5f-S6b).
-
-    Out-of-band on purpose: the object carries runtime futures and must not
-    enter persisted state (checkpoint pickling fails on _asyncio.Future).
-    Nodes execute sequentially within one invoke, so the contextvar flows.
-    """
-    _last_turn_result.set(turn)
-
-
-def pop_last_turn_result() -> Optional[Any]:
-    """Consume the published TurnResult (evaluator-side)."""
-    return _last_turn_result.get()
+def _action_response_text(action_result: Any) -> str:
+    record = _turn_record_from_action(action_result)
+    if record is not None:
+        return record.content
+    if isinstance(action_result, dict):
+        response = action_result.get("response", "")
+    else:
+        response = getattr(action_result, "response", "")
+    if isinstance(response, str):
+        return response
+    return str(getattr(response, "content", "") or "")
 
 
 @normalize_state_argument()
@@ -128,7 +153,7 @@ async def perceive_node(
         raw_complexity = getattr(perception_result, "complexity", "medium")
         raw_confidence = getattr(perception_result, "confidence", 0.5)
         perception = {
-            "intent": _text_value(raw_intent, "query"),
+            "intent": _action_intent(raw_intent).value,
             "complexity": _text_value(raw_complexity, "medium"),
             "confidence": _confidence_value(raw_confidence),
         }
@@ -150,13 +175,14 @@ async def perceive_node(
             update={
                 "stage": "perceive",
                 "perception": perception,
+                "original_intent": state.original_intent or perception["intent"],
                 "task_type": task_type,
                 "complexity": complexity,
                 "iteration": state.iteration + 1,
             }
         )
 
-    except ProviderPolicyError:
+    except (ProviderPolicyError, ValueError):
         raise
     except Exception as e:
         logger.warning(f"Perception failed: {e}, using fallback")
@@ -166,11 +192,12 @@ async def perceive_node(
             update={
                 "stage": "perceive",
                 "perception": {
-                    "intent": "query",
+                    "intent": ActionIntent.AMBIGUOUS.value,
                     "complexity": "medium",
                     "confidence": 0.5,
                     "error": str(e),
                 },
+                "original_intent": state.original_intent or ActionIntent.AMBIGUOUS.value,
                 "task_type": "general",
                 "complexity": "medium",
                 "iteration": state.iteration + 1,
@@ -423,34 +450,13 @@ async def act_node(
                 is_qa_task=is_qa_task,
             )
 
-            # Extract results. FOU-D5f soak finding: result.response is a
-            # CompletionResponse OBJECT; storing it raw made evaluation crash
-            # (.lower() on the object) into the fallback 'continue' decision —
-            # every graph run spun to the iteration cap without completing.
-            # Consumers (evaluation, LoopResult.from_graph_result) want text.
-            response = getattr(result, "response", "")
-            if not isinstance(response, str):
-                response = getattr(response, "content", "") or ""
-            action_result = {
-                "response": response,
-                "tool_results": getattr(result, "tool_results", []),
-            }
-
-            tool_results = action_result.get("tool_results", [])
-            # FOU-D5f root cause: EnhancedCompletionEvaluator keys its Q&A
-            # shortcut and disposition-aware branches off
-            # isinstance(action_result, TurnResult). The object travels to the
-            # evaluator through the per-run contextvar channel — NOT through
-            # state: a runtime TurnResult carries futures and embedding it made
-            # every durable checkpoint save fail ("cannot pickle
-            # _asyncio.Future").
-            set_last_turn_result(result)
+            record = TurnRecord.from_turn_result(result)
 
             return state.model_copy(
                 update={
                     "stage": "act",
-                    "action_result": action_result,
-                    "tool_results": tool_results,
+                    "action_result": record,
+                    "tool_results": record.tool_results,
                 }
             )
 
@@ -472,6 +478,12 @@ async def act_node(
 
     except ProviderPolicyError:
         raise
+    except AgentError as e:
+        # Terminal admissions/policy failures must retain the legacy loop contract:
+        # propagate instead of becoming an ordinary action result that EVALUATE can retry.
+        if is_terminal_agent_error(e):
+            raise
+        logger.warning(f"Action execution failed: {e}")
     except Exception as e:
         logger.warning(f"Action execution failed: {e}")
 
@@ -533,15 +545,13 @@ async def evaluate_node(
 
     try:
         if evaluator is not None:
-            # Use provided evaluator. FOU-D5f: the evaluator's contract is a
-            # TurnResult (its Q&A shortcut and disposition branches key off
-            # isinstance); the graph ACT node stores the serialized dict with
-            # the object embedded under "_turn_result" — restore the object
-            # for the evaluator call.
+            # The evaluator's legacy contract is a live TurnResult. Rebuild it
+            # from the durable record at this boundary; no runtime object is
+            # transported through graph state or a module-global channel.
             eval_action_result = state.action_result
-            channelled = pop_last_turn_result()
-            if channelled is not None:
-                eval_action_result = channelled
+            record = _turn_record_from_action(eval_action_result)
+            if record is not None:
+                eval_action_result = record.to_turn_result()
             elif isinstance(eval_action_result, dict):
                 embedded = eval_action_result.get("_turn_result")
                 if embedded is not None:
@@ -552,8 +562,9 @@ async def evaluate_node(
                 state=state.to_dict(),
             )
 
+            decision = getattr(eval_result, "decision", "continue")
             evaluation = {
-                "decision": getattr(eval_result, "decision", "continue"),
+                "decision": getattr(decision, "value", decision),
                 "score": getattr(eval_result, "score", 0.5),
                 "reason": getattr(eval_result, "reason", ""),
             }
@@ -609,6 +620,8 @@ async def evaluate_node(
 
     except ProviderPolicyError:
         raise
+    except LoopSpinError:
+        raise
     except Exception as e:
         logger.warning(f"Evaluation failed: {e}")
 
@@ -647,11 +660,9 @@ def _default_evaluation(state: AgenticLoopStateModel) -> Dict[str, Any]:
         Evaluation dictionary with decision and score
     """
     action_result = state.action_result or {}
-    if not isinstance(action_result, dict):
-        action_result = {}
 
     # Check for errors
-    if action_result.get("error"):
+    if isinstance(action_result, dict) and action_result.get("error"):
         return {
             "decision": "fail",
             "score": 0.0,
@@ -661,9 +672,7 @@ def _default_evaluation(state: AgenticLoopStateModel) -> Dict[str, Any]:
     # Check for completion signals. Coerce defensively: a CompletionResponse
     # object leaked here used to crash evaluation into the fallback 'continue'
     # decision (FOU-D5f soak finding).
-    response = action_result.get("response", "")
-    if not isinstance(response, str):
-        response = getattr(response, "content", "") or ""
+    response = _action_response_text(action_result)
     if response and any(
         marker in response.lower() for marker in ["done", "complete", "finished", "successfully"]
     ):
@@ -740,11 +749,11 @@ def _create_fallback_perception(query: str) -> Any:
         def __init__(self, query: str):
             query_lower = query.lower()
             if any(word in query_lower for word in ["write", "create", "implement"]):
-                self.intent = type("Intent", (), {"value": "write"})()
+                self.intent = ActionIntent.WRITE_ALLOWED
             elif any(word in query_lower for word in ["read", "show", "display"]):
-                self.intent = type("Intent", (), {"value": "read"})()
+                self.intent = ActionIntent.READ_ONLY
             else:
-                self.intent = type("Intent", (), {"value": "query"})()
+                self.intent = ActionIntent.AMBIGUOUS
 
             self.complexity = "medium"
             self.confidence = 0.5

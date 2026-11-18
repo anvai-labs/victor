@@ -50,8 +50,9 @@ from __future__ import annotations
 import warnings
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, PrivateAttr, field_validator
+from pydantic import BaseModel, Field, field_validator
 
+from victor.framework.agentic_graph.turn_record import TurnRecord
 from victor.framework.evaluation_nodes import EvaluationDecision
 
 # =============================================================================
@@ -126,7 +127,6 @@ class AgenticLoopStateModel(BaseModel):
         structured_routing_policy: Serialized structured routing policy snapshot
         topology_events: Serialized topology telemetry emitted during execution
         degradation_events: Runtime degradation/error records captured in state
-        _execution_context: Internal ExecutionContext (excluded from serialization)
     """
 
     # Core loop state
@@ -139,6 +139,9 @@ class AgenticLoopStateModel(BaseModel):
 
     # Perception results
     perception: Optional[Dict[str, Any]] = Field(default=None)
+    # Run-owned authorization scope, captured from the first perception and
+    # deliberately distinct from later perception drift during continuation.
+    original_intent: Optional[str] = Field(default=None)
     task_type: Optional[str] = Field(default=None)
     complexity: Optional[str] = Field(default=None)
 
@@ -146,7 +149,7 @@ class AgenticLoopStateModel(BaseModel):
     plan: Optional[Dict[str, Any]] = Field(default=None)
 
     # Execution results
-    action_result: Optional[Dict[str, Any]] = Field(default=None)
+    action_result: Optional[TurnRecord | Dict[str, Any]] = Field(default=None)
     tool_results: List[Dict[str, Any]] = Field(default_factory=list)
 
     # Evaluation
@@ -166,13 +169,10 @@ class AgenticLoopStateModel(BaseModel):
     topology_events: List[Dict[str, Any]] = Field(default_factory=list)
     degradation_events: List[Dict[str, Any]] = Field(default_factory=list)
 
-    # Internal ExecutionContext (private attribute, excluded from serialization)
-    _execution_context: Optional[Any] = PrivateAttr(default=None)
-
-    # Private attribute for service injection (not serialized)
-    _execution_context_private: Optional[Any] = PrivateAttr(default=None)
-
-    model_config = {"arbitrary_types_allowed": True, "validate_assignment": True}
+    # Durable graph state is a value object. Nodes use model_copy(update=...)
+    # for transitions; services and other live collaborators are injected
+    # outside this model rather than hidden in mutable fields.
+    model_config = {"arbitrary_types_allowed": True, "frozen": True}
 
     @field_validator("max_iterations")
     @classmethod
@@ -227,7 +227,13 @@ class AgenticLoopStateModel(BaseModel):
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to plain dict (excluding internal fields)."""
-        return {key: getattr(self, key) for key in self.keys()}
+        result: Dict[str, Any] = {}
+        for key in self.keys():
+            value = getattr(self, key)
+            if isinstance(value, TurnRecord):
+                value = value.model_dump(mode="json")
+            result[key] = value
+        return result
 
 
 # =============================================================================

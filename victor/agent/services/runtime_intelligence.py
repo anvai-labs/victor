@@ -1110,7 +1110,7 @@ class RuntimeIntelligenceService:
         self._evaluation_policy = resolved_policy
         self._task_analyzer = task_analyzer or get_task_analyzer()
         self._perception_integration = perception_integration or PerceptionIntegration(
-            config=self._evaluation_policy.to_config()
+            config=self._evaluation_policy.to_config(),
         )
         self._synchronize_perception_policy(self._perception_integration)
         self._optimization_injector = optimization_injector

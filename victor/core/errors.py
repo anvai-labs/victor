@@ -163,6 +163,11 @@ class AgentError(VictorError):
         return super().__str__()
 
 
+def is_terminal_agent_error(error: BaseException) -> bool:
+    """Whether an AgentError is an abort signal rather than a recoverable failure."""
+    return isinstance(error, AgentError) and not error.recoverable
+
+
 class ProviderError(AgentError):
     """Errors related to LLM providers."""
 

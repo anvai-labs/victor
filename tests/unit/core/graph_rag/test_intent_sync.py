@@ -94,7 +94,7 @@ def _manifest_for(root: Path) -> dict[str, str]:
     from victor_codegraph import build_manifest
 
     manifest = build_manifest(root)
-    return {p: h for p, h in manifest.items()}
+    return dict(manifest)
 
 
 def _runner(tmp_path, provider, graph, encoder, force=False):
@@ -140,7 +140,7 @@ class TestIntentSync:
         assert report.reembedded_files == 2
         assert report.chunks_embedded >= 2
         assert len(encoder.encoded_texts) == report.chunks_embedded
-        assert graph.intent_synced_manifest().keys() == {p for p in _manifest_for(tmp_path)}
+        assert graph.intent_synced_manifest().keys() == set(_manifest_for(tmp_path))
 
     def test_root_shortcut_skips_all_work(self, tmp_path):
         _write(tmp_path, "a.py", "def alpha():\n    return 1\n")

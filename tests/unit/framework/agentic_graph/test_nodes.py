@@ -43,7 +43,7 @@ class TestPerceiveNode:
 
         # Create mock perception result
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="write"),
+            intent=MagicMock(value="write_allowed"),
             complexity="medium",
             task_analysis=MagicMock(task_type="code_generation"),
             confidence=0.8,
@@ -69,7 +69,7 @@ class TestPerceiveNode:
         )
 
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="edit"),
+            intent=MagicMock(value="write_allowed"),
             complexity="low",
             task_analysis=MagicMock(task_type="debugging"),
             confidence=0.9,
@@ -101,11 +101,38 @@ class TestPerceiveNode:
         result = await perceive_node(create_initial_state(query="Write a function"))
 
         assert result.perception == {
-            "intent": "write",
+            "intent": "write_allowed",
             "complexity": "medium",
             "confidence": 0.5,
         }
         assert result.model_dump(mode="json")["perception"] == result.perception
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_error_fallback_is_valid_durable_intent(self):
+        runtime_intelligence = AsyncMock()
+        runtime_intelligence.analyze_turn = AsyncMock(
+            side_effect=RuntimeError("perception unavailable")
+        )
+
+        result = await perceive_node(
+            create_initial_state(query="Test"), runtime_intelligence=runtime_intelligence
+        )
+
+        assert result.perception is not None
+        assert result.perception["intent"] == "ambiguous"
+        assert result.original_intent == "ambiguous"
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_rejects_invalid_service_intent(self):
+        runtime_intelligence = AsyncMock()
+        runtime_intelligence.analyze_turn = AsyncMock(
+            return_value=MagicMock(intent="query", confidence=0.9)
+        )
+
+        with pytest.raises(ValueError, match="invalid action intent"):
+            await perceive_node(
+                create_initial_state(query="Test"), runtime_intelligence=runtime_intelligence
+            )
 
     async def test_perceive_node_accepts_dict_input(self):
         """Perceive node should normalize raw dict input at the boundary."""
@@ -114,6 +141,42 @@ class TestPerceiveNode:
         assert isinstance(result, AgenticLoopStateModel)
         assert result.stage == "perceive"
         assert result.iteration == 1
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_preserves_run_owned_intent_across_drift(self):
+        """Later perception drift cannot rewrite the run's authorization scope."""
+        state = create_initial_state(query="Explain this repository")
+        state = state.model_copy(update={"original_intent": "read_only"})
+        perception = MagicMock(
+            intent="write_allowed",
+            complexity="medium",
+            task_analysis=MagicMock(task_type="research"),
+            confidence=0.9,
+        )
+        runtime_intelligence = AsyncMock(analyze_turn=AsyncMock(return_value=perception))
+
+        result = await perceive_node(state, runtime_intelligence=runtime_intelligence)
+
+        assert result.perception["intent"] == "write_allowed"
+        assert result.original_intent == "read_only"
+        assert result.model_dump(mode="json")["original_intent"] == "read_only"
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_captures_first_intent_as_durable_primitive(self):
+        """The first perception establishes the run-owned intent as JSON data."""
+        state = create_initial_state(query="Explain this repository")
+        perception = MagicMock(
+            intent="read_only",
+            complexity="medium",
+            task_analysis=MagicMock(task_type="research"),
+            confidence=0.9,
+        )
+        runtime_intelligence = AsyncMock(analyze_turn=AsyncMock(return_value=perception))
+
+        result = await perceive_node(state, runtime_intelligence=runtime_intelligence)
+
+        assert result.original_intent == "read_only"
+        assert result.model_dump(mode="json")["original_intent"] == "read_only"
 
 
 class TestPlanNode:
@@ -212,10 +275,12 @@ class TestActNode:
         )
 
         mock_executor = AsyncMock()
+        mock_executor._is_question_only = lambda message: False
         mock_executor.execute_turn = AsyncMock(
             return_value=MagicMock(
                 response="Code written",
                 tool_results=[{"tool": "write_file", "status": "success"}],
+                disposition="continue",
             )
         )
 
@@ -241,6 +306,7 @@ class TestActNode:
         """Action failures should be recorded in graph-side degradation metadata."""
         state = create_initial_state(query="Write code")
         mock_executor = AsyncMock()
+        mock_executor._is_question_only = lambda message: False
         mock_executor.execute_turn = AsyncMock(side_effect=RuntimeError("provider failed"))
 
         result = await act_node(state, turn_executor=mock_executor)
@@ -531,7 +597,7 @@ class TestNodeIntegration:
 
         # Create mock perception
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="write"),
+            intent=MagicMock(value="write_allowed"),
             complexity="medium",
             task_analysis=MagicMock(task_type="code_generation"),
             confidence=0.8,
@@ -560,7 +626,7 @@ class TestNodeIntegration:
 
         # Perceive (mocked)
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="query"),
+            intent=MagicMock(value="ambiguous"),
             complexity="low",
             task_analysis=MagicMock(task_type="general"),
             confidence=0.9,
@@ -576,6 +642,7 @@ class TestNodeIntegration:
 
         # Act (mocked)
         mock_executor = AsyncMock()
+        mock_executor._is_question_only = lambda message: False
         mock_executor.execute_turn = AsyncMock(
             return_value=MagicMock(
                 response="Here's help",
@@ -628,7 +695,7 @@ class TestActNodeResponseText:
         te = SimpleNamespace(execute_turn=AsyncMock(return_value=self._turn("SOAK-OK")))
         state = AgenticLoopStateModel(query="task", max_iterations=5)
         result = await act_node(state, turn_executor=te)
-        assert result.action_result["response"] == "SOAK-OK"
+        assert result.action_result.content == "SOAK-OK"
 
     async def test_default_evaluation_completes_on_response_text(self):
         from types import SimpleNamespace
@@ -724,23 +791,26 @@ class TestTurnResultFlowsToEvaluator:
 
         return TurnResult(response=CompletionResponse(content=content))
 
-    async def test_act_node_publishes_turn_result_on_the_channel(self):
+    async def test_act_completion_observer_publishes_durable_record(self):
+        from victor.framework.agentic_graph.executor import _turn_record_observer
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.agentic_graph.turn_record import TurnRecordChannel
         from types import SimpleNamespace
         from unittest.mock import AsyncMock
 
-        from victor.framework.agentic_graph.nodes import act_node, pop_last_turn_result
-        from victor.framework.agentic_graph.state import AgenticLoopStateModel
-
         te = SimpleNamespace(execute_turn=AsyncMock(return_value=self._turn("SOAK-OK")))
         state = AgenticLoopStateModel(query="task", max_iterations=5)
-        result = await act_node(state, turn_executor=te)
-        # Text stays in state (serialization-safe); the object travels on the
-        # contextvar channel — never through persisted state (S6b: a runtime
-        # TurnResult carries futures; embedding it broke checkpoint pickling).
-        assert result.action_result["response"] == "SOAK-OK"
-        assert "_turn_result" not in result.action_result
-        published = pop_last_turn_result()
-        assert published is not None and published.response.content == "SOAK-OK"
+        channel = TurnRecordChannel()
+        completed = await act_node(state, turn_executor=te)
+
+        await _turn_record_observer(channel)("complete", "act", completed, None, 0.1)
+        await _turn_record_observer(channel)("complete", "plan", completed, None, 0.1)
+
+        assert completed.action_result.content == "SOAK-OK"
+        published = channel.latest
+        assert published is not None and published.content == "SOAK-OK"
+        assert completed.to_dict()["action_result"]["schema_version"] == "victor.turn.record.v1"
 
     async def test_evaluate_node_passes_turn_result_to_evaluator(self):
         from types import SimpleNamespace
@@ -750,10 +820,9 @@ class TestTurnResultFlowsToEvaluator:
         from victor.framework.agentic_graph.nodes import evaluate_node
         from victor.framework.agentic_graph.state import AgenticLoopStateModel
 
-        from victor.framework.agentic_graph.nodes import set_last_turn_result
+        from victor.framework.agentic_graph.turn_record import TurnRecord
 
         turn = self._turn("SOAK-OK")
-        set_last_turn_result(turn)
         evaluator = AsyncMock()
         evaluator.evaluate = AsyncMock(
             return_value=SimpleNamespace(decision="complete", score=0.9, reason="qa")
@@ -762,7 +831,7 @@ class TestTurnResultFlowsToEvaluator:
         state = state.model_copy(
             update={
                 "stage": "act",
-                "action_result": {"response": "SOAK-OK", "tool_results": []},
+                "action_result": TurnRecord.from_turn_result(turn),
             }
         )
 
@@ -784,18 +853,17 @@ class TestTurnResultFlowsToEvaluator:
         from victor.framework.agentic_graph.state import AgenticLoopStateModel
         from victor.framework.enhanced_completion_evaluation import EnhancedCompletionEvaluator
 
-        from victor.framework.agentic_graph.nodes import set_last_turn_result
+        from victor.framework.agentic_graph.turn_record import TurnRecord
 
         turn = self._turn("SOAK-OK")
         turn.is_qa_response = True
         turn.disposition = TurnDisposition.COMPLETION_CANDIDATE
-        set_last_turn_result(turn)
         evaluator = EnhancedCompletionEvaluator()
         state = AgenticLoopStateModel(query="Reply with exactly: SOAK-OK", max_iterations=5)
         state = state.model_copy(
             update={
                 "stage": "act",
-                "action_result": {"response": "SOAK-OK", "tool_results": []},
+                "action_result": TurnRecord.from_turn_result(turn),
             }
         )
 

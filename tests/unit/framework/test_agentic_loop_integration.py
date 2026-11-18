@@ -659,7 +659,7 @@ class TestTurnResultEvaluation:
         mock_coord.execute_turn.assert_called_once()
 
     async def test_act_tracks_tool_calls(self):
-        """_act() should update turn-level tracking from TurnResult."""
+        """ACT returns the result and completed-turn evaluation records tool usage."""
         from victor.agent.services.turn_execution_runtime import TurnResult
 
         mock_coord = AsyncMock()
@@ -679,7 +679,8 @@ class TestTurnResultEvaluation:
         assert loop.spin_detector.total_tool_calls == 0
         assert loop.spin_detector.consecutive_no_tool_turns == 0
 
-        await loop._act({}, {"query": "test"})
+        action_result = await loop._act({}, {"query": "test"})
+        loop._record_spin_and_ratchet(action_result)
 
         assert loop.spin_detector.total_tool_calls == 2
         assert loop.spin_detector.consecutive_no_tool_turns == 0

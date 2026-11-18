@@ -1202,9 +1202,12 @@ class TurnExecutor:
                 "enable_effect_gate": _effect_gate,
                 "enable_criteria_gate": bool((run_context or {}).get("criteria")),
             }
+        orchestrator = self._resolve_orchestrator()
+        runtime_intelligence = getattr(orchestrator, "_runtime_intelligence", None)
         loop = AgenticLoop(
             orchestrator=None,
             turn_executor=self,
+            runtime_intelligence=runtime_intelligence,
             max_iterations=iteration_budget,
             enable_fulfillment_check=True,
             enable_adaptive_iterations=True,

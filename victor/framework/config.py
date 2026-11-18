@@ -274,6 +274,9 @@ class CheckpointConfig:
         checkpointer: Optional checkpointer for persistence
         checkpoint_at_start: Whether to checkpoint before execution (default: False)
         checkpoint_at_end: Whether to checkpoint after execution (default: True)
+        checkpoint_after_nodes: Restrict ordinary completed-node checkpoints
+            to these node IDs (``None`` preserves generic per-node behavior).
+            Interrupt-before and interrupt-after checkpoints remain mandatory.
         record_state_history: Whether to record a per-node state snapshot on
             ``GraphExecutionResult.state_history`` (default: False). Off by
             default because each snapshot is a deep copy of the full state —
@@ -293,6 +296,7 @@ class CheckpointConfig:
     checkpointer: Optional["CheckpointerProtocol"] = None
     checkpoint_at_start: bool = False
     checkpoint_at_end: bool = True
+    checkpoint_after_nodes: Optional[set[str]] = None
     record_state_history: bool = False
 
 
@@ -476,6 +480,7 @@ class GraphConfig:
                 # Legacy didn't have these, use defaults
                 checkpoint_at_start=False,
                 checkpoint_at_end=True,
+                checkpoint_after_nodes=kwargs.get("checkpoint_after_nodes"),
                 record_state_history=kwargs.get("record_state_history", False),
             ),
             interrupt=InterruptConfig(
