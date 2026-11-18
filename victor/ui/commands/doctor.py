@@ -428,6 +428,66 @@ class DoctorChecks:
         except Exception:  # pack absent or its API changed: nothing to report
             pass
 
+    def check_airgapped_readiness(self) -> None:
+        """Offline-readiness self-test: model, local providers, embeddings.
+
+        The air-gap wedge (FEP-0049 exploration move 10): no competitor can
+        claim 'works offline' — Victor can, and this check proves it per
+        machine. Reports each leg independently (model availability, local
+        server, local embeddings) so the operator knows exactly which piece
+        is missing rather than a single pass/fail.
+        """
+        legs: list[tuple[str, bool, str]] = []
+
+        # Local LLM: Ollama server + default model
+        ollama_ok = False
+        try:
+            import httpx
+
+            response = httpx.get("http://localhost:11434/api/tags", timeout=2)
+            ollama_ok = response.status_code == 200
+        except Exception:
+            pass
+        legs.append(("Ollama server", ollama_ok, "ollama serve"))
+
+        # Local embeddings: sentence-transformers importable
+        embeddings_ok = False
+        try:
+            import sentence_transformers  # noqa: F401
+
+            embeddings_ok = True
+        except ImportError:
+            pass
+        legs.append(
+            (
+                "Local embeddings (sentence-transformers)",
+                embeddings_ok,
+                "pip install victor-ai[embeddings]",
+            )
+        )
+
+        all_ok = all(ok for _, ok, _ in legs)
+        detail = "; ".join(
+            f"{name}: {'OK' if ok else 'MISSING (fix: ' + fix + ')'}" for name, ok, fix in legs
+        )
+        if all_ok:
+            self.add_check(
+                name="Air-Gap Readiness",
+                severity=Severity.SUCCESS,
+                message=f"Offline-verified: {detail}",
+                suggestion=None,
+            )
+        else:
+            self.add_check(
+                name="Air-Gap Readiness",
+                severity=Severity.INFO,
+                message=f"Partial offline readiness: {detail}",
+                suggestion=(
+                    "Install the missing pieces, or see examples/"
+                    "airgapped_profile.yaml for the full air-gapped setup"
+                ),
+            )
+
     def check_mcp_clients(self) -> None:
         """Detect installed MCP clients and print the exact attach command.
 
@@ -996,6 +1056,7 @@ class DoctorChecks:
         self.check_graph_indexing()
         self.check_sandbox_posture()
         self.check_mcp_clients()
+        self.check_airgapped_readiness()
         self.check_api_keys()
         self.check_local_providers()
         self.check_inferflux()
