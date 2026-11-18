@@ -19,12 +19,16 @@ allowing other MCP clients to use Victor's capabilities.
 """
 
 import asyncio
+import inspect
 import json
+import logging
 import sys
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Tuple
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Tuple
 
 if TYPE_CHECKING:
+    from victor.integrations.mcp.context import MCPToolContext
     from victor.tools.registry import ToolRegistry
 
 from victor.core.async_utils import run_sync
@@ -43,6 +47,11 @@ from victor.integrations.mcp.protocol import (
 from victor.tools.base import BaseTool
 from victor.tools.registry import ToolRegistry
 
+logger = logging.getLogger(__name__)
+
+GRAPH_INDEX_RESOURCE_URI = "victor://graph/index-status"
+GRAPH_INDEX_RESOURCE_NAME = "Codegraph index status"
+
 
 class MCPServer:
     """MCP server that exposes Victor's tools and resources.
@@ -56,6 +65,8 @@ class MCPServer:
         name: str = "Victor MCP Server",
         version: str = "1.0.0",
         tool_registry: Optional[ToolRegistry] = None,
+        exec_context: Optional["MCPToolContext"] = None,
+        admission_refusal: Optional[str] = None,
     ):
         """Initialize MCP server.
 
@@ -63,10 +74,20 @@ class MCPServer:
             name: Server name
             version: Server version
             tool_registry: Victor's tool registry
+            exec_context: Launch-time sandbox admission (FEP-0049-followup
+                B2). When present, every tools/call injects the admitted
+                policy snapshot into the execution context; when ``None``
+                the historical empty context is preserved (backward compat).
+            admission_refusal: Set when launch-time admission FAILED: the
+                server still starts, but every tools/call returns an isError
+                refusal carrying this text (fail-closed, zero execution).
         """
         self.name = name
         self.version = version
         self.tool_registry = tool_registry or ToolRegistry()
+        self.exec_context = exec_context
+        self.admission_refusal = admission_refusal
+        self._refusal_count = 0
 
         self.info = MCPServerInfo(
             name=name,
@@ -81,17 +102,26 @@ class MCPServer:
 
         self.initialized = False
         self.resources: List[MCPResource] = []
+        self._resource_read_handlers: Dict[str, Callable[[], Any]] = {}
         self._running = False  # For graceful shutdown of stdio server
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer_transport: Optional[asyncio.WriteTransport] = None
 
-    def register_resource(self, resource: MCPResource) -> None:
+    def register_resource(
+        self, resource: MCPResource, read_handler: Optional[Callable[[], Any]] = None
+    ) -> None:
         """Register a resource with the MCP server.
 
         Args:
             resource: Resource to register
+            read_handler: Optional callable returning the resource content
+                (a JSON-serializable object or a string). When provided,
+                reads of this URI are served by the handler instead of the
+                ``file://`` path.
         """
         self.resources.append(resource)
+        if read_handler is not None:
+            self._resource_read_handlers[resource.uri] = read_handler
 
     def _tool_to_mcp(self, tool: BaseTool) -> MCPTool:
         """Convert Victor tool to MCP tool definition.
@@ -255,9 +285,42 @@ class MCPServer:
         if not tool_name:
             return self._create_error(msg_id, -32602, "Missing tool name")
 
+        # Launch-time admission failure: refuse EVERY call without executing
+        # (fail-closed). The server stays up so the client sees typed refusals.
+        if self.admission_refusal is not None and self.exec_context is None:
+            self._refusal_count += 1
+            print(
+                f"MCP tools/call '{tool_name}' refused "
+                f"(#{self._refusal_count}): {self.admission_refusal}",
+                file=sys.stderr,
+            )
+            return self._create_response(
+                msg_id,
+                {
+                    "content": [{"type": "text", "text": self.admission_refusal}],
+                    "isError": True,
+                },
+            )
+
+        # Build the tool execution context from the admitted launch context.
+        # An unenforceable required policy refuses here, before any execution.
+        context: Dict[str, Any] = {}
+        if self.exec_context is not None:
+            if self.exec_context.backend_decision.refuse:
+                refusal_text = self.exec_context.refusal_text()
+                self._refusal_count += 1
+                print(
+                    f"MCP tools/call '{tool_name}' refused "
+                    f"(#{self._refusal_count}): {refusal_text}",
+                    file=sys.stderr,
+                )
+                return self._create_response(
+                    msg_id,
+                    {"content": [{"type": "text", "text": refusal_text}], "isError": True},
+                )
+            context = self.exec_context.to_exec_context()
+
         try:
-            # Create minimal context for tool execution
-            context: Dict[str, Any] = {}
             result = await self.tool_registry.execute(tool_name, context, **tool_args)
 
             # Return standard MCP format per modelcontextprotocol.io specification:
@@ -318,6 +381,24 @@ class MCPServer:
         resource = next((r for r in self.resources if r.uri == uri), None)
         if not resource:
             return self._create_error(msg_id, -32001, f"Resource not found: {uri}")
+
+        # Handler-backed resources (e.g. victor:// graph status) first
+        handler = self._resource_read_handlers.get(uri)
+        if handler is not None:
+            try:
+                content = handler()
+                if inspect.iscoroutine(content):
+                    content = await content
+                payload = content if isinstance(content, str) else json.dumps(content, default=str)
+                resource_content = MCPResourceContent(
+                    uri=uri,
+                    mime_type=resource.mime_type or "application/json",
+                    content=payload,
+                    metadata=resource.metadata,
+                )
+                return self._create_response(msg_id, resource_content.model_dump())
+            except Exception as e:
+                return self._create_error(msg_id, -32603, f"Error reading resource: {e}")
 
         # For file:// URIs, read the file
         if uri.startswith("file://"):
@@ -637,75 +718,161 @@ def create_mcp_server_from_orchestrator(
     )
 
 
-async def run_mcp_server_stdio() -> None:
+def apply_graph_tool_flag(no_graph_tools: bool) -> None:
+    """Enable graph tools for this MCP server process (FEP-0049-followup B3).
+
+    Explicit ``victor mcp`` launch IS the consent; the orchestrator's own
+    loop keeps its evidence-gated default (ADR-036), so this is process-
+    scoped. Runtime overrides are the TOP-precedence flag mechanism
+    (feature_flags.py: runtime > env > config > default), so:
+
+    - the enable here beats even ``VICTOR_USE_GRAPH_QUERY_TOOL=false`` —
+      a separate process observing the global default is unaffected;
+    - ``--no-graph-tools`` must call ``disable_feature`` because the runtime
+      override is the ONLY mechanism that beats ``...=true`` in the env.
+
+    Args:
+        no_graph_tools: True when the caller passed ``--no-graph-tools``.
+    """
+    from victor.core.feature_flags import FeatureFlag, disable_feature, enable_feature
+
+    if no_graph_tools:
+        disable_feature(FeatureFlag.USE_GRAPH_QUERY_TOOL)
+    else:
+        enable_feature(FeatureFlag.USE_GRAPH_QUERY_TOOL)
+
+
+def register_graph_index_resource(server: "MCPServer", project_path: Path) -> None:
+    """Expose codegraph index status as an MCP resource.
+
+    The store is built LAZILY inside the read handler (bounded latency —
+    a resource read never triggers an index build) and any failure degrades
+    to a ``{"status": "unavailable"}`` payload, never an open refusal of the
+    whole resource surface.
+    """
+    from victor.integrations.mcp.protocol import MCPResource
+
+    async def _read_index_status() -> dict[str, Any]:
+        try:
+            from victor.storage.graph import create_graph_store
+
+            store = create_graph_store(name="auto", project_path=project_path)
+            raw = await store.stats()
+            return {
+                "status": "ok",
+                "project": str(project_path),
+                "store_path": raw.get("path"),
+                "nodes": raw.get("nodes", 0),
+                "edges": raw.get("edges", 0),
+                "files_tracked": raw.get("indexed_files", 0),
+            }
+        except Exception as exc:
+            logger.debug("Graph index status unavailable: %s", exc)
+            return {
+                "status": "unavailable",
+                "project": str(project_path),
+                "error": str(exc),
+            }
+
+    server.register_resource(
+        MCPResource(
+            uri=GRAPH_INDEX_RESOURCE_URI,
+            name=GRAPH_INDEX_RESOURCE_NAME,
+            description=(
+                "Codegraph index status for the launch directory: store path, "
+                "node count, files tracked. Read-only; never builds an index."
+            ),
+            mime_type="application/json",
+        ),
+        read_handler=_read_index_status,
+    )
+
+
+def _admit_or_refuse(workspace_root: Path) -> tuple[Optional["MCPToolContext"], Optional[str]]:
+    """Admit the launch execution context; on failure return the refusal.
+
+    The client layer builds the runtime policy snapshot (contextvar wins,
+    else ``RunPolicySnapshot.from_settings``) and INJECTS it into the
+    infrastructure-layer admission — the layering ratchet's
+    "inject the dependency" guidance. The server still starts on admission
+    failure — every tools/call then returns an isError refusal
+    (fail-closed, zero execution).
+    """
+    from victor.integrations.mcp.context import (
+        SANDBOX_ESCAPE_HATCH,
+        admit_mcp_execution_context,
+    )
+
+    try:
+        from victor.runtime.policy_snapshot import (
+            RunPolicySnapshot,
+            current_run_policy_snapshot,
+        )
+
+        from victor.config.settings import get_settings
+
+        snapshot = current_run_policy_snapshot() or RunPolicySnapshot.from_settings(get_settings())
+    except Exception as exc:
+        refusal = (
+            f"Sandbox policy could not be established ({exc}); refusing MCP "
+            f"tool execution (fail-closed). {SANDBOX_ESCAPE_HATCH}".strip()
+        )
+        print(f"MCP launch admission failed: {refusal}", file=sys.stderr)
+        return None, refusal
+    try:
+        return admit_mcp_execution_context(workspace_root, snapshot), None
+    except Exception as exc:
+        print(f"MCP launch admission failed: {exc}", file=sys.stderr)
+        return None, str(exc)
+
+
+async def run_mcp_server_stdio(no_graph_tools: bool = False) -> None:
     """Run MCP server in stdio mode.
 
     This is the main entry point for running Victor as an MCP server.
-    Can be invoked via: python -m victor.mcp.server
+    Can be invoked via: python -m victor.mcp.server (or the
+    ``victor-mcp-server`` console script).
     """
-    import importlib
-    import inspect
     import os
-    import sys
 
     from victor.config.settings import Settings
-    from victor.tools.base import BaseTool
+    from victor.integrations.mcp.discovery import register_discovered_tools
     from victor.tools.registry import ToolRegistry
 
     # Initialize settings
     Settings()
+
+    apply_graph_tool_flag(no_graph_tools)
+
+    workspace_root = Path(os.getcwd())
     registry = ToolRegistry()
+    registered_count = register_discovered_tools(registry)
 
-    # Dynamic tool discovery (same as orchestrator)
-    tools_dir = os.path.join(os.path.dirname(__file__), "..", "tools")
-    excluded_files = {
-        "__init__.py",
-        "base.py",
-        "decorators.py",
-        "semantic_selector.py",
-        "common.py",
-    }
-    registered_count = 0
-
-    for filename in os.listdir(tools_dir):
-        if filename.endswith(".py") and filename not in excluded_files:
-            module_name = f"victor.tools.{filename[:-3]}"
-            try:
-                module = importlib.import_module(module_name)
-                for _name, obj in inspect.getmembers(module):
-                    # Register @tool decorated functions
-                    if inspect.isfunction(obj) and getattr(obj, "_is_tool", False):
-                        registry.register(obj)
-                        registered_count += 1
-                    # Register BaseTool class instances
-                    elif (
-                        inspect.isclass(obj)
-                        and issubclass(obj, BaseTool)
-                        and obj is not BaseTool
-                        and hasattr(obj, "name")
-                    ):
-                        try:
-                            tool_instance = obj()
-                            registry.register(tool_instance)
-                            registered_count += 1
-                        except Exception:
-                            pass  # Skip tools that need special initialization
-            except Exception as e:
-                print(f"Warning: Could not load {module_name}: {e}", file=sys.stderr)
+    exec_context, admission_refusal = _admit_or_refuse(workspace_root)
 
     server = MCPServer(
         name="Victor MCP Server",
         version="1.0.0",
         tool_registry=registry,
+        exec_context=exec_context,
+        admission_refusal=admission_refusal,
     )
+    register_graph_index_resource(server, workspace_root)
 
-    print(f"Starting MCP server with {registered_count} tools", file=sys.stderr)
+    posture = "sandboxed (admitted policy)" if exec_context else "ADMISSION REFUSAL (fail-closed)"
+    print(
+        f"Starting MCP server with {registered_count} tools; posture: {posture}",
+        file=sys.stderr,
+    )
     await server.start_stdio_server()
 
 
 def main() -> None:
-    """CLI entry point for MCP server."""
-    run_sync(run_mcp_server_stdio())
+    """CLI entry point for the ``victor-mcp-server`` console script."""
+    if "--no-graph-tools" in sys.argv:
+        run_sync(run_mcp_server_stdio(no_graph_tools=True))
+    else:
+        run_sync(run_mcp_server_stdio())
 
 
 if __name__ == "__main__":
