@@ -791,14 +791,39 @@ def register_graph_index_resource(server: "MCPServer", project_path: Path) -> No
 def _admit_or_refuse(workspace_root: Path) -> tuple[Optional["MCPToolContext"], Optional[str]]:
     """Admit the launch execution context; on failure return the refusal.
 
-    The server still starts on admission failure — every tools/call then
-    returns an isError refusal (fail-closed, zero execution).
+    The client layer builds the runtime policy snapshot (contextvar wins,
+    else ``RunPolicySnapshot.from_settings``) and INJECTS it into the
+    infrastructure-layer admission — the layering ratchet's
+    "inject the dependency" guidance. The server still starts on admission
+    failure — every tools/call then returns an isError refusal
+    (fail-closed, zero execution).
     """
-    from victor.integrations.mcp.context import MCPAdmissionError, admit_mcp_execution_context
+    from victor.integrations.mcp.context import (
+        SANDBOX_ESCAPE_HATCH,
+        admit_mcp_execution_context,
+    )
 
     try:
-        return admit_mcp_execution_context(workspace_root), None
-    except MCPAdmissionError as exc:
+        from victor.runtime.policy_snapshot import (
+            RunPolicySnapshot,
+            current_run_policy_snapshot,
+        )
+
+        from victor.config.settings import get_settings
+
+        snapshot = current_run_policy_snapshot() or RunPolicySnapshot.from_settings(
+            get_settings()
+        )
+    except Exception as exc:
+        refusal = (
+            f"Sandbox policy could not be established ({exc}); refusing MCP "
+            f"tool execution (fail-closed). {SANDBOX_ESCAPE_HATCH}".strip()
+        )
+        print(f"MCP launch admission failed: {refusal}", file=sys.stderr)
+        return None, refusal
+    try:
+        return admit_mcp_execution_context(workspace_root, snapshot), None
+    except Exception as exc:
         print(f"MCP launch admission failed: {exc}", file=sys.stderr)
         return None, str(exc)
 

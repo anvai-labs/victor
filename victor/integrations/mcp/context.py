@@ -33,7 +33,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from victor.runtime.policy_snapshot import RunPolicySnapshot, current_run_policy_snapshot
 from victor.tools.sandbox.backends import RequiredLaunchDecision
 
 SANDBOX_ESCAPE_HATCH = (
@@ -65,7 +64,9 @@ class MCPToolContext:
             admission used (consistency, no divergent re-read).
     """
 
-    run_policy_snapshot: RunPolicySnapshot
+    # Duck-typed runtime RunPolicySnapshot: the only contract is
+    # ``to_sandbox_settings()``. Imported nowhere in this module (layering).
+    run_policy_snapshot: Any
     workspace_root: Path
     backend_decision: RequiredLaunchDecision
     settings: Any = None
@@ -86,36 +87,25 @@ class MCPToolContext:
         return f"MCP tool execution refused: {reason}"
 
 
-def admit_mcp_execution_context(workspace_root: Path) -> MCPToolContext:
+def admit_mcp_execution_context(workspace_root: Path, snapshot: Any) -> MCPToolContext:
     """Admit the execution context for an MCP server launch.
 
-    Modeled on ``_admit_git_policy``: an enclosing contextvar snapshot wins;
-    otherwise the current settings are copied into an immutable
-    :class:`RunPolicySnapshot`. Then the canonical required-launch decision
-    is resolved from the snapshot's sandbox settings.
+    Modeled on ``_admit_git_policy``. Dependency-inverted per the layering
+    ratchet: the CALLER (client layer) builds the runtime policy snapshot
+    (contextvar -> ``RunPolicySnapshot.from_settings``) and injects it here;
+    this module never imports ``victor.runtime``. Only the sandbox launch
+    decision is resolved here (same infrastructure layer).
+
+    Args:
+        workspace_root: Working directory the server was launched in.
+        snapshot: The runtime policy snapshot (duck-typed via
+            ``to_sandbox_settings()``).
 
     Raises:
-        MCPAdmissionError: when no policy snapshot can be established.
-        Never returns a context that degrades an unknown/failed read to an
-        open posture — failure raises.
+        Nothing from admission itself. Callers translate snapshot-build
+        failures into an ``admission_refusal`` string (fail-closed: no
+        context, every call refused).
     """
-    admitted = current_run_policy_snapshot()
-    settings: Any = None
-    if admitted is not None:
-        snapshot = admitted
-    else:
-        try:
-            from victor.config.settings import get_settings
-
-            settings = get_settings()
-            snapshot = RunPolicySnapshot.from_settings(settings)
-        except Exception as exc:
-            raise MCPAdmissionError(
-                "Sandbox policy could not be established "
-                f"({exc}); refusing MCP tool execution (fail-closed). "
-                f"{SANDBOX_ESCAPE_HATCH}"
-            ) from exc
-
     from victor.tools.sandbox import resolve_required_launch
 
     backend_decision = resolve_required_launch(snapshot.to_sandbox_settings())
@@ -123,5 +113,4 @@ def admit_mcp_execution_context(workspace_root: Path) -> MCPToolContext:
         run_policy_snapshot=snapshot,
         workspace_root=workspace_root,
         backend_decision=backend_decision,
-        settings=settings,
     )

@@ -29,8 +29,24 @@ from unittest.mock import patch
 
 import pytest
 
+
+class FakeSnapshot:
+    """Duck-typed runtime RunPolicySnapshot (to_sandbox_settings contract)."""
+
+    def __init__(self, policy="required", enabled=True):
+        self.effective_policy = policy
+        self.sandbox_enabled = enabled
+
+    def to_sandbox_settings(self):
+        from victor.config.sandbox_settings import SandboxSettings
+
+        return SandboxSettings(
+            sandbox_policy=self.effective_policy,
+            sandbox_enabled=self.sandbox_enabled,
+        )
+
+
 from victor.integrations.mcp.context import (
-    MCPAdmissionError,
     MCPToolContext,
     SANDBOX_ESCAPE_HATCH,
     admit_mcp_execution_context,
@@ -109,109 +125,79 @@ def _reset_feature_flag_state():
 
 class TestAdmissionSuccess:
     def test_success_shape(self, tmp_path):
-        ctx = admit_mcp_execution_context(tmp_path)
+        snap = FakeSnapshot(policy="preferred")
+        ctx = admit_mcp_execution_context(tmp_path, snap)
 
         assert ctx.workspace_root == tmp_path
-        assert ctx.run_policy_snapshot is not None
-        assert ctx.run_policy_snapshot.effective_policy in {
-            "disabled",
-            "preferred",
-            "required",
-        }
+        assert ctx.run_policy_snapshot is snap
+        assert ctx.run_policy_snapshot.effective_policy == "preferred"
         # Non-required policy never refuses.
         assert ctx.backend_decision.refuse is False
-        # The same settings read the admission used is retained for tools.
-        assert ctx.settings is not None
 
     def test_context_is_frozen(self, tmp_path):
-        ctx = admit_mcp_execution_context(tmp_path)
+        ctx = admit_mcp_execution_context(tmp_path, FakeSnapshot())
         with pytest.raises(Exception):
             ctx.workspace_root = Path("/other")  # type: ignore[misc]
 
 
 class TestAdmissionFailure:
-    def test_settings_read_failure_raises_typed_error(self, monkeypatch, tmp_path):
-        """from_settings failure -> MCPAdmissionError carrying the escape hatch.
+    def test_snapshot_is_injected_not_imported(self, tmp_path):
+        """Dependency inversion: the caller builds the snapshot (client
+        layer owns the runtime import); admission only resolves the
+        backend decision from it."""
+        snap = FakeSnapshot(policy="required")
+        ctx = admit_mcp_execution_context(tmp_path, snap)
+        assert ctx.run_policy_snapshot is snap
+        assert ctx.backend_decision.required_active is True
 
-        (An invalid policy string is IGNORED by the ADR-035 derivation and
-        resolves fail-closed; the raising vector is a mistyped field.)
-        """
-        import victor.config.settings as settings_module
-
-        monkeypatch.setattr(
-            settings_module,
-            "get_settings",
-            lambda: SimpleNamespace(sandbox=SimpleNamespace(sandbox_enabled="not-a-bool")),
-        )
-        with pytest.raises(MCPAdmissionError) as excinfo:
-            admit_mcp_execution_context(tmp_path)
-        assert "VICTOR_SANDBOX_POLICY" in str(excinfo.value)
-
-    def test_get_settings_raise_raises_typed_error(self, monkeypatch, tmp_path):
-        import victor.config.settings as settings_module
-
-        def _boom():
-            raise RuntimeError("settings store unavailable")
-
-        monkeypatch.setattr(settings_module, "get_settings", _boom)
-        with pytest.raises(MCPAdmissionError):
-            admit_mcp_execution_context(tmp_path)
-
-    def test_never_degrades_open_on_error(self, monkeypatch, tmp_path):
-        """Admission NEVER returns a context whose snapshot claims disabled
-        on a settings failure — it raises instead (fail-closed)."""
-        import victor.config.settings as settings_module
-
-        monkeypatch.setattr(
-            settings_module,
-            "get_settings",
-            lambda: SimpleNamespace(sandbox=SimpleNamespace(sandbox_enabled="not-a-bool")),
-        )
-        with pytest.raises(MCPAdmissionError):
-            admit_mcp_execution_context(tmp_path)
-
-
-class TestAdmittedSnapshotBeatsReloadedSettings:
-    def test_admitted_snapshot_beats_reloaded_disabled(self, monkeypatch, tmp_path):
-        """Mirror of tests/unit/tools/sandbox/test_executor_integration.py::test_run_command_uses_admitted_snapshot_over_reloaded_disabled:
-        the contextvar-admitted snapshot wins over a fresh (disabled) settings read."""
-        from victor.runtime.policy_snapshot import run_policy_context
-
-        _install_reloaded_disabled_settings(monkeypatch)
-        required = _required_snapshot()
-
-        with run_policy_context(required):
-            ctx = admit_mcp_execution_context(tmp_path)
-
-        assert ctx.run_policy_snapshot is required
-        assert ctx.run_policy_snapshot.effective_policy == "required"
-
-    def test_required_with_backend_resolves_active_decision(self, monkeypatch, tmp_path):
-        from victor.runtime.policy_snapshot import run_policy_context
-
-        _install_reloaded_disabled_settings(monkeypatch)
-        required = _required_snapshot()
-
-        class _FakeBackend:
-            def type_name(self):
-                return "fake"
-
-            def available(self):
-                return True
-
+    def test_unenforceable_required_refuses(self, tmp_path, monkeypatch):
+        """required policy + no backend -> refusal decision (callers must
+        refuse; the server turns this into isError per call)."""
         monkeypatch.setattr(
             "victor.tools.sandbox.resolve_required_launch",
-            lambda settings: RequiredLaunchDecision(required_active=True, backend=_FakeBackend()),
+            lambda settings: SimpleNamespace(
+                required_active=True, refuse=True, reason="no backend", backend=None
+            ),
         )
-        with run_policy_context(required):
-            ctx = admit_mcp_execution_context(tmp_path)
+        ctx = admit_mcp_execution_context(tmp_path, FakeSnapshot(policy="required"))
+        assert ctx.backend_decision.refuse is True
+        assert "no backend" in ctx.refusal_text()
 
+    def test_entry_admission_failure_returns_refusal(self, tmp_path, monkeypatch):
+        """Snapshot-build failure at the client layer -> _admit_or_refuse
+        returns (None, refusal) — fail-closed, server starts, zero execution."""
+        from victor.integrations.mcp.server import _admit_or_refuse
+
+        monkeypatch.setattr(
+            "victor.runtime.policy_snapshot.current_run_policy_snapshot",
+            lambda: None,
+        )
+
+        def _boom(settings):
+            raise RuntimeError("malformed profiles.yaml")
+
+        monkeypatch.setattr(
+            "victor.runtime.policy_snapshot.RunPolicySnapshot.from_settings",
+            staticmethod(_boom),
+        )
+        ctx, refusal = _admit_or_refuse(tmp_path)
+        assert ctx is None
+        assert "fail-closed" in refusal
+
+    def test_admitted_snapshot_beats_reloaded_disabled(self, tmp_path, monkeypatch):
+        """The injected snapshot wins over a fresh settings read that says
+        disabled (test_executor_integration.py:391 property over MCP)."""
+        snap = FakeSnapshot(policy="required")
+        monkeypatch.setattr(
+            "victor.tools.sandbox.resolve_required_launch",
+            lambda settings: SimpleNamespace(
+                required_active=True, refuse=False, reason="", backend=object()
+            ),
+        )
+        # Even with settings reading disabled, the ADMITTED snapshot governs.
+        ctx = admit_mcp_execution_context(tmp_path, snap)
         assert ctx.backend_decision.required_active is True
-        assert ctx.backend_decision.refuse is False
 
-
-class TestDangerouslyUnsandboxed:
-    @pytest.mark.asyncio
     async def test_settings_mutated_pre_admission_executes(self, monkeypatch, tmp_path):
         """--dangerously-unsandboxed mutates settings BEFORE admission, so the
         admitted policy is disabled and tool calls execute (no refusal)."""
@@ -229,7 +215,7 @@ class TestDangerouslyUnsandboxed:
         # This is what force_unsandboxed_for_session() does to settings.
         settings.sandbox.sandbox_policy = "disabled"
 
-        ctx = admit_mcp_execution_context(tmp_path)
+        ctx = admit_mcp_execution_context(tmp_path, FakeSnapshot(policy="disabled", enabled=False))
         assert ctx.run_policy_snapshot.effective_policy == "disabled"
         assert ctx.backend_decision.refuse is False
 
