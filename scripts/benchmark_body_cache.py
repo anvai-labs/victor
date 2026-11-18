@@ -49,9 +49,11 @@ def _implementation() -> dict[str, str]:
     result = {
         str(Path(__file__).resolve()): hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     }
-    for name in _CACHE_MODULE_ALLOWLIST:
+    for name in sorted(_CACHE_MODULE_ALLOWLIST):
         try:
-            module = importlib.import_module(name)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
+            module = importlib.import_module(
+                name
+            )  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
         except ModuleNotFoundError as exc:
             if name.endswith(".body_provenance") and exc.name == name:
                 continue  # The pre-provenance reference has no such module.
