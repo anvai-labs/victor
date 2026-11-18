@@ -150,3 +150,19 @@ class TestToolsCancel:
         assert r.json() == {"tool_call_id": "call-1", "cancelled": True}
         assert "call-1" not in server._pending_tool_approvals
         server._broadcast_ws.assert_awaited()
+
+
+class TestSystemStatusSandboxPosture:
+    def test_status_reports_effective_sandbox_posture(self, server, monkeypatch):
+        """ADR-035: the /system surface reports the effective posture."""
+        server.workspace_root = "/tmp"
+        server._detect_capabilities = lambda: []
+        server._get_orchestrator = AsyncMock(return_value=object())
+        monkeypatch.setenv("VICTOR_SANDBOX_POLICY", "required")
+        client = _client(server)
+        body = client.get("/status").json()
+        assert body["sandbox_posture"] == "required"
+
+        monkeypatch.setenv("VICTOR_SANDBOX_POLICY", "disabled")
+        body = client.get("/status").json()
+        assert body["sandbox_posture"] == "disabled"
