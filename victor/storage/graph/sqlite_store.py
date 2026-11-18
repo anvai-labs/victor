@@ -47,6 +47,7 @@ _NODE_TABLE = Tables.GRAPH_NODE
 _EDGE_TABLE = Tables.GRAPH_EDGE
 _MTIME_TABLE = Tables.GRAPH_FILE_MTIME
 _INTENT_STATE_TABLE = Tables.INTENT_FILE_STATE
+_INTENT_CHUNKS_TABLE = Tables.INTENT_CHUNKS
 _FTS_TABLE = f"{_NODE_TABLE}_fts"
 # Write-path cache bound: distinct path strings are bounded by the corpus
 # file count in practice; the cap only guards pathological variety.
@@ -97,6 +98,25 @@ CREATE TABLE IF NOT EXISTS {_MTIME_TABLE} (
     indexed_at REAL NOT NULL,
     content_hash TEXT
 );
+
+-- Intent-tier chunk vectors (FEP-0049): float32 little-endian BLOBs,
+-- one row per deterministic chunk_id. Brute-force cosine over a cached
+-- numpy matrix at query time (measured: 0.1 ms @ 14K rows, 3.4 ms @ 100K).
+-- profile_id per row lets search detect mixed-profile corruption; the
+-- sync journal lives in intent_file_state (marker commits LAST).
+CREATE TABLE IF NOT EXISTS intent_chunks (
+    chunk_id    TEXT PRIMARY KEY,
+    symbol_oid  TEXT NOT NULL,
+    symbol_id   TEXT NOT NULL,
+    file        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    input_hash  TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    profile_id  TEXT NOT NULL,
+    vector      BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intent_chunks_file ON intent_chunks(file);
+CREATE INDEX IF NOT EXISTS idx_intent_chunks_symbol ON intent_chunks(symbol_id);
 
 -- Intent-tier per-file sync state (FEP-0049): the committed marker for
 -- "this file's chunk embeddings are stored in the vector table under

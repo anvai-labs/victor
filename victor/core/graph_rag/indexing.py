@@ -903,36 +903,24 @@ class GraphIndexingPipeline:
             intent_store = None
             try:
                 from victor.core.graph_rag.intent_sync import sync_intent_tier
-                from victor.storage.graph.intent_index import INTENT_TABLE, IntentIndexStore
+                from victor.core.graph_rag.seeding import (
+                    build_intent_index,
+                    chunk_encoder_factory,
+                    chunk_profile_id,
+                )
 
                 manifest = getattr(getattr(self, "_codegraph_repository", None), "manifest", None)
-                if manifest:
-                    from victor.storage.vector_stores.registry import EmbeddingRegistry
-
-                    build = getattr(self.graph_store, "_build_embedding_config", None)
-                    provider = None
-                    if build is not None:
-                        config = build()
-                        config.extra_config = {
-                            **(config.extra_config or {}),
-                            "table_name": INTENT_TABLE,
-                        }
-                        provider = EmbeddingRegistry.create(config)
-                    if provider is not None:
-                        from victor_codegraph import CHUNK_SOURCE_PROFILE
-                        from victor_codegraph.embeddings import SentenceTransformerEncoder
-
-                        def _make_encoder():
-                            return SentenceTransformerEncoder(CHUNK_SOURCE_PROFILE)
-
-                        intent_store = IntentIndexStore(provider, self.graph_store)
+                profile_id = chunk_profile_id()
+                if manifest and profile_id is not None:
+                    intent_store = build_intent_index(self.graph_store)
+                    if intent_store is not None:
                         report = await sync_intent_tier(
                             root,
                             self.graph_store,
                             current_manifest=dict(manifest),
                             intent_store=intent_store,
-                            profile_id=CHUNK_SOURCE_PROFILE.identity,
-                            encoder=_make_encoder,
+                            profile_id=profile_id,
+                            encoder=chunk_encoder_factory(),
                             force=not self.config.incremental,
                         )
                         if report is not None:
