@@ -35,7 +35,7 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-D5f-S3 | Soak fix: ACT node stores response text; evaluation coerces objects | D | — | — | this PR | 3 tests (node shape, default-eval complete, object-defense) |
 | FOU-D5f-S4 | Soak fix: evaluate node uses the real `check_fulfillment` API | D | — | — | this PR | real-API + contained-failure tests; phantom-pinning test migrated |
 | FOU-D5f-S5 | Soak fix: stale governance/verifier admission refusals removed (`require_supported_loop_executor`) | D | — | FOU-D5b/D5c | this PR | streaming-parity stategraph+gate tests (were the RED evidence) + admission seam test; documented boundary: governance enforced at the chat surface, direct graph-API runs ungated by design |
-| FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | TODO | — |
+| FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | IN REVIEW | fou/s1-sandbox-hardening |
 | FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a (qualification green on CI matrix) | TODO | — |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | TODO | — |
 | FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | TODO | — |
@@ -125,6 +125,27 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
 3. Update this ledger at each material milestone and at session handoff, citing exact
    commits, test outcomes, review results, and CI runs.
 4. Never equate local pass, merge, release, and live acceptance.
+
+## FOU-S1a evidence (2026-11-17, fou/s1-sandbox-hardening)
+
+- **RED (ADR-035 named)**: egress probe inside the unhardened bwrap wrapping
+  (`socket.create_connection(('1.1.1.1', 53))`) returned rc=0 — network was reachable.
+  New-test RED run: 15 failed + 5 errors on develop (`test_backends_hardening.py`,
+  `test_backends_qualification.py`).
+- **GREEN (live, WSL kernel, bubblewrap 0.9.0)**: hardened wrapping → `egress=DENIED
+  unshare=EPERM` (network namespace denies egress; classic-BPF seccomp filter enforced);
+  plain `echo` and shell-mode `git --version` runs stay green under the same wrapping.
+  Seccomp program: 56-insn classic BPF, deny-list over mount/namespace/module/kexec/ptrace/
+  bpf/keyring/handle/process_vm syscalls, x86_64 + aarch64 tables, unknown arch fails closed
+  (RET ERRNO). Jump-math bugs caught by the live kernel rejection (EINVAL) and fixed against
+  a full disassembly.
+- **Unit**: 147 passed across sandbox/workflows/policy-snapshot/core-executor suites;
+  selector targets green; 11 config failures pre-existing on clean develop (verified via
+  stash, byte-identical).
+- **Plumbing**: `pass_fds` threaded through `run_managed_process` + sync `subprocess.run`;
+  backend `take_pass_fds()`; shell-mode branch covered by a regression test (fd dropped).
+- **Pending for S1b gate**: macOS CI-matrix qualification of the deny-default Seatbelt
+  profile (local host is Linux; profile construction covered by unit tests only).
 
 ## FOU-D5f-S8 follow-up: live pickle diagnosis (2026-11-17)
 
