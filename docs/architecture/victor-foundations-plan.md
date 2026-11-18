@@ -148,14 +148,32 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
 - Selector targets + tool-pipeline ripple suites green (997 passed).
 ## FOU-A0 evidence: codegraph intent tier (2026-11-18, FEP-0049)
 
-Parallel track to the FOU ladder (adoption/X-axis capability). Cursor-comparison
-concluded complement split: Victor holds structure, Cursor holds intent; this
-program adds the intent tier without giving up the structural model.
+Parallel track to the FOU ladder (adoption/X-axis capability). The original
+Cursor-comparison framing ("Victor holds structure, Cursor holds intent") was
+stale on arrival and is corrected here: Victor already had semantic search —
+the symbol-summary embedding tier (name + signature + docstring, #771, 2026-08)
+— it just lacked (a) BODY-level chunk embeddings, (b) a persisted vector index
+for them, and (c) incremental re-embedding. What Cursor's architecture actually
+contributed was the incremental-sync DISCIPLINE (Merkle-tree-of-hashes), not
+intent itself. This program shipped all three missing pieces, then simplified:
+the Merkle projection is a derived view over the pre-existing flat
+path -> sha256 manifest (mtime+hash discipline retained, root shortcut = O(1)
+skip; the flat diff stays the authoritative work set), and the vector store
+consolidated SQLite-only (#1943) — chunk vectors co-located in project.db,
+lancedb/pyarrow off the required path (numpy brute-force measured sufficient:
+0.1 ms @ 14K, 3.4 ms @ 100K). Significance was MEASURED, not assumed: on the
+victor corpus (13,973 chunks) intent adds P@3 +13% / MRR +0.165 over keyword,
+wins 8/15 queries, with near-disjoint miss sets (complementary legs); on
+genmedia (559 chunks) miss rank is 8x closer (26 vs 198). Victor now holds
+structure AND intent; the honest remaining gap vs Cursor is indexing UX
+(automatic shadow indexing on clone/edit, apply-model polish), not retrieval
+capability.
 
 - **FEP-0049** (feps/fep-0049-intent-tier-merkle-sync.md): two-tier embedding
-  model (symbol-summary shipped; chunk-source new), Merkle discipline derived
-  from the flat manifest, LanceDB code_chunks table + intent_file_state in
-  graph sqlite, ADR-036 graduation plan.
+  model (symbol-summary shipped since #771; chunk-source new), Merkle
+  discipline derived from the flat manifest, vectors in the graph sqlite
+  (`intent_chunks`, #1943 — the FEP's original LanceDB code_chunks table was
+  consolidated away), intent_file_state journal, ADR-036 graduation plan.
 - **Phase 1 (#1915, victor-codegraph 0.15.0, MERGED)**: merkle.py
   (directory->file->CHUNK leaf granularity; minimal frontier diff; O(1) root
   shortcut; chunk-precise changed_chunks work set) + CHUNK_SOURCE_PROFILE +
