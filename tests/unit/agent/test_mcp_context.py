@@ -150,13 +150,9 @@ class TestAdmissionFailure:
 
         def stub_resolver(settings):
             calls.append(settings)
-            return SimpleNamespace(
-                required_active=True, refuse=False, reason="", backend=object()
-            )
+            return SimpleNamespace(required_active=True, refuse=False, reason="", backend=object())
 
-        ctx = admit_mcp_execution_context(
-            tmp_path, snap, resolve_required_launch=stub_resolver
-        )
+        ctx = admit_mcp_execution_context(tmp_path, snap, resolve_required_launch=stub_resolver)
         assert ctx.run_policy_snapshot is snap
         # Equality (not identity): to_sandbox_settings() constructs fresh
         # settings each call; the contract is that the resolver receives
