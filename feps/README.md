@@ -59,6 +59,7 @@ The older `docs/feps/` 0001/0002 documents form a separate historical series.
 | [FEP-0046](fep-0046-rl-outcome-category.md) | RL outcome measurement integrity — outcome_category on rl_outcome | Draft |
 | [FEP-0047](fep-0047-durable-graph-checkpointing.md) | Durable-by-default graph checkpointing (`GraphSQLiteCheckpointer`, composition-root injection, opt-out) | Draft |
 | [FEP-0048](fep-0048-core-long-term-memory.md) | Core long-term memory — preference/episodic store wired at PERCEIVE | Draft |
+| [FEP-0050](fep-0050-durable-turn-records-and-single-turn-evaluation.md) | Durable ACT records, shared turn evaluation, and project-scoped workflow checkpoints | Draft |
 
 ## Submit or Update a Proposal
 

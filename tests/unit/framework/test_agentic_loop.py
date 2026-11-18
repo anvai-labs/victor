@@ -348,6 +348,25 @@ class TestAgenticLoop:
         assert result.success is True
         runtime_intelligence.analyze_turn.assert_awaited_once()
 
+    async def test_stategraph_rejects_invalid_original_intent(self):
+        from victor.framework.agentic_graph.turn_record import TurnRecord
+
+        loop = self._make_loop(orchestrator=MagicMock(spec=[]), max_iterations=1)
+        turn = TurnResult(response=CompletionResponse(content="done"))
+        state = {
+            "perception": {"intent": "write_allowed", "complexity": "medium"},
+            "original_intent": "not-an-intent",
+            "iteration": 1,
+            "max_iterations": 1,
+        }
+
+        with pytest.raises(ValueError, match="invalid original intent"):
+            await loop.evaluate_graph_turn(
+                state["perception"],
+                TurnRecord.from_turn_result(turn),
+                state,
+            )
+
     async def test_run_with_stategraph_uses_runtime_execution_context(self):
         """StateGraph path should pass RuntimeExecutionContext, not the host object."""
         prompt_orchestrator = MagicMock()
@@ -377,7 +396,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 return SimpleNamespace(
                     success=True,
                     iterations=1,
@@ -418,7 +439,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 captured["query"] = query
                 captured["context"] = context
                 captured["conversation_history"] = conversation_history
@@ -461,7 +484,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 return SimpleNamespace(
                     success=True,
                     iterations=1,
@@ -581,7 +606,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 return SimpleNamespace(
                     success=False,
                     iterations=1,
@@ -2019,7 +2046,9 @@ class TestStream:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def stream(self, query, context=None, conversation_history=None):
+            async def stream(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 captured["query"] = query
                 captured["context"] = context
                 captured["conversation_history"] = conversation_history

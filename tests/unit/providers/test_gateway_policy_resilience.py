@@ -275,7 +275,14 @@ async def test_agentic_loop_preserves_denial_instead_of_empty_result():
     from victor.core.errors import ProviderPolicyError
 
     error = ProviderPolicyError("policy_blocked", receipt="d" * 32)
-    loop = AgenticLoop(orchestrator=Mock(spec=[]), enable_fulfillment_check=False, max_iterations=1)
+    loop = AgenticLoop(
+        orchestrator=Mock(spec=[]),
+        enable_fulfillment_check=False,
+        max_iterations=1,
+        # This test pins the standard loop's denial boundary. StateGraph has
+        # separate direct-executor and adapter denial tests below.
+        config={"executor": "standard"},
+    )
     loop.perception.perceive = AsyncMock(side_effect=error)
     with pytest.raises(ProviderPolicyError) as caught:
         await loop.run("test")

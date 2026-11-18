@@ -209,6 +209,7 @@ class PerceptionIntegration:
         enable_requirement_extraction: bool = True,
         enable_similarity_search: bool = True,
         config: Optional[Dict[str, Any]] = None,
+        task_analyzer: Optional[TaskAnalyzer] = None,
     ):
         """Initialize perception integration.
 
@@ -217,12 +218,15 @@ class PerceptionIntegration:
             enable_requirement_extraction: Extract requirements from queries
             enable_similarity_search: Search for similar past experiences
             config: Additional configuration
+            task_analyzer: Shared task analyzer. When omitted, perception creates
+                a local analyzer for standalone use.
         """
         self.memory_coordinator = memory_coordinator
         self.enable_requirement_extraction = enable_requirement_extraction
         self.enable_similarity_search = enable_similarity_search
         self.config = config or {}
         self._evaluation_policy = RuntimeEvaluationPolicy.from_config(self.config)
+        self.task_analyzer = task_analyzer or TaskAnalyzer()
 
         logger.info(
             f"PerceptionIntegration initialized "
@@ -270,7 +274,7 @@ class PerceptionIntegration:
         # loop. to_thread keeps the loop responsive so deadlines and cancellation
         # work. The embedding already guards model.encode with a threading.Lock,
         # so offloading is thread-safe.
-        analyzer = TaskAnalyzer()
+        analyzer = self.task_analyzer
         analysis_context = dict(context or {})
         if conversation_history:
             analysis_context["history"] = conversation_history

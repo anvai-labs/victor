@@ -51,6 +51,7 @@ class AgenticLoopDependencies:
     """
 
     runtime_intelligence: Optional[Any] = None
+    execution_context: Optional[Any] = None
     planning_coordinator: Optional[Any] = None
     use_llm_planning: Optional[bool] = None
     turn_executor: Optional[Any] = None
@@ -246,6 +247,7 @@ def create_agentic_loop_graph(
                 resolved_prompt_node,
                 max_iterations=max_iterations,
                 dependencies=resolved_dependencies,
+                dependency_names=("execution_context",),
             ),
         )
 

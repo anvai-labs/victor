@@ -82,9 +82,10 @@ class TestAgenticLoopStateModel:
         assert state["query"] == "Test"
         assert state["iteration"] == 1
 
-        # Test __setitem__
-        state["iteration"] = 2
-        assert state.iteration == 2
+        # Dict-like writes represent state transitions and are rejected.
+        with pytest.raises(ValidationError):
+            state["iteration"] = 2
+        assert state.iteration == 1
 
         # Test __contains__
         assert "query" in state
@@ -133,29 +134,32 @@ class TestAgenticLoopStateModel:
         assert restored.query == state.query
         assert restored.iteration == state.iteration
 
-    def test_immutability_with_frozen(self):
-        """Test that frozen=True in config prevents direct mutation."""
-        # Note: Pydantic v2 uses frozen in ConfigDict, not constructor
-        # This test validates that the model_config approach works
-        from pydantic import ConfigDict
+    def test_durable_projection_has_no_runtime_collaborator_fields(self):
+        """The typed state remains a JSON value, not a service graph."""
+        import json
 
-        FrozenState = type(
-            "FrozenState",
-            (AgenticLoopStateModel,),
-            {
-                "model_config": ConfigDict(
-                    arbitrary_types_allowed=True,
-                    validate_assignment=True,
-                    frozen=True,
-                )
-            },
+        state = AgenticLoopStateModel(
+            query="durable task",
+            context={"policy": "act-once"},
+            action_result={"schema_version": "victor.turn.record.v1"},
         )
+        durable = json.loads(state.model_dump_json())
 
-        state = FrozenState(query="Test")
+        assert durable["context"] == {"policy": "act-once"}
+        assert "_execution_context" not in durable
+        assert "_execution_context_private" not in durable
+        assert "_turn_record_channel" not in durable
 
-        # Direct attribute assignment should fail for frozen models
+    def test_state_is_immutable(self):
+        """The durable agentic state is a value object, not a mutable bag."""
+        state = AgenticLoopStateModel(query="Test")
+
         with pytest.raises(ValidationError):
             state.iteration = 5
+
+        updated = state.model_copy(update={"iteration": 5})
+        assert state.iteration == 0
+        assert updated.iteration == 5
 
     def test_copy_with_updates(self):
         """Test creating updated copies of state."""

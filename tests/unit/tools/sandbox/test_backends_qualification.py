@@ -22,10 +22,14 @@ is denied (GREEN), while normal tool execution keeps working.
 import os
 import platform
 import shutil
+import subprocess
+import uuid
+from pathlib import Path
 
 import pytest
 
 from victor.tools.sandbox import BubblewrapSandbox
+from victor.tools.sandbox import backends as sb
 from victor.tools.subprocess_executor import run_managed_process
 
 
@@ -103,6 +107,43 @@ def test_sync_shell_mode_threads_pass_fds(monkeypatch, tmp_path):
 
 
 # -- live bwrap qualification -------------------------------------------------
+
+
+@requires_bwrap
+def test_live_default_state_root_is_writable_without_home_write(monkeypatch):
+    """The default state exception must not become arbitrary home write access."""
+
+    # /tmp is intentionally writable inside bwrap, so a negative home-write probe must use a
+    # temporary host location outside that tmpfs. Restricted local test sandboxes may skip it.
+    home = Path("/var/tmp") / f"victor-sandbox-state-{uuid.uuid4().hex}"
+    try:
+        home.mkdir()
+    except OSError:
+        pytest.skip("cannot create an isolated /var/tmp home in this environment")
+    workspace = home / "workspace"
+    state_root = home / ".victor"
+    workspace.mkdir()
+
+    try:
+        monkeypatch.setattr(sb, "get_victor_dir", lambda: state_root)
+        sandbox = BubblewrapSandbox(seccomp=False, network_isolation=False)
+        probe = (
+            f"printf state > {state_root}/probe && "
+            f"printf workspace > {workspace}/probe && "
+            f"if touch {home}/succeeded 2>/dev/null; then exit 9; fi"
+        )
+        result = subprocess.run(
+            sandbox.wrap_argv(["/bin/sh", "-c", probe], cwd=workspace),
+            capture_output=True,
+            timeout=10,
+        )
+
+        assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+        assert (state_root / "probe").read_text(encoding="utf-8") == "state"
+        assert (workspace / "probe").read_text(encoding="utf-8") == "workspace"
+        assert not (home / "succeeded").exists()
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
 
 
 @requires_bwrap

@@ -25,6 +25,9 @@ class SandboxSettings(BaseModel):
       unsupported, run unsandboxed and record the degradation.
     * ``required`` — isolation is mandatory: when no enforcing backend is
       available, tool dispatch must not execute (fail closed).
+
+    ``workspace-only`` grants writes to the active workspace plus Victor's canonical
+    user-state root; it does not grant arbitrary home-directory writes.
     """
 
     sandbox_enabled: bool = False
