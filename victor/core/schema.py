@@ -178,7 +178,9 @@ class Tables:
     # Core graph tables (stored in project.db)
     GRAPH_NODE = "graph_node"  # Symbol nodes (functions, classes, etc.)
     INTENT_FILE_STATE = "intent_file_state"  # Intent-tier per-file sync state (FEP-0049)
-    INTENT_CHUNKS = "intent_chunks"  # Intent-tier chunk vectors (FEP-0049): BLOB + numpy brute-force
+    INTENT_CHUNKS = (
+        "intent_chunks"  # Intent-tier chunk vectors (FEP-0049): BLOB + numpy brute-force
+    )
     GRAPH_EDGE = "graph_edge"  # References, calls, imports between nodes
     GRAPH_FILE_MTIME = "graph_file_mtime"  # File modification times for staleness
 
