@@ -33,10 +33,13 @@ Design notes (FEP-0047):
 """
 
 import copy
+import sys
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List, Optional
+
+from pydantic import BaseModel
 
 from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
 from victor.storage.checkpoints.backends.sqlite_backend import SQLiteCheckpointBackend
@@ -60,6 +63,55 @@ def _namespaced_session(thread_id: str) -> str:
     return f"{WORKFLOW_SESSION_PREFIX}{thread_id}"
 
 
+_MODEL_STATE_MARKER = "__victor_model_state__"
+
+
+def _encode_state(state: Any) -> Any:
+    """Encode typed states without falling back to ``repr``.
+
+    The storage serializer understands mappings and primitives, but a top-level
+    Pydantic model otherwise reaches its string fallback. That preserves an
+    inspection copy but makes durable resume operate on a string, breaking
+    graph nodes that expect the typed state. Keep the type reference with the
+    JSON-safe model fields so the adapter can reconstruct the model on load.
+    """
+    if not isinstance(state, BaseModel):
+        return state
+    model_type = type(state)
+    return {
+        _MODEL_STATE_MARKER: True,
+        "type": f"{model_type.__module__}.{model_type.__qualname__}",
+        "data": state.model_dump(mode="json"),
+    }
+
+
+def _decode_state(state: Any) -> Any:
+    """Reconstruct a Pydantic checkpoint state encoded by :func:`_encode_state`."""
+    if not (
+        isinstance(state, dict)
+        and state.get(_MODEL_STATE_MARKER) is True
+        and isinstance(state.get("type"), str)
+        and isinstance(state.get("data"), dict)
+    ):
+        return state
+
+    module_name, separator, qual_name = state["type"].rpartition(".")
+    if not module_name or not separator or not qual_name:
+        raise ValueError("Stored typed workflow checkpoint has an invalid state type reference")
+    try:
+        # Resolve only classes already loaded by the running graph. Persisted
+        # checkpoint data must never choose and import arbitrary modules.
+        module = sys.modules.get(module_name)
+        model_type = getattr(module, qual_name) if module is not None else None
+        if not (isinstance(model_type, type) and issubclass(model_type, BaseModel)):
+            raise TypeError("state type is not a loaded Pydantic model")
+        return model_type.model_validate(state["data"])
+    except Exception as exc:
+        raise ValueError(
+            "Stored typed workflow checkpoint cannot be restored to its declared state type"
+        ) from exc
+
+
 def _checkpoint_to_row(checkpoint: WorkflowCheckpoint) -> tuple:
     """Map a WorkflowCheckpoint to (session_id, state_data, metadata)."""
     parent_id = checkpoint.metadata.get("parent_id")
@@ -78,12 +130,15 @@ def _checkpoint_to_row(checkpoint: WorkflowCheckpoint) -> tuple:
     # The full WorkflowCheckpoint dict (state + metadata incl. next_node) is
     # the payload: serialization stays backend-owned and the resume position
     # round-trips without schema changes.
-    return metadata.session_id, checkpoint.to_dict(), metadata
+    payload = checkpoint.to_dict()
+    payload["state"] = _encode_state(payload["state"])
+    return metadata.session_id, payload, metadata
 
 
 def _row_to_checkpoint(state_data: dict, fallback_thread: str) -> WorkflowCheckpoint:
     try:
-        return WorkflowCheckpoint.from_dict(state_data)
+        state = _decode_state(state_data["state"])
+        return WorkflowCheckpoint.from_dict({**state_data, "state": state})
     except (KeyError, TypeError) as e:
         raise ValueError(
             f"Stored workflow checkpoint for thread {fallback_thread!r} has an "
