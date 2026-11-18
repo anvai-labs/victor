@@ -102,7 +102,7 @@ def test_optional_encoder_owns_one_pinned_model_and_query_preprocessing(monkeypa
         sys.modules, "sentence_transformers", SimpleNamespace(SentenceTransformer=Model)
     )
     profile = replace(BGE_SMALL_PROFILE, dimension=3, query_prefix="query: ", max_tokens=256)
-    encoder = SentenceTransformerEncoder(profile)
+    encoder = SentenceTransformerEncoder(profile, device="cpu")
     assert encoder.encode([]) == [] and calls == []
     assert encoder.encode_query("permissions") == [1.0, 2.0, 3.0]
     assert asyncio.run(encoder.embed_text("symbol")) == [1.0, 2.0, 3.0]
@@ -143,3 +143,25 @@ def test_optional_encoder_missing_dependency_is_explicit(monkeypatch):
 def test_invalid_profile_cannot_claim_semantic_compatibility(changes):
     with pytest.raises(ValueError):
         replace(BGE_SMALL_PROFILE, **changes)
+
+
+class TestDeviceDetection:
+    def test_auto_detect_returns_valid_device(self):
+        from victor_codegraph.embeddings import detect_best_device
+
+        device = detect_best_device()
+        assert device in ("cuda", "mps", "cpu")
+
+    def test_explicit_device_overrides_auto_detect(self):
+        from victor_codegraph.embeddings import SentenceTransformerEncoder, BGE_SMALL_PROFILE
+
+        encoder = SentenceTransformerEncoder(BGE_SMALL_PROFILE, device="cpu")
+        assert encoder.device == "cpu"
+
+    def test_cuda_available_returns_cuda(self):
+        """GPU hosts get cuda (NVIDIA or AMD/ROCm — both surface through torch.cuda)."""
+        import torch
+        from victor_codegraph.embeddings import detect_best_device
+
+        if torch.cuda.is_available():
+            assert detect_best_device() == "cuda"

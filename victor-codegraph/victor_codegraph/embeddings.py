@@ -203,22 +203,59 @@ def embed_chunks(
     return result
 
 
+def detect_best_device() -> str:
+    """Auto-detect the best available compute device for embedding inference.
+
+    Priority: NVIDIA CUDA > AMD ROCm/HIP (both surface through
+    ``torch.cuda``) > Apple MPS > CPU. NVIDIA is preferred over AMD when
+    both exist because CUDA attention kernels are more mature for the
+    encoder architecture. Falls back to CPU when no accelerator is found.
+    """
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            # No CUDA/ROCm device; try Apple MPS.
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "mps"
+            return "cpu"
+        # GPU present — prefer NVIDIA (mature CUDA attention kernels).
+        name = torch.cuda.get_device_name(0)
+        if "NVIDIA" in name:
+            return "cuda"
+        # AMD ROCm/HIP — still fast for inference, just less tuned kernels.
+        if "AMD" in name or "Radeon" in name:
+            return "cuda"
+        return "cuda"
+    except ImportError:
+        pass
+    return "cpu"
+
+
 class SentenceTransformerEncoder:
     """Optional local inference for an explicit immutable profile.
 
     Uses sentence-transformers itself; no alternative model implementation or
     remote-code execution. Own one encoder per configured worker/model lifetime.
+
+    Auto-detects the best available compute device unless ``device`` is
+    explicitly provided. Priority: NVIDIA CUDA > AMD ROCm/HIP > Apple MPS >
+    CPU. Both NVIDIA and AMD GPUs surface through ``torch.cuda`` (ROCm
+    builds alias to the CUDA API); NVIDIA is preferred when both exist.
     """
 
     semantic = True
 
     def __init__(
-        self, profile: EmbeddingProfile = BGE_SMALL_PROFILE, *, device: str = "cpu"
+        self,
+        profile: EmbeddingProfile = BGE_SMALL_PROFILE,
+        *,
+        device: str | None = None,
     ) -> None:
         import threading
 
         self.profile = profile
-        self.device = device
+        self.device = device if device is not None else detect_best_device()
         self._model: Any = None
         self._lock = threading.Lock()
 
