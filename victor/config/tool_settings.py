@@ -160,6 +160,19 @@ class ToolSettings(BaseModel):
             "token from a provenance envelope (ADR-037 exfiltration floor)."
         ),
     )
+    # Injection screen (ADR-037 decision 2, FOU-S3c): pattern classifiers
+    # over model-bound tool output; flagged spans are highlighted INSIDE
+    # the envelope. Annotation-only by the ADR graduation decision — the
+    # screen NEVER blocks delivery; hard-fail is gated behind an ADR-036
+    # false-positive battery (not implemented).
+    untrusted_content_screen: bool = Field(
+        default=True,
+        description=(
+            "Run the ADR-037 injection-family screen over model-bound tool "
+            "output and highlight flagged spans inside the envelope "
+            "(advisory only — never blocks delivery)."
+        ),
+    )
 
     # Tool output preview configuration (user display only, does NOT affect LLM)
     tool_output_preview_enabled: bool = Field(
