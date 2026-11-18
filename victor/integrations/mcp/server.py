@@ -811,9 +811,7 @@ def _admit_or_refuse(workspace_root: Path) -> tuple[Optional["MCPToolContext"], 
 
         from victor.config.settings import get_settings
 
-        snapshot = current_run_policy_snapshot() or RunPolicySnapshot.from_settings(
-            get_settings()
-        )
+        snapshot = current_run_policy_snapshot() or RunPolicySnapshot.from_settings(get_settings())
     except Exception as exc:
         refusal = (
             f"Sandbox policy could not be established ({exc}); refusing MCP "
