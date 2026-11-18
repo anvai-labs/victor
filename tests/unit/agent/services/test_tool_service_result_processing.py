@@ -68,6 +68,14 @@ def _make_ctx(**overrides) -> ToolResultContext:
     return ToolResultContext(**defaults)
 
 
+def _assert_enveloped(content: str, payload: str) -> None:
+    """ADR-037: model-bound content is the payload inside exactly one envelope."""
+    assert content.startswith("<untrusted ")
+    assert content.rstrip().endswith("</untrusted>")
+    assert payload in content
+    assert content.count("</untrusted>") == 1
+
+
 def test_safe_default_pruning_runs_on_formatted_read_output():
     service = _make_service()
     formatted_output = "\n".join(
@@ -111,7 +119,7 @@ def test_safe_default_pruning_runs_on_formatted_read_output():
     assert results[0]["result"] != formatted_output
     assert "[PRUNED PREVIEW:" in results[0]["result"]
     assert results[0]["full_result"] == formatted_output
-    assert results[0]["content"] == formatted_output
+    _assert_enveloped(results[0]["content"], formatted_output)
     ctx.add_message.assert_called_once_with(
         "tool",
         results[0]["content"],
@@ -157,7 +165,7 @@ def test_no_regression_for_safety_critical_diff_like_output():
         results = service.process_tool_results(pipeline_result, ctx)
 
     assert results[0]["was_pruned"] is False
-    assert results[0]["content"] == diff_like_output
+    _assert_enveloped(results[0]["content"], diff_like_output)
     assert results[0]["result"] == diff_like_output
     assert results[0]["full_result"] == diff_like_output
 
@@ -198,7 +206,7 @@ def test_mutating_tools_keep_full_display_output_even_when_preview_pruning_enabl
     assert results[0]["was_pruned"] is False
     assert results[0]["result"] == formatted_output
     assert results[0]["full_result"] == formatted_output
-    assert results[0]["content"] == formatted_output
+    _assert_enveloped(results[0]["content"], formatted_output)
 
 
 def test_semantic_failure_preserves_follow_up_suggestions():
@@ -428,13 +436,13 @@ def test_recursive_tool_result_is_logged_without_breaking_metrics_post_processin
 
     assert results[0]["success"] is True
     assert results[0]["tool_call_id"] == "call_metrics_recursive_1"
-    assert results[0]["content"] == "formatted metrics"
-    ctx.add_message.assert_called_once_with(
-        "tool",
-        "formatted metrics",
-        name="metrics",
-        tool_call_id="call_metrics_recursive_1",
-    )
+    _assert_enveloped(results[0]["content"], "formatted metrics")
+    ctx.add_message.assert_called_once()
+    call = ctx.add_message.call_args
+    assert call.args[0] == "tool"
+    _assert_enveloped(call.args[1], "formatted metrics")
+    assert call.kwargs["name"] == "metrics"
+    assert call.kwargs["tool_call_id"] == "call_metrics_recursive_1"
 
 
 # ---------------------------------------------------------------------------

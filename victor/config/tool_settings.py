@@ -139,6 +139,18 @@ class ToolSettings(BaseModel):
     cross_turn_dedup_enabled: bool = True
     cross_turn_dedup_ttl: int = 300  # seconds
 
+    # Untrusted-content containment (ADR-037): envelope model-bound tool
+    # output in a provenance-tagged envelope with a session canary. Default
+    # on per the ADR graduation decision; explicit escape hatch only.
+    untrusted_content_envelopes: bool = Field(
+        default=True,
+        description=(
+            "Wrap model-bound tool output in the ADR-037 provenance envelope "
+            "(source class, origin, session canary). User previews are not "
+            "enveloped."
+        ),
+    )
+
     # Tool output preview configuration (user display only, does NOT affect LLM)
     tool_output_preview_enabled: bool = Field(
         default=True,

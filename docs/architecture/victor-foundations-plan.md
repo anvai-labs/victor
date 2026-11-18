@@ -38,7 +38,7 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | IN REVIEW | fou/s1-sandbox-hardening |
 | FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a (qualification green on CI matrix) | TODO | — |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | TODO | — |
-| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | TODO | — |
+| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a IN REVIEW (S3b-d TODO) | fou/s3a-containment-envelope |
 | FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | TODO | — |
 | FOU-A1 | Subagent-spawn tool (Task-tool pattern) | A | ledger §A1 design | FOU-D2 | TODO | — |
 | FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | TODO | — |
@@ -116,6 +116,21 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
   subagent surfaces through the parent's HITL approval path (`victor/agent/hitl.py`).
 - Negative tests: depth budget exceeded → refusal; subagent cannot escalate beyond parent
   mode; orphan cleanup on parent cancellation.
+
+## FOU-S3a evidence (2026-11-17, fou/s3a-containment-envelope)
+
+- **RED**: new containment module + seam tests failed collection on develop
+  (module absent; seam unwrapped).
+- **GREEN**: `victor/security/containment.py` — canonical provenance envelope
+  (`<untrusted source= origin= canary= [flagged=]>`), per-session canary
+  contextvar, closing-tag neutralization (envelope closes exactly once,
+  negative-tested). Seam: `format_and_prune_tool_output` envelopes the
+  model-bound output only; user preview stays raw. Escape hatch:
+  `tool_settings.untrusted_content_envelopes` (default on, ADR graduation).
+- **Ripple (4 test migrations)**: durable-resume receipt, tool-execution
+  runtime publication, tool-service result processing x3 — assertions now
+  semantic (payload inside exactly one envelope) instead of raw-equality.
+- Selector targets green; affected suites clean; black/ruff clean.
 
 ## Reboot instructions
 
