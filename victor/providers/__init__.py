@@ -26,7 +26,7 @@ from victor.providers.base import (
     ProviderTimeoutError,
 )
 from victor.core.circuit_breaker import CircuitBreakerError, CircuitState
-from victor.providers.circuit_breaker import (
+from victor.core.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerRegistry,
 )

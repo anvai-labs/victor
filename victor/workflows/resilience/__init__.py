@@ -20,7 +20,7 @@ thin adapter functions to bridge workflow protocols with core retry strategies.
 
 Architecture:
     workflow.RetryPolicy -> adapter -> core.BaseRetryStrategy -> core.RetryExecutor
-    workflow nodes -> CircuitBreakerRegistry -> providers.CircuitBreaker
+    workflow nodes -> CircuitBreakerRegistry -> core.CircuitBreaker
     circuit state/config/error types -> core.circuit_breaker
 
 Design Pattern: Facade + Adapter
@@ -30,7 +30,7 @@ Design Pattern: Facade + Adapter
 
 Example:
     from victor.workflows.resilience import (
-        # Circuit Breaker (from providers)
+        # Circuit Breaker (canonical, from core)
         CircuitBreaker,
         CircuitBreakerRegistry,
         CircuitState,
@@ -72,9 +72,9 @@ from victor.core.circuit_breaker import (
 )
 
 # =============================================================================
-# Re-export Circuit Breaker (from providers - no duplication)
+# Re-export Circuit Breaker (canonical implementation from core - no duplication)
 # =============================================================================
-from victor.providers.circuit_breaker import (
+from victor.core.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerRegistry,
 )
@@ -199,7 +199,7 @@ def get_node_circuit_breaker(
 
 
 __all__ = [
-    # Circuit Breaker (re-exported from providers)
+    # Circuit Breaker (re-exported from core)
     "CircuitBreaker",
     "CircuitBreakerError",
     "CircuitBreakerRegistry",

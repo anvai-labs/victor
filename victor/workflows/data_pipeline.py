@@ -39,9 +39,9 @@ NOTIF_QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 # Circuit breaker wrapper using canonical implementation
-# Replaces local implementation with victor.providers.circuit_breaker.CircuitBreaker
+# Replaces local implementation with the canonical victor.core.circuit_breaker.CircuitBreaker
 from victor.core.circuit_breaker import CircuitBreakerConfig
-from victor.providers.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
+from victor.core.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
 
 
 class CircuitBreaker:
@@ -49,7 +49,7 @@ class CircuitBreaker:
 
     This adapter provides the same API as the previous simple CircuitBreaker
     implementation while delegating to the canonical CircuitBreaker from
-    victor.providers.circuit_breaker.
+    victor.core.circuit_breaker.
 
     The canonical implementation provides:
     - More robust state management (CLOSED, OPEN, HALF_OPEN states)

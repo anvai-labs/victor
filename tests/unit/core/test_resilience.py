@@ -185,6 +185,90 @@ class TestCircuitBreaker:
         assert breaker.get_state("test") == CircuitState.CLOSED
 
 
+class TestMultiCircuitBreakerCanonicalDelegation:
+    """FOU-C1: MultiCircuitBreaker delegates the state machine to the
+    canonical victor.core.circuit_breaker.CircuitBreaker instead of
+    reimplementing it."""
+
+    def test_state_lives_in_canonical_breaker(self):
+        """Opening a circuit must transition the underlying canonical breaker."""
+        from victor.core.circuit_breaker import CircuitBreaker as CoreCircuitBreaker
+
+        config = CircuitBreakerConfig(failure_threshold=2)
+        breaker = CircuitBreaker(config)
+
+        core_breaker = breaker._breaker_for("test")
+        assert isinstance(core_breaker, CoreCircuitBreaker)
+        assert core_breaker.state == CircuitState.CLOSED
+
+        breaker.record_failure("test")
+        breaker.record_failure("test")
+
+        assert breaker.get_state("test") == CircuitState.OPEN
+        # The state machine itself moved to OPEN, not just the stats mirror.
+        assert core_breaker.state == CircuitState.OPEN
+
+    def test_is_allowed_consumes_canonical_half_open_slots(self):
+        """is_allowed must reserve slots on the canonical breaker."""
+        config = CircuitBreakerConfig(
+            failure_threshold=2, recovery_timeout=0.1, half_open_max_calls=2
+        )
+        breaker = CircuitBreaker(config)
+        breaker.record_failure("test")
+        breaker.record_failure("test")
+        time.sleep(0.15)
+
+        assert breaker.is_allowed("test") is True
+        assert breaker.is_allowed("test") is True
+        # Both canonical half-open slots consumed -> rejected now.
+        assert breaker.is_allowed("test") is False
+
+    def test_thresholds_flow_into_canonical_breaker(self):
+        """Config must be forwarded to the canonical breaker, not reinterpreted."""
+        config = CircuitBreakerConfig(
+            failure_threshold=7,
+            recovery_timeout=12.5,
+            half_open_max_calls=4,
+            success_threshold=3,
+        )
+        breaker = CircuitBreaker(config)
+        core_breaker = breaker._breaker_for("cfg")
+
+        assert core_breaker.failure_threshold == 7
+        assert core_breaker.recovery_timeout == 12.5
+        assert core_breaker.half_open_max_calls == 4
+        assert core_breaker.success_threshold == 3
+
+    def test_reset_resets_canonical_breaker(self):
+        """reset(name) must clear the canonical breaker, not just stats."""
+        config = CircuitBreakerConfig(failure_threshold=2)
+        breaker = CircuitBreaker(config)
+        breaker.record_failure("test")
+        breaker.record_failure("test")
+        assert breaker.get_state("test") == CircuitState.OPEN
+
+        breaker.reset("test")
+
+        core_breaker = breaker._breaker_for("test")
+        assert core_breaker.state == CircuitState.CLOSED
+        assert core_breaker._failure_count == 0
+        assert breaker.is_allowed("test") is True
+
+
+class TestCircuitOpenErrorHierarchy:
+    """FOU-C1: agent CircuitOpenError joins the canonical exception hierarchy."""
+
+    def test_subclasses_canonical_circuit_breaker_error(self):
+        from victor.core.circuit_breaker import CircuitBreakerError as CoreError
+        from victor.core.circuit_breaker import CircuitState as CoreState
+
+        error = CircuitOpenError("Circuit 'anthropic' is open")
+        assert isinstance(error, CoreError)
+        assert isinstance(error, Exception)
+        assert str(error) == "Circuit 'anthropic' is open"
+        assert error.state == CoreState.OPEN
+
+
 class TestRetryHandler:
     """Tests for RetryHandler."""
 
