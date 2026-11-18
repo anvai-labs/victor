@@ -120,21 +120,21 @@
   <text x="450" y="470" class="q-label" text-anchor="middle">GENERALISTS</text>
   <!-- peers (x = adoption*50, y = 500 - depth*50) -->
   <!-- Claude Code (8.5, 9.0) → (425, 50) -->
-  <circle cx="425" cy="50" r="6" fill="#3fb950"/><text x="432" y="46" class="peer-label">Claude Code</text>
+  <circle cx="425" cy="50" r="6" fill="#3fb950"/><text x="432" y="46" class="peer-label" fill="#3fb950">Claude Code</text>
   <!-- Codex (7.5, 8.5) → (375, 75) -->
-  <circle cx="375" cy="75" r="5" fill="#3fb950"/><text x="382" y="71" class="peer-label">Codex</text>
+  <circle cx="375" cy="75" r="5" fill="#a371f7"/><text x="382" y="71" class="peer-label" fill="#a371f7">Codex</text>
   <!-- LangGraph (8.0, 9.5) → (400, 25) -->
-  <circle cx="400" cy="25" r="5" fill="#3fb950"/><text x="407" y="21" class="peer-label">LangGraph</text>
+  <circle cx="400" cy="25" r="5" fill="#db61a2"/><text x="407" y="21" class="peer-label" fill="#db61a2">LangGraph</text>
   <!-- MAF (7.5, 6.5) → (375, 175) -->
-  <circle cx="375" cy="175" r="5" fill="#8b949e"/><text x="382" y="171" class="peer-label">MAF</text>
+  <circle cx="375" cy="175" r="5" fill="#f0883e"/><text x="382" y="171" class="peer-label" fill="#f0883e">MAF</text>
   <!-- CrewAI (6.5, 5.5) → (325, 225) -->
-  <circle cx="325" cy="225" r="5" fill="#8b949e"/><text x="332" y="221" class="peer-label">CrewAI</text>
+  <circle cx="325" cy="225" r="5" fill="#56d4dd"/><text x="332" y="221" class="peer-label" fill="#56d4dd">CrewAI</text>
   <!-- OpenAI SDK (6.0, 5.0) → (300, 250) -->
-  <circle cx="300" cy="250" r="5" fill="#8b949e"/><text x="307" y="246" class="peer-label">OAI SDK</text>
+  <circle cx="300" cy="250" r="5" fill="#8b949e"/><text x="307" y="246" class="peer-label" fill="#8b949e">OAI SDK</text>
   <!-- DSPy (3.5, 4.5) → (175, 275) -->
-  <circle cx="175" cy="275" r="5" fill="#8b949e"/><text x="182" y="271" class="peer-label">DSPy</text>
+  <circle cx="175" cy="275" r="5" fill="#e3b341"/><text x="182" y="271" class="peer-label" fill="#e3b341">DSPy</text>
   <!-- LangChain (9.5, 4.5) → (475, 275) -->
-  <circle cx="475" cy="275" r="5" fill="#8b949e"/><text x="482" y="271" class="peer-label">LangChain</text>
+  <circle cx="475" cy="275" r="5" fill="#f85149"/><text x="482" y="271" class="peer-label" fill="#f85149">LangChain</text>
   <!-- Devin/Cognition (9.0, 6.5) → (450, 175) — SaaS-easy, closed box -->
   <circle cx="450" cy="175" r="6" fill="#d29922"/><text x="440" y="171" class="peer-label" text-anchor="end" fill="#d29922">Devin/Cognition</text>
   <!-- Victor OLD (3.5, 8.0) → (175, 100) dashed circle -->
@@ -146,6 +146,18 @@
   <!-- movement arrow: right AND up -->
   <line x1="175" y1="100" x2="220" y2="52" class="move-arrow"/>
 </svg>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;justify-content:center;margin:0.75rem 0 0;">
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#58a6ff;display:inline-block;border:1px solid #fff;"></span><strong>Victor</strong></span>
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#3fb950;"></span>Claude Code</span>
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#a371f7;"></span>Codex</span>
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#db61a2;"></span>LangGraph</span>
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#d29922;"></span>Devin/Cognition</span>
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#f0883e;"></span>MAF</span>
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#56d4dd;"></span>CrewAI</span>
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#e3b341;"></span>DSPy</span>
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#f85149;"></span>LangChain</span>
+  <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#8b949e;"></span>OAI SDK</span>
 </div>
 <p class="subtitle" style="text-align:center;">Both axes moved: Y 8.0 → 9.1 (durability +2.0 closed the LangGraph gap, security +2.0 execution-verified, intent tier +0.5), X 3.5 → 4.5 (Ollama-first default + victor init quickstart). Devin/Cognition added: extreme-right adoption, mid-depth (closed box — spend governance, not execution containment).</p>
 </div>
