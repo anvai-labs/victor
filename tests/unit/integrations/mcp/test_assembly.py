@@ -92,3 +92,5 @@ class TestAdmission:
         assert assembly.admission_refusal is not None
         assert "fail-closed" in assembly.admission_refusal
         assert assembly.exec_context is None
+        # The server is still constructed (fail-closed: starts, but refuses
+        # every tool call) so the MCP client sees typed refusals.
