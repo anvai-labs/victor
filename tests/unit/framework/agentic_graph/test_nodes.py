@@ -253,6 +253,7 @@ class TestActNode:
             return_value=MagicMock(
                 response="Code written",
                 tool_results=[{"tool": "write_file", "status": "success"}],
+                disposition="continue",
             )
         )
 
