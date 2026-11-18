@@ -33,20 +33,25 @@ def _digest(value: Any) -> str:
     ).hexdigest()
 
 
-def _implementation() -> dict[str, str]:
-    result = {
-        str(Path(__file__).resolve()): hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    }
-    for name in (
+_CACHE_MODULE_ALLOWLIST = frozenset(
+    (
         "victor.core.graph_rag.body_clones",
         "victor.core.graph_rag.body_provenance",
         "victor.core.graph_rag.structural_clones",
         "victor.core.graph_rag.semantic_clones",
         "victor.core.graph_rag.family_cohesion",
         "victor_codegraph.embeddings",
-    ):
+    )
+)
+
+
+def _implementation() -> dict[str, str]:
+    result = {
+        str(Path(__file__).resolve()): hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    }
+    for name in _CACHE_MODULE_ALLOWLIST:
         try:
-            module = importlib.import_module(name)
+            module = importlib.import_module(name)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
         except ModuleNotFoundError as exc:
             if name.endswith(".body_provenance") and exc.name == name:
                 continue  # The pre-provenance reference has no such module.

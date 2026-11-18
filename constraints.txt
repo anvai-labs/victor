@@ -41,3 +41,8 @@ opentelemetry-util-http==0.66b2
 
 # OpenTelemetry instrumentation 0.66b2 requires wrapt <3,>=1.
 wrapt>=1.0,<3
+
+# CVE-2026-71554: h2 <4.4.1 allows request smuggling via duplicate Host headers.
+# h2 is a transitive dependency (proximadb); pin the floor here so pip-compile
+# selects the fixed version.
+h2>=4.4.1
