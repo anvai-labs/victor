@@ -43,6 +43,31 @@ The CLI discovers decorated tools from the installed Victor tool modules. Missin
 optional dependencies may prevent individual modules from loading. Ask the connected
 client to list tools and inspect each tool's input schema before calling it.
 
+## Attaching from MCP clients
+
+Preview the inventory first (deterministic — same output the server advertises):
+
+```bash
+victor mcp list-tools
+```
+
+Per-client setup:
+
+```bash
+# Claude Code
+claude mcp add victor -- victor mcp
+
+# Cursor (~/.cursor/mcp.json)
+{ "mcpServers": { "victor": { "command": "victor", "args": ["mcp"] } } }
+
+# Claude Desktop (claude_desktop_config.json)
+{ "mcpServers": { "victor": { "command": "victor", "args": ["mcp"] } } }
+
+# Cline (cline_mcp_settings.json) — same shape as Cursor
+```
+
+`victor doctor` detects installed MCP clients and prints these commands for you.
+
 ## Configuration Options
 
 The server process inherits its environment and working directory from the client.

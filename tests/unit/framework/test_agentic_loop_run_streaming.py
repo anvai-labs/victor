@@ -54,6 +54,12 @@ def _loop(port, *, evaluations, turn_executor=None):
     """A bare AgenticLoop with the run_streaming collaborators stubbed."""
     loop = AgenticLoop.__new__(AgenticLoop)
     loop.config = AgenticLoopConfig()
+    # These tests exercise the legacy streaming path; pin STANDARD so the
+    # USE_STATEGRAPH_AGENTIC_LOOP default flip does not reroute them through
+    # the graph executor (the StateGraph streaming path has its own classes).
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+
+    loop.config.executor = AgenticLoopExecutor.STANDARD
     loop.streaming_act_port = port
     loop.max_iterations = 5
     loop._progress_scores = []
@@ -65,7 +71,9 @@ def _loop(port, *, evaluations, turn_executor=None):
     loop.turn_evaluation_controller = TurnEvaluationController(
         spin_detector=loop.spin_detector, enable_plateau_nudge=False, enable_budget_warning=False
     )
-    loop.criteria_builder = SimpleNamespace(reset=lambda: None)
+    loop.criteria_builder = SimpleNamespace(
+        reset=lambda: None, record_tool_result=lambda result: None
+    )
     loop.effect_gate = SimpleNamespace(reset=lambda: None)
     loop.per_turn_auditor = SimpleNamespace(reset=lambda: None)
     loop.nudge_policy = SimpleNamespace(
@@ -690,7 +698,10 @@ async def test_streaming_deadline_interrupts_act_and_preserves_partial_output():
                 cleaned.set()
 
     loop = _loop(Port(), evaluations=[])
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
+
     loop.config = AgenticLoopConfig(total_timeout=0.03)
+    loop.config.executor = AgenticLoopExecutor.STANDARD
 
     async def consume():
         return [chunk async for chunk in loop.run_streaming("q")]
@@ -830,6 +841,7 @@ async def test_run_streaming_criteria_gate_downgrades_unmet_complete_then_budget
 
     from victor.agent.action_authorizer import ActionIntent
     from victor.agent.services.turn_execution_runtime import TurnResult
+    from victor.config.agentic_loop_settings import AgenticLoopExecutor
     from victor.framework.perception_integration import Perception
     from victor.framework.task.protocols import TaskComplexity
 
@@ -851,7 +863,11 @@ async def test_run_streaming_criteria_gate_downgrades_unmet_complete_then_budget
         enable_adaptive_iterations=False,
         enable_fulfillment_check=False,
         streaming_act_port=Port(),
-        config={"disable_enhanced_completion": True, "enable_criteria_gate": True},
+        config={
+            "disable_enhanced_completion": True,
+            "enable_criteria_gate": True,
+            "executor": AgenticLoopExecutor.STANDARD,
+        },
     )
     loop._analyze_turn = AsyncMock(
         return_value=Perception(
@@ -1091,3 +1107,223 @@ async def test_unexpected_error_propagates_from_the_stream():
 
     # No terminal verdict chunk and no recovery request are fabricated on the way out.
     assert not any(c.is_final for c in seen)
+
+
+class TestStategraphExecutorStreaming:
+    """FOU-D5c: run_streaming parity for the StateGraph executor.
+
+    The graph ACT node executes turns buffered today, so chunks arrive at
+    turn granularity (one per completed ACT turn) instead of token
+    granularity — a documented limitation until the streaming ACT adapter is
+    threaded through the graph node. The terminal verdict contract (final
+    chunk metadata) is identical to the legacy path.
+    """
+
+    @staticmethod
+    def _stategraph_loop(**kwargs):
+        from unittest.mock import MagicMock
+
+        from victor.config.agentic_loop_settings import AgenticLoopExecutor
+        from victor.framework.agentic_loop import AgenticLoop
+
+        kwargs.setdefault("enable_fulfillment_check", False)
+        loop = AgenticLoop(orchestrator=MagicMock(spec=[]), **kwargs)
+        loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+        return loop
+
+    @staticmethod
+    def _turn(content):
+        from victor.agent.services.turn_execution_runtime import TurnResult
+        from victor.providers.base import CompletionResponse
+
+        return TurnResult(response=CompletionResponse(content=content))
+
+    async def _feed(self, loop, turns):
+        from victor.framework.agentic_loop import LoopIteration, LoopStage
+
+        async def graph_stream(**kwargs):
+            from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
+
+            for i, content in enumerate(turns, start=1):
+                yield LoopIteration(
+                    iteration=i, stage=LoopStage.ACT, action_result=self._turn(content)
+                )
+                yield LoopIteration(
+                    iteration=i,
+                    stage=LoopStage.EVALUATE,
+                    evaluation=EvaluationResult(
+                        decision=EvaluationDecision.COMPLETE,
+                        score=1.0,
+                        reason="done",
+                    ),
+                )
+
+        loop._stream_with_stategraph = graph_stream
+
+    async def test_run_streaming_yields_turn_chunks_and_terminal_verdict(self):
+        from victor.framework.agentic_loop import POST_LOOP_RECOVERY_KEY
+
+        loop = self._stategraph_loop()
+        await self._feed(loop, ["hello ", "world"])
+
+        chunks = [chunk async for chunk in loop.run_streaming("task")]
+
+        assert [c.content for c in chunks[:-1]] == ["hello ", "world"]
+        final = chunks[-1]
+        assert final.is_final is True
+        assert final.metadata["agentic_loop_success"] is True
+        assert final.metadata["agentic_loop_iterations"] == 2
+        assert POST_LOOP_RECOVERY_KEY not in final.metadata
+
+    async def test_run_streaming_under_deadline_emits_error_verdict(self):
+        import asyncio
+
+        loop = self._stategraph_loop(config={"total_timeout": 0.05})
+
+        async def slow_stream(**kwargs):
+            await asyncio.sleep(5)
+            yield None  # pragma: no cover - never reached
+            yield None  # pragma: no cover - never reached
+
+        loop._stream_with_stategraph = slow_stream
+
+        chunks = [chunk async for chunk in loop.run_streaming("task")]
+
+        assert len(chunks) == 1
+        final = chunks[-1]
+        assert final.is_final is True
+        assert final.metadata["agentic_loop_success"] is False
+        assert "agentic_loop_error" in final.metadata
+
+    async def test_run_streaming_spin_error_inside_stream_is_terminal_verdict(self):
+        from victor.framework.agentic_loop import LoopIteration, LoopStage
+        from victor.framework.loop.guards import LoopSpinError
+
+        loop = self._stategraph_loop(config={"total_timeout": 0.05})
+
+        # A real generator that yields one iteration then hits a guard stop.
+        async def stream_then_fail(**kwargs):
+            yield LoopIteration(
+                iteration=1, stage=LoopStage.ACT, action_result=self._turn("partial")
+            )
+            raise LoopSpinError("perception backstop exceeded")
+
+        loop._stream_with_stategraph = stream_then_fail
+
+        chunks = [chunk async for chunk in loop.run_streaming("task")]
+
+        assert chunks[0].content == "partial"
+        final = chunks[-1]
+        assert final.is_final is True
+        assert final.metadata["agentic_loop_success"] is False
+        assert "agentic_loop_error" in final.metadata
+
+    async def test_run_streaming_with_verifier_applies_gate_and_bounded_reentry(self):
+        """FOU-D5b parity: a configured verifier gates the graph streaming path
+        too — failed verification re-enters the graph once per remaining retry,
+        and exhaustion publishes a failed verdict."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from victor.framework.agentic_loop import LoopIteration, LoopStage
+        from victor.framework.verification import VerificationResult
+
+        verifier = MagicMock(
+            verify=AsyncMock(return_value=VerificationResult(0, 1, feedback="tests failed"))
+        )
+        loop = self._stategraph_loop(config={"max_verify_retries": 1})
+        loop._verifier = verifier
+        loop._max_verify_retries = 1
+        loop._verify_retries = 0
+
+        seen_feedback = []
+
+        async def graph_stream(**kwargs):
+            seen_feedback.append((kwargs.get("context") or {}).get("verification_feedback"))
+            yield LoopIteration(
+                iteration=1, stage=LoopStage.ACT, action_result=self._turn("attempt")
+            )
+
+        loop._stream_with_stategraph = graph_stream
+
+        chunks = [chunk async for chunk in loop.run_streaming("task")]
+
+        # Initial stream + one bounded re-entry with the verifier's feedback.
+        assert seen_feedback[0] is None
+        assert seen_feedback[1] == "tests failed"
+        final = chunks[-1]
+        assert final.is_final is True
+        assert final.metadata["agentic_loop_success"] is False
+        assert "verification retry budget exhausted" in final.metadata["agentic_loop_error"]
+
+
+class TestStategraphStreamingDictActionResult:
+    """FOU-D5f final seam: the graph ACT node stores response TEXT in the
+    action_result dict; the streaming branch must extract content from the
+    dict shape (it only read the legacy TurnResult-object shape and yielded
+    nothing — 'stream_response returned empty content')."""
+
+    async def test_dict_action_result_yields_content_chunk(self):
+        from unittest.mock import MagicMock
+
+        from victor.framework.agentic_loop import AgenticLoop, LoopIteration, LoopStage
+        from victor.config.agentic_loop_settings import AgenticLoopExecutor
+
+        loop = AgenticLoop(
+            orchestrator=MagicMock(spec=[]),
+            enable_fulfillment_check=False,
+        )
+        loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+
+        async def graph_stream(**kwargs):
+            yield LoopIteration(
+                iteration=1,
+                stage=LoopStage.ACT,
+                action_result={"response": "SOAK-OK", "tool_results": []},
+            )
+
+        loop._stream_with_stategraph = graph_stream
+
+        chunks = [chunk async for chunk in loop.run_streaming("task")]
+        assert [c.content for c in chunks if not c.is_final] == ["SOAK-OK"]
+        assert chunks[-1].is_final is True
+
+
+class TestQaShortcutPriorToolsGuard:
+    """Handoff fix: the Q&A shortcut fired whenever the turn had content and
+    is_qa_response — including turns AFTER tools ran, terminating the loop
+    before the question was actually answered. The shortcut now requires NO
+    prior tool calls (spin_detector.total_tool_calls == 0)."""
+
+    @staticmethod
+    def _evaluator_with_spin(total_tool_calls: int):
+        from unittest.mock import MagicMock
+
+        from victor.framework.enhanced_completion_evaluation import (
+            EnhancedCompletionEvaluator,
+        )
+
+        spin = MagicMock(total_tool_calls=total_tool_calls)
+        return EnhancedCompletionEvaluator(), spin
+
+    @staticmethod
+    def _turn(content):
+        from victor.agent.services.turn_execution_runtime import TurnResult
+        from victor.providers.base import CompletionResponse
+
+        return TurnResult(response=CompletionResponse(content=content), is_qa_response=True)
+
+    def test_shortcut_skipped_when_tools_were_used(self):
+        evaluator, spin = self._evaluator_with_spin(total_tool_calls=2)
+        result = evaluator._check_qa_shortcut(self._turn("here is the answer"), spin)
+        assert result is None  # falls through to evidence-based evaluation
+
+    def test_shortcut_fires_when_no_tools_were_used(self):
+        evaluator, spin = self._evaluator_with_spin(total_tool_calls=0)
+        result = evaluator._check_qa_shortcut(self._turn("direct answer"), spin)
+        assert result is not None
+        assert result.decision.value == "complete"
+
+    def test_shortcut_fires_without_spin_detector(self):
+        evaluator, _ = self._evaluator_with_spin(0)
+        result = evaluator._check_qa_shortcut(self._turn("direct answer"), None)
+        assert result is not None

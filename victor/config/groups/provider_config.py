@@ -106,8 +106,8 @@ class ProviderSettings(BaseModel):
     sandhi_include_native_response: bool = False
 
     # Default provider and model
-    default_provider: str = "inferflux"
-    default_model: str = "qwen3-coder-30b"  # InferFlux production store default
+    default_provider: str = "ollama"
+    default_model: str = "qwen2.5-coder:7b"  # Local Ollama default (FOU onboarding)
 
     # Default generation parameters
     default_temperature: float = Field(

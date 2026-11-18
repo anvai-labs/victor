@@ -16,10 +16,11 @@
 
 from __future__ import annotations
 
-from victor.core.errors import ProviderPolicyError
+from victor.core.errors import ProviderPolicyError, is_terminal_agent_error
 
 import asyncio
 import logging
+import sys
 import time
 from collections import deque
 from contextlib import suppress
@@ -377,9 +378,20 @@ async def _run_graph_execution_loop(
                     resume_target = pending_nodes[0] if pending_nodes else end_node_token
                 else:
                     resume_target = _resolve_resume_target(get_next_node, current_node, state)
-            await checkpoint_manager.save_checkpoint(
-                thread_id, current_node, state, next_node=resume_target, completed=True
-            )
+            try:
+                await checkpoint_manager.save_checkpoint(
+                    thread_id, current_node, state, next_node=resume_target, completed=True
+                )
+            except Exception as checkpoint_error:
+                recovery_observer = getattr(node_observer, "observe_checkpoint_failure", None)
+                if recovery_observer is not None:
+                    await recovery_observer(
+                        current_node,
+                        state,
+                        str(checkpoint_error),
+                        time.time() - node_start_time,
+                    )
+                raise
             if node_observer is not None:
                 await node_observer(
                     "complete", current_node, state, None, time.time() - node_start_time
@@ -467,8 +479,17 @@ async def _run_graph_execution_loop(
     except ProviderPolicyError:
         raise
     except Exception as error:
+        if is_terminal_agent_error(error):
+            raise error
         await report_node_error(str(error))
         logger.error("Graph execution failed: %s", error, exc_info=True)
+
+        import os
+
+        if os.environ.get("VICTOR_STREAM_TRACEBACK"):
+            import traceback as _tb
+
+            _tb.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
         event_emitter.emit_graph_error(
             error=str(error),
             iterations=iteration_controller.iterations,

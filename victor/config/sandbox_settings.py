@@ -13,23 +13,27 @@ class SandboxSettings(BaseModel):
     Controls filesystem isolation, process namespace restrictions,
     and environment variable filtering when executing tools.
 
-    ``sandbox_policy`` selects the containment posture:
+    ``sandbox_policy`` selects the containment posture (ADR-035):
 
-    * ``None`` (default) — derive from the legacy ``sandbox_enabled`` bool
-      (true maps to ``preferred``, preserving its fail-open semantics).
-    * ``disabled`` — no isolation requested.
-    * ``preferred`` — isolate when a backend is available; if it is missing
-      or the platform is unsupported, run unsandboxed and record the
-      degradation.
+    * ``None`` (default) — derive the **fail-closed ``required``** posture
+      (the ``VICTOR_SANDBOX_POLICY`` environment variable may override).
+      The legacy ``sandbox_enabled`` bool no longer selects a posture.
+    * ``disabled`` — explicit opt-out: no isolation, with a one-time
+      unsandboxed warning.
+    * ``preferred`` — explicit opt-in convenience mode: isolate when a
+      backend is available; if it is missing or the platform is
+      unsupported, run unsandboxed and record the degradation.
     * ``required`` — isolation is mandatory: when no enforcing backend is
       available, tool dispatch must not execute (fail closed).
 
-    An explicit policy wins over the legacy bool in both directions.
+    ``workspace-only`` grants writes to the active workspace plus Victor's canonical
+    user-state root; it does not grant arbitrary home-directory writes.
     """
 
     sandbox_enabled: bool = False
     sandbox_policy: Optional[Literal["disabled", "preferred", "required"]] = None
     sandbox_filesystem_mode: str = "workspace-only"
     sandbox_namespace_restrictions: bool = True
-    sandbox_network_isolation: bool = False
+    sandbox_network_isolation: bool = True
+    sandbox_seccomp: bool = True
     sandbox_allowed_mounts: List[str] = Field(default_factory=list)

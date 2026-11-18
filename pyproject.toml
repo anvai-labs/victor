@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.30.0"
+version = "0.31.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -133,6 +133,12 @@ embeddings = [
     "lancedb>=0.6.0",
     "pyarrow>=14.0",
 ]
+# Data analytics: DuckDB support in the database tool (SQLite/Parquet/Iceberg/
+# CSV file queries via read_parquet & friends). Import site is lazy/guarded,
+# so the base install degrades gracefully without it.
+data = [
+    "duckdb>=1.0",
+]
 
 # ProximaDB vector store / embedding provider (optional backend).
 # Imported lazily with graceful ImportError fallback in
@@ -199,6 +205,7 @@ dev = [
     # TUI tests (tests/unit/ui/tui/) — textual moved from core to a tui extra
     "textual>=0.89",
     "pyarrow>=14.0",
+    "duckdb>=1.0",  # DuckDB/parquet tests for the database tool
     # Fuzzy matching for robust classification
     "Levenshtein>=0.25.1",  # Fast C implementation for typo tolerance
     # Testing
@@ -271,6 +278,7 @@ ci = [
     "torch>=2.13.0",  # Patched floor for the embeddings backend
     "lancedb>=0.6.0",
     "pyarrow>=14.0",
+    "duckdb>=1.0",  # DuckDB/parquet tests for the database tool
 
     # Core test dependencies
     "pytest>=8.0,<9.3",  # pytest 9.2 is allowed when benchmark integrations require pytest-benchmark>=5.3.1
@@ -563,7 +571,7 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.30.0",
+    "victor-native>=0.31.0",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)
@@ -574,7 +582,7 @@ native = [
 # test_graph_extra.py keeps them in sync. A clean `pip install
 # victor-ai[graph]` used to fail that check for 8 languages.
 graph = [
-    "victor-codegraph[treesitter]==0.14.0",
+    "victor-codegraph[treesitter]==0.15.0",
     # Enhanced tree-sitter analysis and CCG builders. Without it indexing
     # silently degrades (measured on Apache Iceberg: 1,897 vs 1,497,243 CCG
     # nodes) and still exits 0.

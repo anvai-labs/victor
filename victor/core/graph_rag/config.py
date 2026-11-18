@@ -74,6 +74,7 @@ class GraphIndexConfig:
     root_path: Path
     enable_ccg: bool = True
     enable_embeddings: bool = True
+    codebase_intent_indexing_enabled: bool = False  # FEP-0049
     enable_subgraph_cache: bool = True
     incremental: bool = True
     chunk_size: int = 50  # Will be adjusted in __post_init__ based on mode

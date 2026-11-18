@@ -51,8 +51,11 @@ class TestToolOutputAccuracy:
         assert "Line 99" in llm_output, "LLM output must contain last line"
         assert llm_output.count("Line ") >= 100, "LLM output should have all 100 lines"
 
-        # Full output and llm_output are the same (full output)
-        assert full_output == llm_output, "Full output and LLM output should be identical"
+        # ADR-037: llm_output is the full output wrapped in exactly one
+        # provenance envelope; full_output stays the unwrapped display form.
+        assert llm_output.startswith("<untrusted ")
+        assert llm_output.rstrip().endswith("</untrusted>")
+        assert full_output in llm_output, "Envelope must contain the full output"
         assert isinstance(preview_output, str)
 
         # was_pruned indicates whether user preview would be truncated

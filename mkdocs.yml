@@ -192,6 +192,7 @@ nav:
       - Configuration Options: reference/configuration-options.md
       - API Keys: reference/api-keys.md
       - Environment Variables: reference/environment-variables.md
+      - Skills: reference/skills.md
   - Development:
       - development/index.md
       - Setup: development/setup.md

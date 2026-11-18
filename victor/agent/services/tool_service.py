@@ -318,6 +318,23 @@ def format_and_prune_tool_output(
     if not isinstance(llm_output, str):
         llm_output = str(llm_output)
 
+    # ADR-037 containment: the model-bound output is untrusted data — wrap it
+    # in the canonical provenance envelope (source class, origin, session
+    # canary). The user preview is NOT enveloped (the user is trusted).
+    try:
+        from victor.config.tool_settings import get_tool_settings as _get_tool_settings
+
+        if _get_tool_settings().untrusted_content_envelopes and llm_output:
+            from victor.security.containment import UntrustedSourceClass, wrap_untrusted
+
+            llm_output = wrap_untrusted(
+                llm_output,
+                source_class=UntrustedSourceClass.TOOL,
+                origin=tool_name,
+            )
+    except Exception:  # containment must never break tool output delivery
+        pass
+
     # Generate preview for user display only (does not affect LLM)
     preview_output = formatted_output
     was_pruned = False
@@ -488,7 +505,10 @@ def process_tool_results_with_context(
                         "images": images,
                         "tool_diagnostics": tool_diagnostics,
                         "was_pruned": was_pruned,
-                        "pruning_info": pruning_info,
+                        # Pruning metadata is preview diagnostics. Keep its durable
+                        # representation bounded and JSON-safe; TurnRecord rejects
+                        # arbitrary live dataclasses at the graph boundary.
+                        "pruning_info": (str(pruning_info) if pruning_info is not None else None),
                         "tool_call_id": tool_call_id,
                         "content": content,
                         "skipped": skipped,

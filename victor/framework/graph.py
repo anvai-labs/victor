@@ -312,8 +312,15 @@ class CompiledGraph(Generic[StateType]):
             logger.warning(f"State validation failed after node '{current_node}': {errors}")
         return None
 
-    def _validate_input_state(self, input_state: StateType, exec_config: GraphConfig) -> None:
+    def _validate_input_state(
+        self, input_state: Optional[StateType], exec_config: GraphConfig
+    ) -> None:
         """Validate input state according to graph validation config."""
+        if input_state is None:
+            # FEP-0032 phase 2: None is the resume signal ("omit fresh
+            # input_state"); validation of the checkpointed state happened
+            # when the checkpoint was written.
+            return
         if not exec_config.validation.enabled or self._state_schema is None:
             return
 
@@ -357,7 +364,8 @@ class CompiledGraph(Generic[StateType]):
         )
         node_executor = NodeExecutor(nodes=self._nodes, use_copy_on_write=use_copy_on_write)
         checkpoint_manager = GraphCheckpointManager(
-            checkpointer=exec_config.checkpoint.checkpointer
+            checkpointer=exec_config.checkpoint.checkpointer,
+            after_nodes=exec_config.checkpoint.checkpoint_after_nodes,
         )
         event_emitter = GraphEventEmitter(
             graph_id=graph_id,
@@ -374,7 +382,7 @@ class CompiledGraph(Generic[StateType]):
 
     async def invoke(
         self,
-        input_state: StateType,
+        input_state: Optional[StateType],
         *,
         config: Optional[GraphConfig] = None,
         thread_id: Optional[str] = None,
@@ -594,10 +602,11 @@ class CompiledGraph(Generic[StateType]):
 
     async def stream(
         self,
-        input_state: StateType,
+        input_state: Optional[StateType],
         *,
         config: Optional[GraphConfig] = None,
         thread_id: Optional[str] = None,
+        node_observer: Optional[NodeLifecycleObserver] = None,
     ):
         """Stream execution yielding state after each node.
 
@@ -663,6 +672,7 @@ class CompiledGraph(Generic[StateType]):
                 ),
                 record_state_history=exec_config.checkpoint.record_state_history,
                 sequential_fanout=self._sequential_fanout,
+                node_observer=node_observer,
             )
         ) as events:
             async for node_id, node_state in events:
@@ -711,6 +721,29 @@ class CompiledGraph(Generic[StateType]):
         if checkpointer is None:
             return []
         return await checkpointer.list(thread_id)
+
+    async def resume(self, thread_id: str) -> GraphExecutionResult[StateType]:
+        """Resume a checkpointed thread (FEP-0032 / FOU-D4).
+
+        The resume-at entry point: continues the thread from its checkpoint's
+        recorded position with no new input. Loud errors name the remedy:
+        no checkpointer, no checkpoint for the thread (a completed thread
+        resumes to its stored result and executes nothing).
+        """
+        checkpointer = self._config.checkpoint.checkpointer if self._config else None
+        if checkpointer is None:
+            raise ValueError(
+                "Cannot resume: this graph has no checkpointer configured. "
+                "Compile with checkpointer=... (durable-by-default at the "
+                "agentic-loop executor, FEP-0047)."
+            )
+        checkpoint = await checkpointer.load(thread_id)
+        if checkpoint is None:
+            raise ValueError(
+                f"Cannot resume thread {thread_id!r}: no checkpoint exists. "
+                "Start a run with invoke(state, thread_id=...) first."
+            )
+        return await self.invoke(None, thread_id=thread_id)
 
     async def replay_from(
         self,

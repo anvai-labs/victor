@@ -43,6 +43,14 @@ graduate (or stall) based on individual judgment rather than shared criteria.
    StateGraph executor's `total_timeout`/verifier/streaming `NotImplementedError`s) is not
    graduation-eligible until parity lands — graduation never converts working runs into
    crashes.
+6. **Default-on stateful graduation adds storage-boundary evidence.** A default-on StateGraph
+   promotion must show that durable state belongs to a documented logical scope, does not
+   silently add a physical database, is JSON-safe and runtime-handle-free, and writes only at
+   semantically useful boundaries. For the agentic loop those boundaries are completed ACT and
+   interrupt/approval, not every lightweight node.
+7. **Streaming claims are scoped to observed chunks.** Turn-boundary StateGraph streaming is
+   not token-level ACT streaming; graduation evidence and release notes must name the observed
+   boundary rather than borrowing a stronger parity claim.
 
 ### Current queue
 
@@ -50,7 +58,7 @@ graduate (or stall) based on individual judgment rather than shared criteria.
 |------|--------------|--------|--------------|--------|
 | `effect_gated_completion` | off | on | graduation battery GRADUATE + negative test | queued (FOU-S4) |
 | `per_turn_auditor` | off | on | graduation battery GRADUATE + negative test | queued (FOU-S4) |
-| `USE_STATEGRAPH_AGENTIC_LOOP` | off | on | executor parity (FOU I-D5a/b/c) + parity suite both modes + soak | blocked on I-D5 |
+| `USE_STATEGRAPH_AGENTIC_LOOP` | off | on | executor parity (FOU I-D5a/b/c) + parity suite both modes + durable ACT-boundary semantics + project-scoped checkpoints + selective writes + terminal policy propagation + sandbox graduation evidence + soak | blocked on I-D5 |
 | `use_semantic_response_cache` | off | undecided | battery on cache-hit quality + staleness semantics | parked |
 | `USE_DURABLE_GRAPH_CHECKPOINTS` (FEP-0047) | n/a | on-at-birth | ships default-on with opt-out from first merge | covered by FEP-0047 |
 
@@ -105,3 +113,4 @@ gap is fixed before the flip, not after.
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
 | 2026-11-16 | 1.0 | Initial ADR | Vijaykumar Singh |
+| 2026-11-18 | 1.1 | Added StateGraph storage-boundary, selective checkpoint, terminal-policy, sandbox, and scoped streaming graduation gates (FEP-0050) | Vijaykumar Singh |

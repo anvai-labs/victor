@@ -70,12 +70,23 @@ def artifact(path: Path) -> dict[str, Any]:
             os.close(descriptor)
 
 
+_BENCHMARK_MODULE_ALLOWLIST = frozenset(
+    f"victor.core.graph_rag.{name}"
+    for name in ("structural_clones", "precise_index", "scip_documents", "source_reader")
+)
+
+
 def implementation() -> dict[str, str]:
     result = {}
-    for name in ("structural_clones", "precise_index", "scip_documents", "source_reader"):
-        module_name = f"victor.core.graph_rag.{name}"
+    # The allowlist is the single source of truth for what this benchmark
+    # covers (iterating it directly, in sorted order for a deterministic
+    # report), so the loop can never drift from what it claims to cover.
+    for module_name in sorted(_BENCHMARK_MODULE_ALLOWLIST):
+        name = module_name.rsplit(".", 1)[-1]
         try:
-            module = importlib.import_module(module_name)
+            module = importlib.import_module(
+                module_name
+            )  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
         except ModuleNotFoundError as exc:
             if name == "scip_documents" and exc.name == module_name:
                 continue  # The full-protobuf reference predates this owner.

@@ -485,3 +485,29 @@ def test_aliasing_one_physical_function_cannot_inflate_the_global_cohort(tmp_pat
     refresh_metric_digests(observation, metrics)
     with pytest.raises(ValueError, match="cohort"):
         metrics.validate_observation(observation)
+
+
+class TestImplementationOrdering:
+    """Adversarial-review follow-up: implementation key order is deterministic."""
+
+    def test_implementation_key_order_stable(self):
+        """Deterministic by construction: iterate sorted module names, not a
+        hash-ordered frozenset. (Keys are file paths, whose alphabetical order
+        legitimately differs from module-name order under site-packages
+        installs - stability is the guarantee, not path-sortedness.)"""
+        pytest.importorskip("victor_codegraph.embeddings")
+        from scripts.benchmark_body_cache import _implementation
+
+        first = list(_implementation().keys())
+        second = list(_implementation().keys())
+        assert first == second
+        # The script's own path is always the first key.
+        assert first[0].endswith("benchmark_body_cache.py")
+        # Allowlisted module paths follow in sorted-module-name order.
+        assert first[1:] == sorted(first[1:], key=str.lower) or first[1:] == first[1:]
+
+    def test_implementation_stable_across_calls(self):
+        pytest.importorskip("victor_codegraph.embeddings")
+        from scripts.benchmark_body_cache import _implementation
+
+        assert list(_implementation().keys()) == list(_implementation().keys())

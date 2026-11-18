@@ -130,7 +130,7 @@ def _get_decision_service(orchestrator: object) -> object | None:
     """
     from victor.agent.services.protocols.decision_service import get_decision_service
 
-    return get_decision_service(getattr(orchestrator, "_container", None))
+    return get_decision_service(orchestrator.get_service_container())
 
 
 @dataclass
@@ -1551,6 +1551,11 @@ class StreamingChatExecutor:
 
         runtime_owner = self._runtime_owner
         orch = runtime_owner._orchestrator
+        # FOU-D5f soak finding: this wrapper kept a pre-loop refusal for the
+        # StateGraph executor even after run_streaming gained graph parity
+        # (FOU-D5c) — the chat surface bypassed the fix (FEP-0041 dormancy
+        # lesson). The resolved executor now flows into the loop config and
+        # run_streaming's graph branch serves the run; nothing to refuse here.
         from victor.framework.agentic_loop_executor import (
             AgenticLoopExecutor,
             resolve_agentic_loop_executor,
@@ -1559,8 +1564,6 @@ class StreamingChatExecutor:
         config = getattr(orch.settings, "agentic_loop", None)
         configured = config.executor if config is not None else AgenticLoopExecutor.AUTO
         executor = resolve_agentic_loop_executor(configured)
-        if executor is AgenticLoopExecutor.STATEGRAPH:
-            raise NotImplementedError("StateGraph execution does not support token streaming")
 
         # Governance REQUEST phase (per-run): a block short-circuits the WHOLE run with a single
         # refusal chunk; a redaction substitutes the message used downstream. Unlike run(), this
@@ -1649,8 +1652,14 @@ class StreamingChatExecutor:
                 # criteria the gate stays off (default-off parity).
                 "enable_criteria_gate": bool(caller_run_context.get("criteria")),
             }
+        from victor.runtime.context import resolve_execution_context as _resolve_ec
+
         loop = AgenticLoop(
             orchestrator=None,
+            # FOU-D5f: the graph executor needs the runtime context even when
+            # the streaming loop is orchestrator-free (services/session).
+            execution_context=_resolve_ec(orch)
+            or getattr(orch, "_execution_context", None),  # FOU-D5f: CLI probes
             turn_executor=_te,
             runtime_intelligence=self._get_runtime_intelligence(),
             max_iterations=getattr(stream_ctx, "max_total_iterations", 10),

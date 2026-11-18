@@ -51,19 +51,36 @@ def test_none_sandbox_is_passthrough():
 # -- BubblewrapSandbox ------------------------------------------------------
 
 
+def _option_sources(argv: list[str], option: str) -> list[str]:
+    return [argv[index + 1] for index, value in enumerate(argv) if value == option]
+
+
 def test_bwrap_argv_structure():
     b = BubblewrapSandbox()
     argv = b.wrap_argv(["/bin/sh", "-c", "echo hi"], Path("/work"))
     assert argv[0] == "bwrap"
     assert "--die-with-parent" in argv
-    # system roots bound read-only
-    assert "--ro-bind-try" in argv and "/usr" in argv
+    # The host root is read-only; only explicit policy mounts are writable.
+    assert _option_sources(argv, "--ro-bind") == ["/"]
     # cwd bound writable in workspace-only mode
     joined = " ".join(argv)
     assert "--bind /work /work" in joined
     # command appended after the -- separator
     assert argv[-3:] == ["/bin/sh", "-c", "echo hi"]
     assert "--" in argv
+
+
+def test_bwrap_workspace_only_includes_victor_state_not_home(monkeypatch, tmp_path):
+    state_root = tmp_path / "home" / ".victor"
+    monkeypatch.setattr(sb, "get_victor_dir", lambda: state_root)
+    sandbox = BubblewrapSandbox(seccomp=False)
+    argv = sandbox.wrap_argv(["x"], cwd=tmp_path / "workspace")
+
+    bind_sources = _option_sources(argv, "--bind")
+    assert str(tmp_path / "workspace") in bind_sources
+    assert str(state_root) in bind_sources
+    assert str(tmp_path / "home") not in bind_sources
+    assert state_root.is_dir()
 
 
 def test_bwrap_network_and_namespace_toggles():
@@ -91,6 +108,18 @@ def test_bwrap_allowed_mounts_and_readonly_workspace():
 # -- SeatbeltSandbox --------------------------------------------------------
 
 
+def test_seatbelt_workspace_only_includes_victor_state_not_home(monkeypatch, tmp_path):
+    state_root = tmp_path / "home" / ".victor"
+    monkeypatch.setattr(sb, "get_victor_dir", lambda: state_root)
+    profile = SeatbeltSandbox().build_profile(tmp_path / "workspace")
+
+    assert f'(allow file-write* (subpath "{state_root}"))' in profile
+    assert f'(allow file-write* (subpath "{tmp_path / "workspace"}"))' in profile
+    assert f'(allow file-write* (subpath "{tmp_path / "home"}"))' not in profile
+    assert "(allow file-write*)" not in profile
+    assert state_root.is_dir()
+
+
 def test_seatbelt_argv_and_profile():
     s = SeatbeltSandbox(network_isolation=True)
     argv = s.wrap_argv(["echo", "hi"], Path("/work"))
@@ -101,6 +130,15 @@ def test_seatbelt_argv_and_profile():
     assert "(version 1)" in profile
     assert '(allow file-write* (subpath "/work"))' in profile
     assert "(deny network*)" in profile
+
+
+def test_sandbox_fails_loudly_when_state_root_cannot_be_created(monkeypatch, tmp_path):
+    state_root = tmp_path / "not-a-directory"
+    state_root.write_text("blocked", encoding="utf-8")
+    monkeypatch.setattr(sb, "get_victor_dir", lambda: state_root)
+
+    with pytest.raises(RuntimeError, match="Cannot prepare writable Victor state root"):
+        BubblewrapSandbox(seccomp=False).wrap_argv(["x"], cwd=tmp_path)
 
 
 def test_seatbelt_no_network_deny_when_disabled():
@@ -119,11 +157,13 @@ def test_seatbelt_full_fs_mode_has_no_write_deny():
 
 
 def test_resolve_disabled_returns_none():
-    assert resolve_sandbox_backend(_Settings(sandbox_enabled=False)).type_name == "none"
-    assert resolve_sandbox_backend(None).type_name == "none"
+    """Disabled is now explicit-only (ADR-035); without it the posture is
+    required, so plain settings resolve to an enforcing backend or raise."""
+    assert resolve_sandbox_backend(_Settings(sandbox_policy="disabled")).type_name == "none"
 
 
 def test_resolve_linux_with_bwrap(monkeypatch):
+    monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: "/usr/bin/bwrap")
     backend = resolve_sandbox_backend(_Settings())
@@ -131,6 +171,7 @@ def test_resolve_linux_with_bwrap(monkeypatch):
 
 
 def test_resolve_darwin_with_seatbelt(monkeypatch):
+    monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
     monkeypatch.setattr(sb.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(sb.shutil, "which", lambda name: "/usr/bin/sandbox-exec")
     backend = resolve_sandbox_backend(_Settings())
@@ -140,7 +181,7 @@ def test_resolve_darwin_with_seatbelt(monkeypatch):
 def test_resolve_fail_open_when_binary_missing(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         backend = resolve_sandbox_backend(_Settings())
     assert backend.type_name == "none"
@@ -149,14 +190,14 @@ def test_resolve_fail_open_when_binary_missing(monkeypatch, caplog):
 
 def test_resolve_fail_open_unsupported_platform(monkeypatch):
     monkeypatch.setattr(sb.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     assert resolve_sandbox_backend(_Settings()).type_name == "none"
 
 
 def test_warn_once_only(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         resolve_sandbox_backend(_Settings())
         resolve_sandbox_backend(_Settings())
@@ -181,17 +222,14 @@ def test_sandbox_settings_policy_field_defaults_disabled():
         SandboxSettings(sandbox_policy="always")
 
 
-def test_effective_policy_mapping():
-    # Legacy bool: enabled=True without an explicit policy -> preferred
-    # (today's fail-open semantics).
-    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=False)) == "disabled"
-    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=True)) == "preferred"
-    assert sb.effective_sandbox_policy(None) == "disabled"
-    assert (
-        sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy=None))
-        == "preferred"
-    )
-    # Explicit policy wins over the bool in both directions.
+def test_effective_policy_mapping(monkeypatch):
+    # ADR-035: absent policy defaults to REQUIRED; the legacy bool no longer
+    # maps to fail-open preferred (that mode is explicit opt-in now).
+    monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
+    assert sb.effective_sandbox_policy(None) == "required"
+    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=False)) == "required"
+    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=True)) == "required"
+    # Explicit policy wins in both directions.
     assert (
         sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy="required"))
         == "required"
@@ -203,6 +241,10 @@ def test_effective_policy_mapping():
     assert (
         sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy="disabled"))
         == "disabled"
+    )
+    assert (
+        sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy="preferred"))
+        == "preferred"
     )
 
 
@@ -231,7 +273,7 @@ def test_resolve_required_returns_backend_when_available(monkeypatch):
 def test_resolve_required_does_not_emit_fail_open_warning(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         with pytest.raises(sb.SandboxRequiredUnavailableError):
             resolve_sandbox_backend(_Settings(sandbox_policy="required"))
@@ -241,7 +283,7 @@ def test_resolve_required_does_not_emit_fail_open_warning(monkeypatch, caplog):
 def test_resolve_preferred_still_fails_open_with_degradation(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         backend = resolve_sandbox_backend(_Settings(sandbox_policy="preferred"))
     assert backend.type_name == "none"

@@ -86,7 +86,7 @@ class RunPolicySnapshot:
         """Copy a successfully loaded settings object into immutable values.
 
         Any settings read or type failure raises before a run is admitted. A
-        successful read with ``sandbox=None`` is the existing explicit disabled
+        successful read with ``sandbox=None`` derives the ADR-035 fail-closed default
         policy and remains valid.
         """
         try:
@@ -222,14 +222,10 @@ class RunPolicySnapshot:
 
     @staticmethod
     def _effective_policy(sandbox: Any) -> str:
-        if sandbox is None:
-            return "disabled"
-        explicit = getattr(sandbox, "sandbox_policy", None)
-        if explicit in {"disabled", "preferred", "required"}:
-            return explicit
-        if bool(getattr(sandbox, "sandbox_enabled", False)):
-            return "preferred"
-        return "disabled"
+        """Delegate to the canonical ADR-035 derivation (fail-closed)."""
+        from victor.tools.sandbox.backends import effective_sandbox_policy
+
+        return effective_sandbox_policy(sandbox)
 
     @staticmethod
     def _digest(values: Mapping[str, Any]) -> str:

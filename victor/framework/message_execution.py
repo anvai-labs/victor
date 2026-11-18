@@ -460,6 +460,23 @@ async def execute_message(
         else:
             tool_calls = [dict(call) for call in calls]
 
+        paused = (
+            (response.metadata or {}).get("paused")
+            if isinstance(getattr(response, "metadata", None), dict)
+            else None
+        )
+        if paused and isinstance(paused.get("thread_id"), str):
+            # FEP-0032/FOU-D4: a graph-interrupted turn is a paused outcome,
+            # not an ordinary verdict — surface the resume position.
+            return TaskResult(
+                content=response_content,
+                tool_calls=tool_calls,
+                success=success,
+                error=error,
+                metadata=_build_task_result_metadata(orchestrator, response),
+                status="paused",
+                resume_thread_id=paused["thread_id"],
+            )
         return TaskResult(
             content=response_content,
             tool_calls=tool_calls,

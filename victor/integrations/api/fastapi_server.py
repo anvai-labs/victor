@@ -84,6 +84,7 @@ class StatusResponse(BaseModel):
     model: str
     workspace: str
     capabilities: List[str] = Field(default_factory=list)
+    sandbox_posture: str = "unknown"
 
 
 class ChatMessage(BaseModel):
@@ -112,6 +113,7 @@ class ChatResponse(BaseModel):
     status: str = "ok"
     run_id: Optional[str] = None
     approval_request: Optional[Dict[str, Any]] = None
+    resume_thread_id: Optional[str] = None
 
 
 class ResumeRequest(BaseModel):

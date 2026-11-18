@@ -240,3 +240,16 @@ def test_provider_context_window_uses_current_model_when_none_passed():
     instance = AnthropicProvider.__new__(AnthropicProvider)
     instance._current_model = "claude-3-5-sonnet-20241022"
     assert AnthropicProvider.context_window(instance) == 200_000
+
+
+def test_qwen37_plus_context_window_is_256k():
+    """Handoff fix: qwen3.7-plus (Bailian coding plan, 262144 per
+    provider_context_limits.yaml) fell back to the 128k OpenAI default."""
+    from victor.providers.context_windows import OPENAI_DEFAULT, lookup
+
+    table = [("qwen3.7-plus", 262_144)]
+    assert lookup(table, "qwen3.7-plus", OPENAI_DEFAULT) == 262_144
+    # And the shipped table carries the entry (grep-equivalent structural pin)
+    import victor.providers.context_windows as cw
+
+    assert any(entry[0] == "qwen3.7-plus" and entry[1] == 262_144 for entry in cw.OPENAI)

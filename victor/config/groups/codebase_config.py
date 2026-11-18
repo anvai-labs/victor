@@ -52,6 +52,10 @@ class CodebaseSettings(BaseModel):
     codebase_dimension: int = 384  # Embedding dimension
     codebase_batch_size: int = 32  # Batch size for embedding generation
     codebase_structural_indexing_enabled: bool = False
+    # Intent-tier chunk-source embeddings (FEP-0049): Merkle-driven
+    # incremental embedding of code-chunk bodies into a dedicated vector
+    # table. Off by default; graduation per ADR-036 evidence policy.
+    codebase_intent_indexing_enabled: bool = False
     codebase_chunking_strategy: str = "victor_codegraph"
     codebase_chunk_size: int = 500
     codebase_chunk_overlap: int = 50

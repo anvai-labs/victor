@@ -40,6 +40,9 @@ class GraphSettings(BaseModel):
     # ADR-032 tier 3: compiler-accurate edges from offline SCIP dumps
     # (scip-python); opt-in, degrades gracefully when absent.
     enable_precise_index: bool = False
+    # FEP-0049: intent-tier chunk-source embeddings (graph_flag reads THIS
+    # group; the codebase/embedding-group mirrors are for the flat surface).
+    codebase_intent_indexing_enabled: bool = False
     # Dump timeout ceiling for the tier-3 harvest. 0 = each provider's own
     # measured default (pyright 1200s, typescript 600s, rust-analyzer 120s,
     # scip-clang 600s, scip-java 1200s, scip-ruby 900s, scip-go 600s);
@@ -113,6 +116,7 @@ class SearchSettings(BaseModel):
     codebase_dimension: int = 384
     codebase_batch_size: int = 32
     codebase_structural_indexing_enabled: bool = False
+    codebase_intent_indexing_enabled: bool = False  # FEP-0049
     codebase_chunking_strategy: str = "victor_codegraph"
     codebase_chunk_size: int = 500
     codebase_chunk_overlap: int = 50

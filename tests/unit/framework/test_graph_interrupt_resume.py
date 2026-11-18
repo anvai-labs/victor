@@ -54,7 +54,7 @@ async def test_interrupt_after_resumes_at_the_successor_without_rerunning():
     assert (paused.success, paused.interrupted, paused.next_node) == (True, True, "b")
     assert calls == ["a"]
 
-    resumed = await compiled.invoke({}, thread_id="t")
+    resumed = await compiled.invoke(None, thread_id="t")
     assert calls == ["a", "b"]  # completed "a" is not executed again
     assert (resumed.success, resumed.interrupted, resumed.next_node) == (True, False, None)
     assert resumed.state["count"] == 2
@@ -69,7 +69,7 @@ async def test_interrupt_before_signals_the_pending_node():
     assert (paused.interrupted, paused.next_node) == (True, "b")
     assert calls == ["a"]
 
-    resumed = await compiled.invoke({}, thread_id="t")
+    resumed = await compiled.invoke(None, thread_id="t")
     assert calls == ["a", "b"]
     assert resumed.interrupted is False and resumed.state["count"] == 2
 
@@ -89,7 +89,7 @@ async def test_conditional_successor_is_resolved_once_and_persisted():
     latest = await checkpointer.load("t")
     assert latest.node_id == "a" and latest.next_node == "c"
 
-    await compiled.invoke({}, thread_id="t")
+    await compiled.invoke(None, thread_id="t")
     assert calls == ["a", "c"]
     assert routed == ["route"]  # the router is not re-evaluated on resume
 
@@ -101,7 +101,7 @@ async def test_interrupt_after_a_terminal_node_resumes_to_completion_without_rer
 
     first = await compiled.invoke({}, thread_id="t")
     assert (first.interrupted, first.next_node) == (True, END)
-    resumed = await compiled.invoke({}, thread_id="t")
+    resumed = await compiled.invoke(None, thread_id="t")
     assert calls == ["a", "b"]
     assert resumed.success and resumed.state["count"] == 2
 
@@ -114,7 +114,7 @@ async def test_crash_resume_continues_after_the_last_completed_node():
     crashed = await compiled.invoke({}, thread_id="t")
     assert crashed.success is False and calls == ["a", "b"]
 
-    resumed = await compiled.invoke({}, thread_id="t")
+    resumed = await compiled.invoke(None, thread_id="t")
     assert calls == ["a", "b", "b"]  # "a" completed before the crash; only "b" re-runs
     assert resumed.success and resumed.state["count"] == 2
 
@@ -124,7 +124,7 @@ async def test_re_invoking_a_completed_thread_executes_nothing():
     calls: List[str] = []
     compiled, _ = await _run(_graph(calls))
     await compiled.invoke({}, thread_id="t")
-    again = await compiled.invoke({}, thread_id="t")
+    again = await compiled.invoke(None, thread_id="t")
     assert calls == ["a", "b"]
     assert again.success and again.node_history == [] and again.state["count"] == 2
 
@@ -143,7 +143,7 @@ async def test_legacy_checkpoint_without_resume_metadata_resumes_at_node_id():
         )
     )
     compiled, _ = await _run(_graph(calls), checkpointer=checkpointer)
-    await compiled.invoke({}, thread_id="t")
+    await compiled.invoke(None, thread_id="t")
     assert calls == ["a", "b"]  # pre-FEP-0032 behavior retained for old data
 
 
@@ -196,9 +196,9 @@ async def test_interrupt_before_is_bypassed_only_for_the_resumed_node():
 
     first = await compiled.invoke({}, thread_id="t")
     assert (first.interrupted, first.next_node, calls) == (True, "loop", [])
-    second = await compiled.invoke({}, thread_id="t")
+    second = await compiled.invoke(None, thread_id="t")
     assert (second.interrupted, second.next_node, calls) == (True, "loop", ["loop"])
-    third = await compiled.invoke({}, thread_id="t")
+    third = await compiled.invoke(None, thread_id="t")
     assert (third.interrupted, calls) == (False, ["loop", "loop"])
 
 
@@ -217,7 +217,7 @@ async def test_stream_resume_matches_invoke_resume():
     calls: List[str] = []
     compiled, _ = await _run(_graph(calls), interrupt_after=["a"])
     first = [node async for node, _ in compiled.stream({}, thread_id="t")]
-    second = [node async for node, _ in compiled.stream({}, thread_id="t")]
+    second = [node async for node, _ in compiled.stream(None, thread_id="t")]
     assert (first, second, calls) == (["a"], ["b"], ["a", "b"])
 
 
@@ -238,7 +238,7 @@ async def test_sequential_fanout_interrupt_after_reports_the_pending_branch():
     compiled = graph.compile(checkpointer=MemoryCheckpointer(), interrupt_after=["a"])
     paused = await compiled.invoke({}, thread_id="t")
     assert (paused.interrupted, paused.next_node) == (True, "b")
-    await compiled.invoke({}, thread_id="t")
+    await compiled.invoke(None, thread_id="t")
     assert seen == ["a", "b", "c"]
 
 
@@ -285,3 +285,243 @@ class TestResumeNodeFallbacks:
 
         cp = self._cp(checkpoint_boundary="after", next_node="z")
         assert GraphCheckpointManager._resume_node(cp, {}, lambda n, s: "b") == "z"
+
+
+@pytest.mark.asyncio
+async def test_resume_with_fresh_input_is_a_loud_error_not_silent_discard():
+    """FEP-0032 phase 2: supplying input to a checkpointed thread used to be
+    silently discarded; it must raise naming the thread. ``None`` is the
+    resume signal ("omit fresh input_state" in the FEP's flow diagram)."""
+    calls: List[str] = []
+    compiled, _ = await _run(_graph(calls), interrupt_after=["a"])
+
+    paused = await compiled.invoke({}, thread_id="t")
+    assert paused.interrupted is True
+
+    with pytest.raises(ValueError, match="input_state.*t|t.*input_state"):
+        await compiled.invoke({"count": 99}, thread_id="t")
+
+    # None is the resume convention: no new input, checkpoint state wins.
+    resumed = await compiled.invoke(None, thread_id="t")
+    assert calls == ["a", "b"]
+    assert resumed.state["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_start_node_override_acknowledges_input_on_a_checkpointed_thread():
+    """The deliberate override path: explicit input + start_node is an
+    acknowledged position override, not a silent discard."""
+    calls: List[str] = []
+    compiled, _ = await _run(_graph(calls))
+    await compiled.invoke({}, thread_id="t")
+    rerun = await compiled.invoke({}, thread_id="t", start_node="a")
+    assert rerun.success is True
+
+
+@pytest.mark.asyncio
+async def test_stream_with_fresh_input_is_a_loud_error():
+    calls: List[str] = []
+    compiled, _ = await _run(_graph(calls), interrupt_after=["a"])
+    first = [node async for node, _ in compiled.stream({}, thread_id="t")]
+    assert first == ["a"]
+
+    with pytest.raises(ValueError, match="t"):
+        async for _ in compiled.stream({"count": 99}, thread_id="t"):
+            pass
+
+    resumed = [node async for node, _ in compiled.stream(None, thread_id="t")]
+    assert resumed == ["b"]
+
+
+@pytest.mark.asyncio
+async def test_first_invoke_accepts_none_state_schema_short_circuit():
+    """input_state=None only ever reaches execution when a checkpoint exists;
+    _validate_input_state must short-circuit instead of dict(None)-crashing."""
+    calls: List[str] = []
+    compiled, _ = await _run(_graph(calls), interrupt_after=["a"])
+    # First call on a fresh thread with None: no checkpoint, deep-copied None
+    # is a caller error the guard names precisely.
+    with pytest.raises(ValueError, match="input_state"):
+        await compiled.invoke(None, thread_id="fresh")
+
+
+@pytest.mark.asyncio
+async def test_compiled_resume_is_the_resume_at_entry_point():
+    """FOU-D4: compiled.resume(thread_id) == invoke(None, thread_id), with a
+    loud error naming the remedy when there is nothing to resume."""
+    calls: List[str] = []
+    compiled, _ = await _run(_graph(calls), interrupt_after=["a"])
+    paused = await compiled.invoke({}, thread_id="t")
+    assert paused.interrupted is True
+
+    resumed = await compiled.resume("t")
+    assert resumed.interrupted is False and calls == ["a", "b"]
+
+    with pytest.raises(ValueError, match="t"):
+        await compiled.resume("never-started")
+
+
+class TestRuntimeHandleSnapshots:
+    """FOU-D5f-S6c: graph states carry runtime handles in context
+    (``_execution_context``); deep-copying them (result snapshots,
+    MemoryCheckpointer.save) fails with 'cannot pickle _asyncio.Future'
+    and kills the run. Snapshots must strip runtime handles instead."""
+
+    @staticmethod
+    def _state_with_runtime_handle():
+        import asyncio
+        from types import SimpleNamespace
+
+        loop = asyncio.new_event_loop()
+        future = loop.create_future()
+        handle = SimpleNamespace(future=future, services={"chat": object()})
+        state = {
+            "query": "task",
+            "context": {"_execution_context": handle, "session_id": "s-1"},
+        }
+        return state, handle, loop
+
+    def test_snapshot_strips_runtime_handles_instead_of_crashing(self):
+        from victor.framework.graph_execution import snapshot_state_for_result
+
+        state, handle, loop = self._state_with_runtime_handle()
+        try:
+            snapshot = snapshot_state_for_result(state)
+            assert snapshot["context"]["session_id"] == "s-1"
+            assert "_execution_context" not in snapshot["context"]
+            # The live handle is untouched (only the snapshot is sanitized).
+            assert "_execution_context" in state["context"]
+        finally:
+            loop.close()
+
+    async def test_memory_checkpointer_save_survives_runtime_handles(self):
+        import asyncio
+        import time
+        from types import SimpleNamespace
+
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.graph_checkpoint import (
+            MemoryCheckpointer,
+            WorkflowCheckpoint,
+        )
+
+        loop = asyncio.new_event_loop()
+        future = loop.create_future()
+        handle = SimpleNamespace(future=future)
+        try:
+            checkpointer = MemoryCheckpointer()
+            checkpoint = WorkflowCheckpoint(
+                checkpoint_id="cp-1",
+                thread_id="t",
+                node_id="a",
+                state=AgenticLoopStateModel(
+                    query="task",
+                    max_iterations=5,
+                    context={"_execution_context": handle},
+                ),
+                timestamp=time.time(),
+            )
+            await checkpointer.save(checkpoint)
+            loaded = await checkpointer.load("t")
+            assert loaded is not None
+            assert "_execution_context" not in (loaded.state.context or {})
+        finally:
+            loop.close()
+
+    async def test_checkpointer_survives_tasks_at_arbitrary_keys(self):
+        """Beyond _execution_context: any runtime object (asyncio.Task, ...)
+        anywhere in state must not kill the checkpoint save (tolerant
+        deepcopy substitutes repr for uncopiable leaves)."""
+        import asyncio
+        import time
+        from types import SimpleNamespace
+
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.graph_checkpoint import (
+            MemoryCheckpointer,
+            WorkflowCheckpoint,
+        )
+
+        loop = asyncio.new_event_loop()
+        try:
+            task = loop.create_task(asyncio.sleep(0))
+            handle = SimpleNamespace(background_task=task)
+            checkpointer = MemoryCheckpointer()
+            checkpoint = WorkflowCheckpoint(
+                checkpoint_id="cp-2",
+                thread_id="t2",
+                node_id="a",
+                state=AgenticLoopStateModel(
+                    query="task",
+                    max_iterations=5,
+                    context={"background_task": task, "owner": handle},
+                ),
+                timestamp=time.time(),
+            )
+            await checkpointer.save(checkpoint)
+            loaded = await checkpointer.load("t2")
+            assert loaded is not None
+            # The save survived; copyable leaves round-trip, uncopiable
+            # leaves were substituted (repr) rather than killing the run.
+            assert "background_task" in (loaded.state.context or {})
+            assert "owner" in (loaded.state.context or {})
+        finally:
+            loop.close()
+
+
+class TestDeepcopyPreservingHandles:
+    """FOU-D5f-S6c: load_initial_state deep-copies the caller's input state;
+    the live runtime execution context must survive BY REFERENCE (nodes reach
+    services through it), not be deep-copied (its futures fail pickling)."""
+
+    def test_handles_survive_by_reference_rest_is_copied(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        from victor.framework.graph_checkpoint import (
+            deepcopy_preserving_runtime_handles,
+        )
+
+        loop = asyncio.new_event_loop()
+        try:
+            future = loop.create_future()
+            handle = SimpleNamespace(future=future)
+            state = {
+                "query": "task",
+                "context": {"_execution_context": handle, "session_id": "s-1"},
+                "count": 1,
+            }
+            copied = deepcopy_preserving_runtime_handles(state)
+            # Other values are private copies
+            assert copied["count"] == 1
+            assert copied["context"]["session_id"] == "s-1"
+            copied["count"] = 2
+            assert state["count"] == 1
+            # The live handle is shared BY REFERENCE
+            assert copied["context"]["_execution_context"] is handle
+        finally:
+            loop.close()
+
+    def test_nested_handles_inside_models_and_dicts(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.graph_checkpoint import (
+            deepcopy_preserving_runtime_handles,
+        )
+
+        loop = asyncio.new_event_loop()
+        try:
+            future = loop.create_future()
+            handle = SimpleNamespace(future=future)
+            state = AgenticLoopStateModel(
+                query="task",
+                max_iterations=5,
+                context={"_execution_context": handle, "session_id": "s-2"},
+            )
+            copied = deepcopy_preserving_runtime_handles(state)
+            assert copied.context["_execution_context"] is handle
+            assert copied.context["session_id"] == "s-2"
+        finally:
+            loop.close()

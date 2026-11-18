@@ -198,3 +198,58 @@ class TestMcpAddPermissions:
         assert result.exit_code == 0, result.output
         mode = (tmp_path / "mcp.yaml").stat().st_mode & 0o777
         assert mode == 0o600
+
+
+def _fake_discovered_tool(name, description, tier_value):
+    """A BaseTool subclass instance matching what discover_tools() returns."""
+    from victor.tools.base import BaseTool, ToolResult
+    from victor.tools.enums import CostTier
+
+    async def _execute(self, **kwargs):
+        return ToolResult(success=True, output="ok")
+
+    attrs = {
+        "name": name,
+        "description": description,
+        "parameters": {},
+        "cost_tier": CostTier(tier_value),
+        "execute": _execute,
+    }
+    return type("_FakeDiscoveredTool", (BaseTool,), attrs)()
+
+
+class TestMcpListTools:
+    def test_lists_name_description_cost_tier(self, monkeypatch):
+        monkeypatch.setattr(
+            "victor.ui.commands.mcp.discover_tools",
+            lambda: [
+                _fake_discovered_tool("alpha_tool", "Does alpha things", "free"),
+                _fake_discovered_tool("beta_tool", "Does beta things", "high"),
+            ],
+        )
+        result = runner.invoke(mcp_app, ["list-tools"])
+        assert result.exit_code == 0, result.output
+        assert "alpha_tool" in result.output
+        assert "Does alpha things" in result.output
+        assert "beta_tool" in result.output
+        assert "high" in result.output
+
+    def test_deterministic_order(self, monkeypatch):
+        tools = [
+            _fake_discovered_tool("zeta_tool", "Z", "free"),
+            _fake_discovered_tool("alpha_tool", "A", "free"),
+            _fake_discovered_tool("mid_tool", "M", "low"),
+        ]
+        monkeypatch.setattr("victor.ui.commands.mcp.discover_tools", lambda: tools)
+        first = runner.invoke(mcp_app, ["list-tools"])
+        second = runner.invoke(mcp_app, ["list-tools"])
+        assert first.exit_code == 0 and second.exit_code == 0
+        assert first.output == second.output
+        assert first.output.index("alpha_tool") < first.output.index("mid_tool")
+        assert first.output.index("mid_tool") < first.output.index("zeta_tool")
+
+    def test_reflects_live_discovery(self):
+        """Without patching, list-tools reports the real unified discovery."""
+        result = runner.invoke(mcp_app, ["list-tools"])
+        assert result.exit_code == 0, result.output
+        assert "shell" in result.output

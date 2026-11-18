@@ -53,7 +53,8 @@ class TestCentralProfilesLayer:
             profiles = Settings.load_profiles()
         assert "mine" in profiles
         # Bundled profiles still present — nothing central to merge.
-        assert "local" in profiles
+        assert "default" in profiles
+        assert profiles["default"].provider == "ollama"
 
     def test_central_profile_visible_without_user_entry(self, tmp_path):
         (tmp_path / "profiles.yaml").write_text(USER_FILE)
@@ -108,12 +109,13 @@ class TestCentralProfilesLayer:
         _write_central(
             tmp_path,
             "sandhi.yaml",
-            {"profiles": {"local": {"model": "claude-sonnet-5-5"}}},
+            {"profiles": {"default": {"model": "claude-sonnet-5-5"}}},
         )
         with _patch_config_dir(tmp_path):
             profiles = Settings.load_profiles()
-        assert profiles["local"].model == "claude-sonnet-5-5"
-        assert profiles["local"].max_tokens == 4096  # from the bundled layer
+        assert profiles["default"].model == "claude-sonnet-5-5"
+        assert profiles["default"].provider == "ollama"  # from the bundled layer
+        assert profiles["default"].max_tokens == 4096  # from the bundled layer
 
     def test_central_files_merge_in_sorted_filename_order(self, tmp_path):
         (tmp_path / "profiles.yaml").write_text(USER_FILE)

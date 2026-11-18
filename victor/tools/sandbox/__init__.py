@@ -27,7 +27,11 @@ from victor.tools.sandbox.backends import (
     PolicyUnavailable,
     SandboxRequiredUnavailableError,
     SeatbeltSandbox,
+    _effective_policy_from_settings,
+    build_seccomp_deny_program,
+    current_sandbox_posture,
     effective_sandbox_policy,
+    force_unsandboxed_for_session,
     resolve_required_launch,
     resolve_sandbox_backend,
 )
@@ -40,7 +44,11 @@ __all__ = [
     "PolicyUnavailable",
     "SandboxRequiredUnavailableError",
     "RequiredLaunchDecision",
+    "_effective_policy_from_settings",
+    "build_seccomp_deny_program",
+    "current_sandbox_posture",
     "effective_sandbox_policy",
+    "force_unsandboxed_for_session",
     "resolve_required_launch",
     "resolve_sandbox_backend",
 ]

@@ -2,7 +2,7 @@
 
 ## Coordinated execution-contract migration
 
-Victor's 0.30.0 source candidate is the release carrier for published
+Victor's 0.31.0 source candidate is the release carrier for published
 `sandhi-gateway==0.20.0`. This consumer pin does not imply a service upgrade.
 The user authorized a coordinated migration because Victor is the sole client;
 there is no requirement to retain a permissive Sandhi legacy mode.
@@ -69,7 +69,7 @@ account headers and cache capabilities remain server owned.
 
 ### Independent gateway client dialect
 
-The Victor 0.30.0 candidate and published Sandhi 0.20.0 support a local
+The Victor 0.31.0 candidate and published Sandhi 0.20.0 support a local
 starter with no client credential. A gateway URL deliberately selects that
 gateway before upstream account or API-key discovery:
 
@@ -636,6 +636,36 @@ This route uses Responses upstream, including when Victor supplies tools.
 TDD reproduced dropped profile values, omitted streaming defaults, missing
 GPT-6 capability recognition and unvalidated labels. Regression coverage also
 checks unsupported providers and per-request overrides (including `None`).
+
+## Streaming body-budget preflight (2026-11-17)
+
+Victor provider configuration accepts an optional
+`stream_body_timeout_secs` value between one millisecond and 840 seconds. When set on a
+streaming Sandhi call, Victor sends it once as
+`x-sandhi-stream-body-budget-ms`. The value is an explicit caller need, not an
+authorization to raise gateway policy and not a substitute for the outer
+planning deadline. It remains unset by default so ordinary streams are unaffected.
+
+Sandhi compares the hint with its effective exact-model policy. A larger value is
+refused before rate admission, reservation, provider dispatch and source egress;
+a within-policy value proceeds normally. This catches long-form planning requests
+before partial JSON generation instead of timing out minutes later. Authenticated
+model discovery can expose the sanitized effective limits without revealing
+backend URLs, credentials or provider references.
+
+Exact-policy comparison and sanitized discovery are Sandhi 0.21 capabilities.
+Victor's embedded `sandhi-gateway==0.20.0` binding remains wire-compatible:
+leave `stream_body_timeout_secs` unset against a 0.20 service, and enable the
+declared 600-second planning budget only after the target gateway reports an
+effective policy that admits it.
+
+```yaml
+providers:
+  openai:
+    stream_setup_timeout_secs: 30
+    stream_idle_timeout_secs: 180
+    stream_body_timeout_secs: 600
+```
 
 ## Resource-audience co-design: local candidate acceptance
 

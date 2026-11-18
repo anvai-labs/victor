@@ -1036,6 +1036,12 @@ RELATED_TESTS = {
     "victor/integrations/api/routes/team_routes.py": (
         "tests/unit/integrations/api/test_ws_auth_gate.py",
     ),
+    # /system routes: status contract incl. the ADR-035 sandbox_posture
+    # reporting is pinned by the consolidated-routes suite (no per-route
+    # mirror file).
+    "victor/integrations/api/routes/system_routes.py": (
+        "tests/unit/api/test_consolidated_routes.py",
+    ),
     # /agents route: owner-scoped background-agent event delivery is pinned
     # by the background agent manager owner (no per-route mirror file).
     "victor/integrations/api/routes/agent_routes.py": (
@@ -1277,6 +1283,16 @@ RELATED_TESTS = {
         "tests/unit/tools/test_tool_registrar.py",
         "tests/unit/security/test_mcp_policy_boundary.py",
     ),
+    # MCP code-intel modules (FEP-0049 followup): unit suites live in
+    # tests/unit/agent/ (server/discovery/context) per the MCP server tests.
+    "victor/integrations/mcp/discovery.py": (
+        "tests/unit/agent/test_mcp_discovery.py",
+        "tests/unit/agent/test_mcp_server.py",
+    ),
+    "victor/integrations/mcp/context.py": (
+        "tests/unit/agent/test_mcp_context.py",
+        "tests/unit/agent/test_mcp_server.py",
+    ),
     "victor/integrations/mcp/protocol.py": (
         "tests/unit/agent/test_mcp_protocol.py",
         *MCP_SCHEMA_TESTS,
@@ -1340,6 +1356,14 @@ RELATED_TESTS = {
         "tests/unit/agent/test_turn_policy.py",
     ),
     "victor/config/groups/recovery_config.py": ("tests/unit/config/test_phase4_config_groups.py",),
+    "victor/config/groups/codebase_config.py": (
+        "tests/unit/config/test_phase5_config_groups.py",
+        "tests/unit/config/test_settings_stratification.py",
+    ),
+    "victor/config/groups/embedding_config.py": (
+        "tests/unit/config/test_phase5_config_groups.py",
+        "tests/unit/config/test_settings_stratification.py",
+    ),
     "victor/config/pipeline_settings.py": ("tests/unit/config/test_settings_stratification.py",),
     "victor/contrib/mode_config/mode_helpers.py": ("tests/unit/contrib/test_contrib_base.py",),
     "victor/core/vertical_types.py": (

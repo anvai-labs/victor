@@ -314,6 +314,7 @@ class GraphIndexStats:
     harvest_seconds: float = 0.0
     error_count: int = 0
     errors: List[str] = field(default_factory=list)
+    intent_sync: Optional[Dict[str, Any]] = None  # FEP-0049 sync report
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert stats to dictionary.
@@ -892,6 +893,61 @@ class GraphIndexingPipeline:
         # Cross-language FFI REFERENCES: link python wrapper functions to
         # the rust functions they call through the PyO3 boundary (#1521).
         await self._link_cross_language_ffi()
+
+        # FEP-0049: intent-tier incremental embedding. Runs AFTER graph
+        # publication and edge resolution — never inside the sqlite
+        # replacement. Flag-gated (codebase_intent_indexing_enabled,
+        # default off); the encoder is constructed lazily so a
+        # root-shortcut no-op never pays the model-load cost.
+        if getattr(self.config, "codebase_intent_indexing_enabled", False):
+            intent_store = None
+            try:
+                from victor.core.graph_rag.intent_sync import sync_intent_tier
+                from victor.storage.graph.intent_index import INTENT_TABLE, IntentIndexStore
+
+                manifest = getattr(getattr(self, "_codegraph_repository", None), "manifest", None)
+                if manifest:
+                    from victor.storage.vector_stores.registry import EmbeddingRegistry
+
+                    build = getattr(self.graph_store, "_build_embedding_config", None)
+                    provider = None
+                    if build is not None:
+                        config = build()
+                        config.extra_config = {
+                            **(config.extra_config or {}),
+                            "table_name": INTENT_TABLE,
+                        }
+                        provider = EmbeddingRegistry.create(config)
+                    if provider is not None:
+                        from victor_codegraph import CHUNK_SOURCE_PROFILE
+                        from victor_codegraph.embeddings import SentenceTransformerEncoder
+
+                        def _make_encoder():
+                            return SentenceTransformerEncoder(CHUNK_SOURCE_PROFILE)
+
+                        intent_store = IntentIndexStore(provider, self.graph_store)
+                        report = await sync_intent_tier(
+                            root,
+                            self.graph_store,
+                            current_manifest=dict(manifest),
+                            intent_store=intent_store,
+                            profile_id=CHUNK_SOURCE_PROFILE.identity,
+                            encoder=_make_encoder,
+                            force=not self.config.incremental,
+                        )
+                        if report is not None:
+                            stats.intent_sync = report.to_dict()
+            except Exception as exc:
+                # An explicit --intent request must be distinguishable from
+                # a synced run in the stats surface, not just debug logs.
+                stats.intent_sync = {"error": str(exc)}
+                logger.warning("Intent-tier sync failed: %s", exc)
+            finally:
+                if intent_store is not None:
+                    try:
+                        await intent_store.close()
+                    except Exception:
+                        logger.debug("Intent store close failed", exc_info=True)
 
         logger.info(
             f"Indexing complete: {stats.files_processed} files, "

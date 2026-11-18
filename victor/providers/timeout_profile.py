@@ -46,6 +46,8 @@ timeout property the docstring promises does not actually hold by default.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from dataclasses import dataclass
 
 
@@ -70,6 +72,11 @@ class TimeoutProfile:
             sandhi_transport.py, which matches the Sandhi library default
             (raised from 30s after measured cache-miss prefills of large
             agentic prompts exceeded it).
+        stream_body_timeout_seconds: Optional whole-body duration hint sent
+            to the sandhi gateway policy preflight as
+            ``x-sandhi-stream-body-budget-ms``. None = no hint (the gateway
+            applies its own policy). Current default mirrors the literal in
+            sandhi_transport.py (840 s ceiling, 1 ms floor).
         circuit_breaker_recovery_seconds: Grace period a tripped circuit
             breaker waits before allowing a trial request through. Current
             default mirrors ``BaseProvider``'s
@@ -94,6 +101,7 @@ class TimeoutProfile:
     sdk_timeout_seconds: float = 60.0
     stream_idle_timeout_seconds: float = 90.0
     stream_setup_timeout_seconds: float = 90.0
+    stream_body_timeout_seconds: Optional[float] = None
     circuit_breaker_recovery_seconds: float = 30.0
     retry_base_delay_seconds: float = 1.0
     retry_max_delay_seconds: float = 60.0

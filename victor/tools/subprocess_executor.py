@@ -361,9 +361,10 @@ def check_pip_available() -> bool:
 def _resolve_default_sandbox(
     run_policy_snapshot: Optional[RunPolicySnapshot] = None,
 ) -> "SandboxBackend":
-    """Resolve the sandbox backend from global settings (fail-open to none).
+    """Resolve the sandbox backend from global settings (ADR-035: fail-closed
+    default; degrades only under an explicit ``preferred`` policy).
 
-    Reads ``settings.sandbox`` (off by default). A ``required`` policy that
+    Reads ``settings.sandbox`` (ADR-035 fail-closed default). A ``required`` policy that
     cannot be enforced raises :class:`SandboxRequiredUnavailableError` —
     that refusal is the security boundary and is never swallowed. Any other
     resolution failure degrades to no sandbox so subprocess execution is
@@ -437,13 +438,9 @@ def _required_policy_active(
     """
     if run_policy_snapshot is not None:
         return run_policy_snapshot.effective_policy == "required"
-    try:
-        from victor.config.settings import get_settings
-        from victor.tools.sandbox import effective_sandbox_policy
+    from victor.tools.sandbox import _effective_policy_from_settings
 
-        return effective_sandbox_policy(getattr(get_settings(), "sandbox", None)) == "required"
-    except Exception:
-        return False
+    return _effective_policy_from_settings(on_error="unknown") == "required"
 
 
 def _apply_sandbox(
@@ -452,12 +449,15 @@ def _apply_sandbox(
     shell: bool,
     working_dir: Optional[Union[str, Path]],
     run_policy_snapshot: Optional[RunPolicySnapshot] = None,
-) -> Tuple[Union[str, List[str]], bool]:
+) -> Tuple[Union[str, List[str]], bool, List[int]]:
     """Wrap ``args`` with the sandbox launcher if one is active.
 
-    Returns ``(exec_args, exec_shell)``. When no sandbox is active the inputs
-    are returned unchanged (zero behavior change with sandboxing disabled).
-    A wrapped command always runs as an argv list with ``shell=False``.
+    Returns ``(exec_args, exec_shell, pass_fds)``. ``pass_fds`` are the
+    backend fds that must survive exec (bwrap's seccomp filter); the caller
+    forwards them to the spawn call and closes them afterwards. When no
+    sandbox is active the inputs are returned unchanged (zero behavior change
+    with sandboxing disabled). A wrapped command always runs as an argv list
+    with ``shell=False``.
     """
     backend = (
         sandbox
@@ -465,13 +465,26 @@ def _apply_sandbox(
         else _resolve_default_sandbox(run_policy_snapshot=run_policy_snapshot)
     )
     if backend.type_name == "none":
-        return args, shell
+        return args, shell, []
 
     cwd_path = Path(working_dir) if working_dir else None
     if shell or isinstance(args, str):
         cmd_str = args if isinstance(args, str) else " ".join(args)
-        return backend.wrap_argv(["/bin/sh", "-c", cmd_str], cwd_path), False
-    return backend.wrap_argv(list(args), cwd_path), False
+        return (
+            backend.wrap_argv(["/bin/sh", "-c", cmd_str], cwd_path),
+            False,
+            (backend.take_pass_fds()),
+        )
+    return backend.wrap_argv(list(args), cwd_path), False, backend.take_pass_fds()
+
+
+def _close_pass_fds(pass_fds: Sequence[int]) -> None:
+    """Close backend fds whose inheritance duty ended after spawn."""
+    for fd in pass_fds:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 def run_command(
@@ -498,7 +511,7 @@ def run_command(
         preexec_fn: Callable invoked in the child process before exec (POSIX only).
         max_output_bytes: Truncate stdout/stderr beyond this many bytes (0 = no limit).
         sandbox: Optional sandbox backend. When None, resolved from settings
-            (off by default). A non-none backend wraps the command argv.
+            (ADR-035: fail-closed by default). A non-none backend wraps the command argv.
 
     Returns:
         CommandResult with execution details.
@@ -560,7 +573,7 @@ def run_command(
         return _sandbox_refusal_result(refusal, cmd_str, working_dir)
 
     try:
-        exec_args, exec_shell = _apply_sandbox(
+        exec_args, exec_shell, pass_fds = _apply_sandbox(
             sandbox, args, shell, working_dir, run_policy_snapshot
         )
     except PolicyUnavailable as exc:
@@ -573,16 +586,20 @@ def run_command(
         return _sandbox_refusal_result(str(exc), cmd_str, working_dir)
 
     try:
-        result = subprocess.run(
-            exec_args,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=working_dir,
-            env=env,
-            shell=exec_shell,  # nosec B602
-            preexec_fn=preexec_fn,  # nosec B603
-        )
+        try:
+            result = subprocess.run(
+                exec_args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=working_dir,
+                env=env,
+                shell=exec_shell,  # nosec B602
+                preexec_fn=preexec_fn,  # nosec B603
+                pass_fds=tuple(pass_fds),
+            )
+        finally:
+            _close_pass_fds(pass_fds)
 
         duration_ms = (time.time() - start_time) * 1000
 
@@ -720,13 +737,16 @@ async def run_managed_process(
     timeout: int = 60,
     max_output_bytes: int = 0,
     on_chunk: Optional[Callable[[bool, bytes], None]] = None,
+    pass_fds: Sequence[int] = (),
 ) -> Tuple[bytes, bytes, int, bool, bool]:
     """Spawn a command and run it to completion or ``timeout``, whichever
     comes first. The single runner underneath every async subprocess call in
     this module (co-design review item 15).
 
     Exactly one of ``command`` (run through the shell) or ``argv`` (exec'd
-    directly, no shell) must be given.
+    directly, no shell) must be given. ``pass_fds`` are fds that must survive
+    exec (sandbox launchers such as bwrap hand their seccomp filter through
+    one).
 
     stdout/stderr are read incrementally into caller-owned buffers as they
     arrive — never via a single ``communicate()`` — so whatever was produced
@@ -755,6 +775,8 @@ async def run_managed_process(
     spawn_kwargs.update(_process_group_kwargs())
 
     if argv is not None:
+        if pass_fds:
+            spawn_kwargs["pass_fds"] = tuple(pass_fds)
         process = await asyncio.create_subprocess_exec(*argv, **spawn_kwargs)
     else:
         process = await asyncio.create_subprocess_shell(command, **spawn_kwargs)
@@ -848,7 +870,7 @@ async def run_command_async(
         preexec_fn: Callable invoked in the child process before exec (POSIX only).
         max_output_bytes: Truncate stdout/stderr beyond this many bytes (0 = no limit).
         sandbox: Optional sandbox backend. When None, resolved from settings
-            (off by default). A non-none backend wraps the command argv and
+            (ADR-035: fail-closed by default). A non-none backend wraps the command argv and
             runs it via exec instead of the shell.
         run_policy_snapshot: Immutable policy admitted by an enclosing run;
             it takes precedence over mutable global settings.
@@ -935,10 +957,14 @@ async def run_command_async(
         }
         if backend.type_name != "none":
             wrapped = backend.wrap_argv(["/bin/sh", "-c", command], cwd)
+            backend_fds = backend.take_pass_fds()
             logger.debug("Executing command via %s sandbox: %.200s", backend.type_name, command)
-            stdout, stderr, return_code, timed_out, capped = await run_managed_process(
-                argv=wrapped, **run_kwargs
-            )
+            try:
+                stdout, stderr, return_code, timed_out, capped = await run_managed_process(
+                    argv=wrapped, pass_fds=backend_fds, **run_kwargs
+                )
+            finally:
+                _close_pass_fds(backend_fds)
         else:
             logger.debug("Executing command via shell: %.200s", command)
             stdout, stderr, return_code, timed_out, capped = await run_managed_process(

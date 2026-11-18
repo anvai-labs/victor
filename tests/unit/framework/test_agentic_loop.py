@@ -6,6 +6,8 @@ components for PERCEIVE → PLAN → ACT → EVALUATE → DECIDE loops.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +25,7 @@ from victor.agent.topology_contract import (
     TopologyKind,
 )
 from victor.agent.topology_grounder import GroundedTopologyPlan
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 from victor.framework.agentic_loop import (
     AgenticLoop,
     LoopIteration,
@@ -168,6 +171,13 @@ class TestAgenticLoop:
         """Create AgenticLoop with mock orchestrator."""
         if orchestrator is None:
             orchestrator = MagicMock()
+        config = kwargs.pop("config", None)
+        if config is None:
+            config = {}
+        # These tests exercise the standard loop; pin the executor so the
+        # USE_STATEGRAPH_AGENTIC_LOOP flag flip does not reroute them.
+        config.setdefault("executor", "standard")
+        kwargs["config"] = config
         return AgenticLoop(
             orchestrator=orchestrator,
             enable_fulfillment_check=kwargs.pop("enable_fulfillment_check", False),
@@ -338,6 +348,25 @@ class TestAgenticLoop:
         assert result.success is True
         runtime_intelligence.analyze_turn.assert_awaited_once()
 
+    async def test_stategraph_rejects_invalid_original_intent(self):
+        from victor.framework.agentic_graph.turn_record import TurnRecord
+
+        loop = self._make_loop(orchestrator=MagicMock(spec=[]), max_iterations=1)
+        turn = TurnResult(response=CompletionResponse(content="done"))
+        state = {
+            "perception": {"intent": "write_allowed", "complexity": "medium"},
+            "original_intent": "not-an-intent",
+            "iteration": 1,
+            "max_iterations": 1,
+        }
+
+        with pytest.raises(ValueError, match="invalid original intent"):
+            await loop.evaluate_graph_turn(
+                state["perception"],
+                TurnRecord.from_turn_result(turn),
+                state,
+            )
+
     async def test_run_with_stategraph_uses_runtime_execution_context(self):
         """StateGraph path should pass RuntimeExecutionContext, not the host object."""
         prompt_orchestrator = MagicMock()
@@ -367,7 +396,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 return SimpleNamespace(
                     success=True,
                     iterations=1,
@@ -390,6 +421,60 @@ class TestAgenticLoop:
         assert resolved_context.session_id == "session-123"
         assert resolved_context.metadata["prompt_orchestrator"] is prompt_orchestrator
 
+    def test_stategraph_prepares_explicit_streaming_context(self):
+        """Every StateGraph context source passes through one preparation boundary."""
+        prompt_orchestrator = object()
+        execution_context = RuntimeExecutionContext(
+            session_id="streaming-session",
+            settings=SimpleNamespace(),
+            state=None,
+            container=MagicMock(),
+            services=MagicMock(),
+            metadata={},
+        )
+        loop = AgenticLoop(
+            orchestrator=None,
+            execution_context=execution_context,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
+
+        with patch(
+            "victor.agent.prompt_orchestrator.get_prompt_orchestrator",
+            return_value=prompt_orchestrator,
+        ):
+            resolved = loop._resolve_stategraph_execution_context()
+
+        assert resolved is not execution_context
+        assert resolved.session_id == "streaming-session"
+        assert resolved.prompt_orchestrator is prompt_orchestrator
+
+    def test_stategraph_explicit_context_wins_over_orchestrator_context(self):
+        """The streaming surface's explicit context cannot be replaced by the host."""
+        prompt_orchestrator = object()
+        execution_context = RuntimeExecutionContext(
+            session_id="explicit",
+            settings=SimpleNamespace(),
+            state=None,
+            container=MagicMock(),
+            services=MagicMock(),
+            metadata={"prompt_orchestrator": prompt_orchestrator},
+        )
+        orchestrator = MagicMock()
+        orchestrator._execution_context = MagicMock(session_id="orchestrator")
+        loop = AgenticLoop(
+            orchestrator=orchestrator,
+            execution_context=execution_context,
+            enable_fulfillment_check=False,
+            config={"executor": "standard"},
+        )
+
+        resolved = loop._resolve_stategraph_execution_context()
+
+        assert resolved is execution_context
+        assert resolved.session_id == "explicit"
+        assert resolved.prompt_orchestrator is prompt_orchestrator
+
     async def test_run_with_stategraph_forwards_conversation_history(self):
         """StateGraph path should preserve prior-turn context at the executor seam."""
         loop = self._make_loop(orchestrator=MagicMock(spec=[]), max_iterations=1)
@@ -408,7 +493,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 captured["query"] = query
                 captured["context"] = context
                 captured["conversation_history"] = conversation_history
@@ -451,7 +538,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 return SimpleNamespace(
                     success=True,
                     iterations=1,
@@ -571,7 +660,9 @@ class TestAgenticLoop:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def run(self, query, context=None, conversation_history=None):
+            async def run(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 return SimpleNamespace(
                     success=False,
                     iterations=1,
@@ -1925,6 +2016,7 @@ class TestStream:
             orchestrator=MagicMock(spec=[]),
             max_iterations=2,
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
 
         perception = _make_perception()
@@ -1949,6 +2041,7 @@ class TestStream:
             orchestrator=MagicMock(spec=[]),
             max_iterations=1,
             enable_fulfillment_check=False,
+            config={"executor": "standard"},
         )
 
         perception = _make_perception()
@@ -2007,7 +2100,9 @@ class TestStream:
                 self.evaluator = None
                 self.fulfillment_detector = None
 
-            async def stream(self, query, context=None, conversation_history=None):
+            async def stream(
+                self, query, context=None, conversation_history=None, turn_record_channel=None
+            ):
                 captured["query"] = query
                 captured["context"] = context
                 captured["conversation_history"] = conversation_history
@@ -2236,6 +2331,7 @@ class TestAdaptiveIterations:
             max_iterations=2,
             enable_fulfillment_check=False,
             enable_adaptive_iterations=False,
+            config={"executor": "standard"},
         )
         perception = _make_perception()
         perception.confidence = 0.6
@@ -2284,3 +2380,64 @@ class TestEnhancedTaskTypeMapping:
         perception.intent = ActionIntent.READ_ONLY
         result = loop._map_to_task_type(perception)
         assert result == TaskType.ANALYSIS
+
+
+class TestStategraphExecutorRunDeadline:
+    """FOU-D5a: total_timeout must hold under the StateGraph executor.
+
+    The legacy loop is guarded cooperatively by LoopGuards; the graph path
+    used to raise NotImplementedError for the same configuration, so a user
+    with a deadline could not use that executor at all. Parity: same guard,
+    same FAIL LoopResult contract (terminated_by='loop_spin_guard').
+    """
+
+    def _stategraph_loop(self, **kwargs):
+        kwargs.setdefault("enable_fulfillment_check", False)
+        loop = AgenticLoop(orchestrator=MagicMock(spec=[]), **kwargs)
+        loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+        return loop
+
+    async def test_total_timeout_returns_fail_spin_guard_result(self):
+
+        loop = self._stategraph_loop(config={"total_timeout": 0.05})
+
+        async def slow_graph_run(**kwargs):
+            await asyncio.sleep(5)
+            raise AssertionError("must be cancelled by the deadline")
+
+        loop._run_with_stategraph = slow_graph_run
+        start = time.monotonic()
+        result = await loop.run("task")
+        elapsed = time.monotonic() - start
+
+        assert result.success is False
+        assert result.metadata["terminated_by"] == "loop_spin_guard"
+        assert "error" in result.metadata
+        assert elapsed < 2.0, f"deadline not enforced (took {elapsed:.2f}s)"
+
+    async def test_no_deadline_passes_graph_result_through(self):
+        loop = self._stategraph_loop()
+
+        expected = LoopResult(success=True, iterations=[], final_state={}, total_duration=0.0)
+
+        async def fast_graph_run(**kwargs):
+            return expected
+
+        loop._run_with_stategraph = fast_graph_run
+        result = await loop.run("task")
+        assert result is expected
+
+    async def test_guard_error_is_not_swallowed_into_generic_graph_error(self):
+        """LoopSpinError from inside the graph path must reach run()'s spin
+        handler, not become a generic error LoopResult mid-path."""
+        from victor.framework.loop.guards import LoopSpinError
+
+        loop = self._stategraph_loop(config={"total_timeout": 0.05})
+
+        async def guarded_deadline_hit(**kwargs):
+            raise LoopSpinError("perception backstop exceeded")
+
+        loop._run_with_stategraph = guarded_deadline_hit
+        result = await loop.run("task")
+        assert result.success is False
+        assert result.metadata["terminated_by"] == "loop_spin_guard"

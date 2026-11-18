@@ -25,7 +25,7 @@ Key Components:
 
 Pattern:
     StateGraph Node (pure function)
-        ├─ Extracts ExecutionContext from state
+        ├─ Receives ExecutionContext as an explicit dependency
         ├─ Calls service via ServiceAccessor
         └─ Returns updated state with service results
 """
@@ -44,67 +44,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _get_execution_context(
-    state: AgenticLoopStateModel,
-) -> Optional["RuntimeExecutionContext"]:
-    """Extract ExecutionContext from state.
-
-    Args:
-        state: Current agentic loop state
-
-    Returns:
-        ExecutionContext if available, None otherwise
-    """
-    # Try private attribute first (set by executor)
-    if getattr(state, "_execution_context_private", None) is not None:
-        return state._execution_context_private
-
-    # Try context dict
-    context = state.context or {}
-    execution_context = context.get("_execution_context")
-    if execution_context:
-        return execution_context
-
-    return None
+def _get_service_accessor(
+    execution_context: Optional[RuntimeExecutionContext],
+) -> Optional[Any]:
+    """Get ServiceAccessor from an explicit execution context."""
+    return execution_context.services if execution_context else None
 
 
-def _get_service_accessor(state: AgenticLoopStateModel) -> Optional[Any]:
-    """Get ServiceAccessor from state.
-
-    Args:
-        state: Current agentic loop state
-
-    Returns:
-        ServiceAccessor if available, None otherwise
-    """
-    ctx = _get_execution_context(state)
-    if ctx:
-        return ctx.services
-    return None
-
-
-def _get_prompt_orchestrator(state: AgenticLoopStateModel) -> Any:
-    """Get PromptOrchestrator from execution context metadata or global fallback."""
-    ctx = _get_execution_context(state)
-    if ctx:
-        try:
-            from victor.runtime.context import RuntimeExecutionContext
-
-            if isinstance(ctx, RuntimeExecutionContext):
-                prompt_orchestrator = ctx.prompt_orchestrator
-                if prompt_orchestrator is not None:
-                    return prompt_orchestrator
-        except Exception:
-            pass
-
-        if getattr(ctx, "metadata", None):
-            prompt_orchestrator = ctx.metadata.get("prompt_orchestrator")
-            if prompt_orchestrator is not None:
-                return prompt_orchestrator
-
-    from victor.agent.prompt_orchestrator import get_prompt_orchestrator
-
-    return get_prompt_orchestrator()
+def _get_prompt_orchestrator(execution_context: RuntimeExecutionContext) -> Any:
+    """Get PromptOrchestrator from its explicit run-scoped context."""
+    prompt_orchestrator = execution_context.prompt_orchestrator
+    if prompt_orchestrator is None:
+        raise RuntimeError("RuntimeExecutionContext has no prompt_orchestrator collaborator")
+    return prompt_orchestrator
 
 
 # =============================================================================
@@ -117,6 +69,7 @@ async def chat_service_node(
     state: AgenticLoopStateModel,
     message: Optional[str] = None,
     conversation_history: Optional[List[Dict[str, Any]]] = None,
+    execution_context: Optional[RuntimeExecutionContext] = None,
 ) -> AgenticLoopStateModel:
     """Chat service node: Access LLM chat service.
 
@@ -138,7 +91,7 @@ async def chat_service_node(
         return state
 
     # Get service accessor
-    services = _get_service_accessor(state)
+    services = _get_service_accessor(execution_context)
     if not services or not services.chat:
         logger.warning("Chat service not available")
         return state
@@ -178,6 +131,7 @@ async def tool_service_node(
     state: AgenticLoopStateModel,
     tool_name: str,
     tool_args: Optional[Dict[str, Any]] = None,
+    execution_context: Optional[RuntimeExecutionContext] = None,
 ) -> AgenticLoopStateModel:
     """Tool service node: Execute tool via tool service.
 
@@ -194,7 +148,7 @@ async def tool_service_node(
         Updated state with tool result
     """
     # Get service accessor
-    services = _get_service_accessor(state)
+    services = _get_service_accessor(execution_context)
     if not services or not services.tool:
         logger.warning(f"Tool service not available for {tool_name}")
         return state
@@ -208,15 +162,15 @@ async def tool_service_node(
 
         # Store result in state
         context = dict(state.context or {})
-        if "tool_results" not in context:
-            context["tool_results"] = []
+        tool_results = list(context.get("tool_results") or [])
 
         tool_result = {
             "tool": tool_name,
             "arguments": tool_args or {},
             "result": result,
         }
-        context["tool_results"].append(tool_result)
+        tool_results.append(tool_result)
+        context["tool_results"] = tool_results
         context["last_tool_result"] = tool_result
 
         state = state.model_copy(update={"context": context})
@@ -226,15 +180,15 @@ async def tool_service_node(
         logger.warning(f"Tool service node failed for {tool_name}: {e}")
         # Store error in state
         context = dict(state.context or {})
-        if "tool_results" not in context:
-            context["tool_results"] = []
+        tool_results = list(context.get("tool_results") or [])
 
         tool_result = {
             "tool": tool_name,
             "arguments": tool_args or {},
             "error": str(e),
         }
-        context["tool_results"].append(tool_result)
+        tool_results.append(tool_result)
+        context["tool_results"] = tool_results
 
         state = state.model_copy(update={"context": context})
 
@@ -251,6 +205,7 @@ async def context_service_node(
     state: AgenticLoopStateModel,
     query: Optional[str] = None,
     max_results: int = 10,
+    execution_context: Optional[RuntimeExecutionContext] = None,
 ) -> AgenticLoopStateModel:
     """Context service node: Retrieve relevant context.
 
@@ -272,7 +227,7 @@ async def context_service_node(
         return state
 
     # Get service accessor
-    services = _get_service_accessor(state)
+    services = _get_service_accessor(execution_context)
     if not services or not services.context:
         logger.warning("Context service not available")
         return state
@@ -328,6 +283,7 @@ async def provider_service_node(
     state: AgenticLoopStateModel,
     provider_name: Optional[str] = None,
     model_name: Optional[str] = None,
+    execution_context: Optional[RuntimeExecutionContext] = None,
 ) -> AgenticLoopStateModel:
     """Provider service node: Access LLM provider service.
 
@@ -344,7 +300,7 @@ async def provider_service_node(
         Updated state with provider information
     """
     # Get service accessor
-    services = _get_service_accessor(state)
+    services = _get_service_accessor(execution_context)
     if not services or not services.provider:
         logger.warning("Provider service not available")
         return state
@@ -385,14 +341,16 @@ async def prompt_service_node(
     builder_type: str = "framework",
     constraints: Optional[Any] = None,
     vertical: str = "coding",
+    execution_context: RuntimeExecutionContext,
 ) -> AgenticLoopStateModel:
     """Prompt facade node: build a system prompt through PromptOrchestrator.
 
     This node provides a framework-first entry point for prompt construction.
-    It uses PromptOrchestrator from RuntimeExecutionContext metadata when
-    available, otherwise falls back to the shared global facade.
+    It uses the PromptOrchestrator supplied by RuntimeExecutionContext. The
+    composition root owns shared-service discovery; this node never reaches
+    for a module-global collaborator.
     """
-    prompt_orchestrator = _get_prompt_orchestrator(state)
+    prompt_orchestrator = _get_prompt_orchestrator(execution_context)
     context = dict(state.context or {})
 
     prompt_overlay_name = "framework.agentic_graph.system_prompt"
@@ -465,38 +423,3 @@ async def prompt_service_node(
                 logger.debug("Prompt service node cleanup failed: %s", exc)
 
     return state
-
-
-# =============================================================================
-# Service Injection Helper
-# =============================================================================
-
-
-def inject_execution_context(
-    state: AgenticLoopStateModel,
-    execution_context: "RuntimeExecutionContext",
-) -> AgenticLoopStateModel:
-    """Inject ExecutionContext into state for service access.
-
-    This is a helper function that sets up the state so that
-    service nodes can access services through the ExecutionContext.
-
-    Args:
-        state: Current agentic loop state
-        execution_context: ExecutionContext to inject
-
-    Returns:
-        State with ExecutionContext injected
-    """
-    # Store in private attribute (not serialized)
-    state._execution_context_private = execution_context
-
-    # Also store reference in context for nodes that need it
-    context = dict(state.context or {})
-    context["_execution_context"] = execution_context
-
-    # Add session_id if available
-    if execution_context.session_id:
-        context["session_id"] = execution_context.session_id
-
-    return state.model_copy(update={"context": context})

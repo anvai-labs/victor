@@ -43,7 +43,7 @@ class TestPerceiveNode:
 
         # Create mock perception result
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="write"),
+            intent=MagicMock(value="write_allowed"),
             complexity="medium",
             task_analysis=MagicMock(task_type="code_generation"),
             confidence=0.8,
@@ -69,7 +69,7 @@ class TestPerceiveNode:
         )
 
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="edit"),
+            intent=MagicMock(value="write_allowed"),
             complexity="low",
             task_analysis=MagicMock(task_type="debugging"),
             confidence=0.9,
@@ -96,6 +96,73 @@ class TestPerceiveNode:
         assert result.perception is not None
 
     @pytest.mark.asyncio
+    async def test_perceive_node_fallback_is_json_serializable(self):
+        """Fallback labels must survive durable JSON checkpoint serialization."""
+        result = await perceive_node(create_initial_state(query="Write a function"))
+
+        assert result.perception == {
+            "intent": "write_allowed",
+            "complexity": "medium",
+            "confidence": 0.5,
+        }
+        assert result.model_dump(mode="json")["perception"] == result.perception
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_error_fallback_is_valid_durable_intent(self):
+        runtime_intelligence = AsyncMock()
+        runtime_intelligence.analyze_turn = AsyncMock(
+            side_effect=RuntimeError("perception unavailable")
+        )
+
+        result = await perceive_node(
+            create_initial_state(query="Test"), runtime_intelligence=runtime_intelligence
+        )
+
+        assert result.perception is not None
+        assert result.perception["intent"] == "ambiguous"
+        assert result.original_intent == "ambiguous"
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_unwraps_runtime_intelligence_snapshot(self):
+        """The graph consumes the snapshot's nested Perception, not snapshot internals."""
+        perception = MagicMock(
+            intent="read_only",
+            complexity="low",
+            confidence=0.9,
+        )
+        from victor.agent.services.runtime_intelligence import RuntimeIntelligenceSnapshot
+
+        snapshot = RuntimeIntelligenceSnapshot(
+            query="Explain this repository",
+            perception=perception,
+            task_analysis=MagicMock(task_type="research"),
+        )
+        runtime_intelligence = AsyncMock(analyze_turn=AsyncMock(return_value=snapshot))
+
+        result = await perceive_node(
+            create_initial_state(query="Explain this repository"),
+            runtime_intelligence=runtime_intelligence,
+        )
+
+        assert result.perception == {
+            "intent": "read_only",
+            "complexity": "low",
+            "confidence": 0.9,
+        }
+        assert result.task_type == "research"
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_rejects_invalid_service_intent(self):
+        runtime_intelligence = AsyncMock()
+        runtime_intelligence.analyze_turn = AsyncMock(
+            return_value=MagicMock(intent="query", confidence=0.9)
+        )
+
+        with pytest.raises(ValueError, match="invalid action intent"):
+            await perceive_node(
+                create_initial_state(query="Test"), runtime_intelligence=runtime_intelligence
+            )
+
     async def test_perceive_node_accepts_dict_input(self):
         """Perceive node should normalize raw dict input at the boundary."""
         result = await perceive_node({"query": "Test dict input"})
@@ -103,6 +170,42 @@ class TestPerceiveNode:
         assert isinstance(result, AgenticLoopStateModel)
         assert result.stage == "perceive"
         assert result.iteration == 1
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_preserves_run_owned_intent_across_drift(self):
+        """Later perception drift cannot rewrite the run's authorization scope."""
+        state = create_initial_state(query="Explain this repository")
+        state = state.model_copy(update={"original_intent": "read_only"})
+        perception = MagicMock(
+            intent="write_allowed",
+            complexity="medium",
+            task_analysis=MagicMock(task_type="research"),
+            confidence=0.9,
+        )
+        runtime_intelligence = AsyncMock(analyze_turn=AsyncMock(return_value=perception))
+
+        result = await perceive_node(state, runtime_intelligence=runtime_intelligence)
+
+        assert result.perception["intent"] == "write_allowed"
+        assert result.original_intent == "read_only"
+        assert result.model_dump(mode="json")["original_intent"] == "read_only"
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_captures_first_intent_as_durable_primitive(self):
+        """The first perception establishes the run-owned intent as JSON data."""
+        state = create_initial_state(query="Explain this repository")
+        perception = MagicMock(
+            intent="read_only",
+            complexity="medium",
+            task_analysis=MagicMock(task_type="research"),
+            confidence=0.9,
+        )
+        runtime_intelligence = AsyncMock(analyze_turn=AsyncMock(return_value=perception))
+
+        result = await perceive_node(state, runtime_intelligence=runtime_intelligence)
+
+        assert result.original_intent == "read_only"
+        assert result.model_dump(mode="json")["original_intent"] == "read_only"
 
 
 class TestPlanNode:
@@ -201,10 +304,12 @@ class TestActNode:
         )
 
         mock_executor = AsyncMock()
+        mock_executor._is_question_only = lambda message: False
         mock_executor.execute_turn = AsyncMock(
             return_value=MagicMock(
                 response="Code written",
                 tool_results=[{"tool": "write_file", "status": "success"}],
+                disposition="continue",
             )
         )
 
@@ -230,6 +335,7 @@ class TestActNode:
         """Action failures should be recorded in graph-side degradation metadata."""
         state = create_initial_state(query="Write code")
         mock_executor = AsyncMock()
+        mock_executor._is_question_only = lambda message: False
         mock_executor.execute_turn = AsyncMock(side_effect=RuntimeError("provider failed"))
 
         result = await act_node(state, turn_executor=mock_executor)
@@ -303,10 +409,16 @@ class TestEvaluateNode:
             }
         )
 
-        detector = MagicMock()
-        detector.is_fulfilled = MagicMock(return_value=True)
-        detector.get_fulfillment_result = MagicMock(
-            return_value={"is_fulfilled": True, "confidence": 0.9}
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        # Real FulfillmentDetector contract: async check_fulfillment returning
+        # a result with is_fulfilled/score/reason (FOU-D5f: the graph node
+        # previously called a phantom get_fulfillment_result API).
+        detector = SimpleNamespace(
+            check_fulfillment=AsyncMock(
+                return_value=SimpleNamespace(is_fulfilled=True, score=0.9, reason="done")
+            )
         )
 
         result = await evaluate_node(
@@ -514,7 +626,7 @@ class TestNodeIntegration:
 
         # Create mock perception
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="write"),
+            intent=MagicMock(value="write_allowed"),
             complexity="medium",
             task_analysis=MagicMock(task_type="code_generation"),
             confidence=0.8,
@@ -543,7 +655,7 @@ class TestNodeIntegration:
 
         # Perceive (mocked)
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="query"),
+            intent=MagicMock(value="ambiguous"),
             complexity="low",
             task_analysis=MagicMock(task_type="general"),
             confidence=0.9,
@@ -559,6 +671,7 @@ class TestNodeIntegration:
 
         # Act (mocked)
         mock_executor = AsyncMock()
+        mock_executor._is_question_only = lambda message: False
         mock_executor.execute_turn = AsyncMock(
             return_value=MagicMock(
                 response="Here's help",
@@ -585,3 +698,272 @@ class TestNodeIntegration:
         # Decide
         next_node = decide_edge(state)
         assert next_node == "__end__"
+
+
+class TestActNodeResponseText:
+    """FOU-D5f soak finding: act_node stored the raw CompletionResponse object
+    in action_result['response']; _default_evaluation called .lower() on it and
+    crashed into the fallback 'continue' decision — every run spun to the
+    iteration cap and never completed. The node must store the response TEXT
+    (the shape LoopResult.from_graph_result and evaluation both consume)."""
+
+    @staticmethod
+    def _turn(response):
+        from victor.agent.services.turn_execution_runtime import TurnResult
+        from victor.providers.base import CompletionResponse
+
+        return TurnResult(response=CompletionResponse(content=response))
+
+    async def test_act_node_stores_response_text_not_object(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        te = SimpleNamespace(execute_turn=AsyncMock(return_value=self._turn("SOAK-OK")))
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+        result = await act_node(state, turn_executor=te)
+        assert result.action_result.content == "SOAK-OK"
+
+    async def test_default_evaluation_completes_on_response_text(self):
+        from types import SimpleNamespace
+
+        from victor.framework.agentic_graph.nodes import _default_evaluation
+
+        state = SimpleNamespace(action_result={"response": "The task completed successfully."})
+        evaluation = _default_evaluation(state)
+        assert evaluation["decision"] == "complete"
+
+    async def test_default_evaluation_survives_object_response(self):
+        """Defense in depth: even if an object leaks into the dict, evaluation
+        must coerce instead of crashing into the fallback 'continue'."""
+        from types import SimpleNamespace
+
+        from victor.providers.base import CompletionResponse
+
+        from victor.framework.agentic_graph.nodes import _default_evaluation
+
+        state = SimpleNamespace(
+            action_result={"response": CompletionResponse(content="done, finished successfully")}
+        )
+        evaluation = _default_evaluation(state)
+        assert evaluation["decision"] == "complete"
+
+
+class TestEvaluateNodeRealFulfillmentAPI:
+    """FOU-D5f soak finding: the graph evaluate node called a phantom
+    ``get_fulfillment_result`` API — the real ``FulfillmentDetector`` exposes
+    ``async check_fulfillment``. Every production evaluation crashed into the
+    fallback 'continue', so graph runs never completed."""
+
+    async def test_evaluate_node_uses_check_fulfillment_and_records_result(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import evaluate_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        detector = SimpleNamespace(
+            check_fulfillment=AsyncMock(
+                return_value=SimpleNamespace(is_fulfilled=True, score=0.95, reason="criteria met")
+            )
+        )
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+
+        result = await evaluate_node(
+            state,
+            evaluator=None,
+            fulfillment_detector=detector,
+            enable_fulfillment_check=True,
+        )
+
+        detector.check_fulfillment.assert_awaited_once()
+        assert result.fulfillment is not None
+        assert result.fulfillment["is_fulfilled"] is True
+        assert result.fulfillment["score"] == 0.95
+
+    async def test_fulfillment_failure_does_not_crash_evaluation(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import evaluate_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        detector = SimpleNamespace(
+            check_fulfillment=AsyncMock(side_effect=RuntimeError("strategy missing"))
+        )
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+
+        result = await evaluate_node(
+            state,
+            evaluator=None,
+            fulfillment_detector=detector,
+            enable_fulfillment_check=True,
+        )
+
+        # Evaluation survives: a decision exists and the failure is contained.
+        assert result.evaluation is not None
+
+
+class TestTurnResultFlowsToEvaluator:
+    """FOU-D5f root cause: EnhancedCompletionEvaluator keys its Q&A shortcut
+    (and every disposition-aware branch) off ``isinstance(action_result,
+    TurnResult)`` — but the graph path handed it a plain dict, so the model
+    answering a simple question could never COMPLETE and every run spun to
+    the iteration cap ('Insufficient progress' forever)."""
+
+    @staticmethod
+    def _turn(content):
+        from victor.agent.services.turn_execution_runtime import TurnResult
+        from victor.providers.base import CompletionResponse
+
+        return TurnResult(response=CompletionResponse(content=content))
+
+    async def test_act_completion_observer_publishes_durable_record(self):
+        from victor.framework.agentic_graph.executor import _turn_record_observer
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.agentic_graph.turn_record import TurnRecordChannel
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        te = SimpleNamespace(execute_turn=AsyncMock(return_value=self._turn("SOAK-OK")))
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+        channel = TurnRecordChannel()
+        completed = await act_node(state, turn_executor=te)
+
+        await _turn_record_observer(channel)("complete", "act", completed, None, 0.1)
+        await _turn_record_observer(channel)("complete", "plan", completed, None, 0.1)
+
+        assert completed.action_result.content == "SOAK-OK"
+        published = channel.latest
+        assert published is not None and published.content == "SOAK-OK"
+        assert completed.to_dict()["action_result"]["schema_version"] == "victor.turn.record.v1"
+
+    async def test_stategraph_act_truncates_degenerate_intra_turn_repetition(self):
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.agentic_graph.turn_record import TurnRecordChannel
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        sentence = "Let me check the remote tracking state of the branch. "
+        turn = self._turn(sentence * 200)
+        te = SimpleNamespace(execute_turn=AsyncMock(return_value=turn))
+        state = AgenticLoopStateModel(query="Check the branch state.", max_iterations=5)
+        channel = TurnRecordChannel()
+
+        completed = await act_node(state, turn_executor=te, turn_record_channel=channel)
+
+        assert turn.response.content.count("remote tracking state") == 1
+        assert completed.action_result.content.count("remote tracking state") == 1
+        assert channel.latest_live is turn
+
+    async def test_evaluate_node_passes_turn_result_to_evaluator(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.agent.services.turn_execution_runtime import TurnResult
+        from victor.framework.agentic_graph.nodes import evaluate_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        from victor.framework.agentic_graph.turn_record import TurnRecord
+
+        turn = self._turn("SOAK-OK")
+        evaluator = AsyncMock()
+        evaluator.evaluate = AsyncMock(
+            return_value=SimpleNamespace(decision="complete", score=0.9, reason="qa")
+        )
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+        state = state.model_copy(
+            update={
+                "stage": "act",
+                "action_result": TurnRecord.from_turn_result(turn),
+            }
+        )
+
+        await evaluate_node(state, evaluator=evaluator, enable_fulfillment_check=False)
+
+        passed = (
+            evaluator.evaluate.call_args.kwargs.get("action_result")
+            or evaluator.evaluate.call_args.args[1]
+        )
+        assert isinstance(passed, TurnResult)
+
+    async def test_real_evaluator_completes_qa_answer_on_graph_path(self):
+        """The production failure, pinned: a tool-free answer must COMPLETE
+        through the real EnhancedCompletionEvaluator on the graph path. The
+        runtime marks question-task turns ``is_qa_response=True``; with the
+        TurnResult flowing through to the evaluator, the Q&A shortcut fires."""
+        from victor.agent.services.turn_execution_runtime import TurnDisposition
+        from victor.framework.agentic_graph.nodes import evaluate_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+        from victor.framework.enhanced_completion_evaluation import EnhancedCompletionEvaluator
+
+        from victor.framework.agentic_graph.turn_record import TurnRecord
+
+        turn = self._turn("SOAK-OK")
+        turn.is_qa_response = True
+        turn.disposition = TurnDisposition.COMPLETION_CANDIDATE
+        evaluator = EnhancedCompletionEvaluator()
+        state = AgenticLoopStateModel(query="Reply with exactly: SOAK-OK", max_iterations=5)
+        state = state.model_copy(
+            update={
+                "stage": "act",
+                "action_result": TurnRecord.from_turn_result(turn),
+            }
+        )
+
+        result = await evaluate_node(state, evaluator=evaluator, enable_fulfillment_check=False)
+        decision = result.evaluation["decision"]
+        assert getattr(decision, "value", decision) == "complete"
+
+
+class TestActNodePassesQaSignal:
+    """FOU-D5f final seam: the graph ACT node must derive is_qa_task from the
+    runtime's _is_question_only like the legacy loop does — otherwise the
+    runtime never marks Q&A turns and simple questions never complete."""
+
+    async def test_act_node_passes_is_qa_task_for_questions(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        captured = {}
+
+        async def execute_turn(**kwargs):
+            captured.update(kwargs)
+            from victor.providers.base import CompletionResponse
+
+            return SimpleNamespace(response=CompletionResponse(content="SOAK-OK"), tool_results=[])
+
+        te = SimpleNamespace(
+            execute_turn=AsyncMock(side_effect=execute_turn),
+            _is_question_only=lambda message: True,
+        )
+        state = AgenticLoopStateModel(query="What is this?", max_iterations=5)
+        await act_node(state, turn_executor=te)
+        assert captured.get("is_qa_task") is True
+
+    async def test_act_node_defaults_is_qa_task_false_without_hook(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from victor.framework.agentic_graph.nodes import act_node
+        from victor.framework.agentic_graph.state import AgenticLoopStateModel
+
+        captured = {}
+
+        async def execute_turn(**kwargs):
+            captured.update(kwargs)
+            from victor.providers.base import CompletionResponse
+
+            return SimpleNamespace(response=CompletionResponse(content="done"), tool_results=[])
+
+        te = SimpleNamespace(execute_turn=AsyncMock(side_effect=execute_turn))
+        state = AgenticLoopStateModel(query="task", max_iterations=5)
+        await act_node(state, turn_executor=te)
+        assert captured.get("is_qa_task") is False

@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-from victor.core.errors import ProviderPolicyError
+from victor.agent.loop_guards import LoopSpinError
+from victor.core.errors import AgentError, ProviderPolicyError, is_terminal_agent_error
 
 import asyncio
 import copy
@@ -28,7 +29,11 @@ from typing import Any, Callable, Dict, Generic, List, Optional, Tuple, TypeVar
 from pydantic import BaseModel
 
 from victor.framework.execution_checkpoint import normalize_execution_checkpoint_context
-from victor.framework.graph_checkpoint import CheckpointerProtocol, WorkflowCheckpoint
+from victor.framework.graph_checkpoint import (
+    CheckpointerProtocol,
+    WorkflowCheckpoint,
+    deepcopy_preserving_runtime_handles,
+)
 from victor.framework.graph_state import CopyOnWriteState
 
 logger = logging.getLogger(__name__)
@@ -54,10 +59,23 @@ class GraphExecutionResult(Generic[StateType]):
 
 
 def snapshot_state_for_result(state: Any) -> Any:
-    """Create a safe state snapshot for execution traces."""
+    """Create a safe state snapshot for execution traces.
+
+    States carry runtime execution handles in ``context`` (FOU-D5f-S6c);
+    stripping them before the deep copy keeps result snapshots from dying on
+    unpicklable objects.
+    """
+    from victor.framework.graph_checkpoint import strip_runtime_handles, tolerant_deepcopy
+
     if isinstance(state, BaseModel):
-        return state.model_copy(deep=True)
-    return copy.deepcopy(state)
+        try:
+            return state.model_copy(deep=True)
+        except Exception:
+            return tolerant_deepcopy(strip_runtime_handles(state))
+    try:
+        return copy.deepcopy(state)
+    except Exception:
+        return tolerant_deepcopy(strip_runtime_handles(state))
 
 
 class IterationController:
@@ -226,6 +244,13 @@ class NodeExecutor:
             return NodeExecutionResult.fail(error=exc, state=state)
         except ProviderPolicyError:
             raise
+        except LoopSpinError:
+            raise
+        except AgentError as exc:
+            # Terminal admissions are control-flow failures, not retryable node outcomes.
+            if is_terminal_agent_error(exc):
+                raise
+            return NodeExecutionResult.fail(error=exc, state=state)
         except Exception as exc:
             # Node adapters may attach their completed failure state so that
             # diagnostics survive copy-on-write execution. Keep this generic:
@@ -239,8 +264,14 @@ class NodeExecutor:
 class GraphCheckpointManager:
     """Loads and saves graph checkpoints around execution."""
 
-    def __init__(self, checkpointer: Optional[CheckpointerProtocol]):
+    def __init__(
+        self,
+        checkpointer: Optional[CheckpointerProtocol],
+        *,
+        after_nodes: Optional[set[str]] = None,
+    ):
         self.checkpointer = checkpointer
+        self.after_nodes = frozenset(after_nodes) if after_nodes is not None else None
         self.routing_state: Optional[Dict[str, Any]] = None
         # Node whose interrupt-before the loaded checkpoint paused at: resuming the
         # thread is the approval to run it, so that interrupt is bypassed once.
@@ -256,6 +287,19 @@ class GraphCheckpointManager:
         if self.checkpointer:
             checkpoint = await self.checkpointer.load(thread_id)
             if checkpoint:
+                if input_state is not None and resolve_successor is not None:
+                    # FEP-0032 phase 2: this input used to be silently
+                    # discarded; make the discard loud and name the remedies.
+                    # resolve_successor is None exactly when the caller passed
+                    # an explicit start_node (the acknowledged override path).
+                    raise ValueError(
+                        f"thread {thread_id!r} already has a checkpoint; the "
+                        "supplied input_state would be silently discarded. "
+                        "Pass input_state=None to resume the checkpointed "
+                        "thread, start_node=... to acknowledge an explicit "
+                        "position override, or use a new thread_id for a "
+                        "fresh run."
+                    )
                 if checkpoint.metadata.get("checkpoint_boundary") == "before":
                     self.resume_past_interrupt = checkpoint.next_node
                 self.routing_state = copy.deepcopy(checkpoint.metadata.get("sequential_frontier"))
@@ -273,7 +317,29 @@ class GraphCheckpointManager:
                     resume_at,
                 )
                 return state, resume_at
-        return copy.deepcopy(input_state), entry_point
+        if input_state is None:
+            # FEP-0032: None means "resume the checkpointed thread"; reaching
+            # here means there is nothing to resume.
+            raise ValueError(
+                f"thread {thread_id!r} has no checkpoint and input_state=None; "
+                "there is nothing to resume — supply an initial state, or "
+                "pass an existing thread_id."
+            )
+        # FOU-D5f-S6c: graph nodes return new Pydantic models, so a shallow
+        # model copy is sufficient input isolation and preserves live service
+        # handles. Plain deepcopy can block or recurse through service graphs;
+        # tolerant repr substitution turns live locks into unusable strings.
+        if isinstance(input_state, BaseModel):
+            return input_state.model_copy(deep=False), entry_point
+        return deepcopy_preserving_runtime_handles(input_state), entry_point
+
+    @staticmethod
+    def _copy_loaded_state(state: StateType) -> StateType:
+        # Typed graph models may contain arbitrary runtime-compatible fields.
+        # A shallow model copy isolates the run without recursing through them.
+        if isinstance(state, BaseModel):
+            return state.model_copy(deep=False)
+        return copy.deepcopy(state)
 
     @staticmethod
     def _resume_node(
@@ -328,9 +394,14 @@ class GraphCheckpointManager:
         ``paused_before`` one taken at an interrupt before ``node_id`` ran; ``next_node``
         records an already-resolved resume target (FEP-0032).
         """
-        if self.checkpointer:
+        if self.checkpointer and (
+            paused_before
+            or self.after_nodes is None
+            or node_id in self.after_nodes
+            or bool(next_node)
+        ):
             checkpoint_id = f"{thread_id}_{node_id}_{time.time()}"
-            self._bind_graph_checkpoint_id(state, checkpoint_id)
+            state = self._bind_graph_checkpoint_id(state, checkpoint_id)
             checkpoint = WorkflowCheckpoint(
                 checkpoint_id=checkpoint_id,
                 thread_id=thread_id,
@@ -350,7 +421,7 @@ class GraphCheckpointManager:
             await self.checkpointer.save(checkpoint)
 
     @staticmethod
-    def _bind_graph_checkpoint_id(state: StateType, checkpoint_id: str) -> None:
+    def _bind_graph_checkpoint_id(state: StateType, checkpoint_id: str) -> StateType:
         if isinstance(state, dict):
             context = state.get("context")
             if isinstance(context, dict):
@@ -358,20 +429,26 @@ class GraphCheckpointManager:
                     context,
                     graph_checkpoint_id=checkpoint_id,
                 )
-            return
+            return state
 
         context = getattr(state, "context", None)
-        if isinstance(context, dict):
-            try:
-                state.context = normalize_execution_checkpoint_context(
-                    context,
-                    graph_checkpoint_id=checkpoint_id,
-                )
-            except Exception:
-                logger.debug(
-                    "Unable to attach graph checkpoint id to state context",
-                    exc_info=True,
-                )
+        if not isinstance(context, dict):
+            return state
+        try:
+            return state.model_copy(
+                update={
+                    "context": normalize_execution_checkpoint_context(
+                        context,
+                        graph_checkpoint_id=checkpoint_id,
+                    )
+                }
+            )
+        except Exception:
+            logger.debug(
+                "Unable to attach graph checkpoint id to state context",
+                exc_info=True,
+            )
+            return state
 
     @staticmethod
     def _checkpoint_metadata(state: StateType) -> Dict[str, Any]:

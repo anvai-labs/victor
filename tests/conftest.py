@@ -15,8 +15,16 @@
 """pytest configuration and fixtures."""
 
 import asyncio
+import os
 
 import pytest
+
+# ADR-035: the production sandbox posture is fail-closed ('required') by
+# default. CI runners cannot enforce OS sandboxes (no bubblewrap/sandbox-exec
+# and restricted user namespaces), so the suite runs as an explicit opt-out
+# environment; dedicated posture tests (tests/unit/tools/sandbox/
+# test_posture_flip.py) monkeypatch the env away to exercise 'required'.
+os.environ.setdefault("VICTOR_SANDBOX_POLICY", "disabled")
 
 
 @pytest.fixture(autouse=True)

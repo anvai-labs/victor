@@ -178,7 +178,15 @@ async def test_approve_exact_call_through_policy_appends_once_and_continues(stor
     state = await paused_runtime(store, empty=empty)
     out = await resume_paused_run(state.orch, state.paused, ApprovalDecision(True))
     assert state.effects == ["original"]
-    assert state.controller.appended == [("call_1", "receipt")]
+    # ADR-037: model-bound tool content is enveloped; the payload must be
+    # intact inside exactly one envelope (canary is ephemeral per call).
+    appended = state.controller.appended
+    assert [call_id for call_id, _ in appended] == ["call_1"]
+    receipt_content = appended[0][1]
+    assert receipt_content.startswith("<untrusted ")
+    assert receipt_content.rstrip().endswith("</untrusted>")
+    assert "receipt" in receipt_content
+    assert receipt_content.count("</untrusted>") == 1
     assert out.approved and out.final_content == "all done" and out.continuation_turns == 1
     assert out.executed_siblings == 0
     state.runtime.execute_tool_calls.assert_awaited_once()

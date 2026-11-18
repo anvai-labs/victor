@@ -428,6 +428,137 @@ class DoctorChecks:
         except Exception:  # pack absent or its API changed: nothing to report
             pass
 
+    def check_mcp_clients(self) -> None:
+        """Detect installed MCP clients and print the exact attach command.
+
+        Victor's MCP server exposes its tools + code intelligence to any MCP
+        client; the adoption friction is only knowing the one-liner. Probe
+        the well-known client config paths and surface the matching command
+        per detected client (mirrors the posture-check pattern: report, and
+        hand the user the exact next command).
+        """
+
+        home = os.path.expanduser("~")
+        clients = [
+            (
+                "Claude Code",
+                os.path.join(home, ".claude.json"),
+                "claude mcp add victor -- victor mcp",
+            ),
+            (
+                "Cursor",
+                os.path.join(home, ".cursor", "mcp.json"),
+                'Add to ~/.cursor/mcp.json: {"mcpServers": {"victor": '
+                '{"command": "victor", "args": ["mcp"]}}}',
+            ),
+            (
+                "Claude Desktop",
+                os.path.join(
+                    home,
+                    "Library",
+                    "Application Support",
+                    "Claude",
+                    "claude_desktop_config.json",
+                ),
+                'Add to claude_desktop_config.json: {"mcpServers": {"victor": '
+                '{"command": "victor", "args": ["mcp"]}}}',
+            ),
+        ]
+        detected = [(name, cmd) for name, path, cmd in clients if os.path.exists(path)]
+        if detected:
+            self.add_check(
+                name="MCP Clients",
+                severity=Severity.INFO,
+                message=(
+                    "Detected: "
+                    + ", ".join(name for name, _ in detected)
+                    + " - attach Victor's toolbox + code intelligence with: "
+                    + " | ".join(cmd for _, cmd in detected)
+                ),
+                suggestion="Run `victor mcp list-tools` to preview the inventory",
+            )
+        else:
+            self.add_check(
+                name="MCP Clients",
+                severity=Severity.INFO,
+                message=(
+                    "No MCP clients detected - expose Victor's tools + code "
+                    "intelligence to Claude Code/Cursor/Claude Desktop via "
+                    "`claude mcp add victor -- victor mcp` (docs/reference/"
+                    "api/mcp-server.md)"
+                ),
+            )
+
+    def check_sandbox_posture(self) -> None:
+        """Report the effective sandbox posture (ADR-035).
+
+        FEP follow-up from the S1b adversarial review: an operator must be
+        able to SEE which containment posture a session runs under — and
+        when the posture is ``required`` but no enforcing backend exists,
+        that is the single most actionable fact on the machine (every shell
+        command will refuse until the escape hatch is set). Also verifies
+        the seccomp-carrying backend binary when isolation is requested.
+        """
+        from victor.tools.sandbox import current_sandbox_posture
+
+        posture = current_sandbox_posture()
+        if posture == "disabled":
+            self.add_check(
+                name="Sandbox Posture",
+                severity=Severity.WARNING,
+                message=("Sandbox posture: disabled (explicit opt-out) - tools " "run UNSANDBOXED"),
+                suggestion=(
+                    "Restore isolation: remove the VICTOR_SANDBOX_POLICY "
+                    "override or set sandbox_policy to 'required' in settings"
+                ),
+            )
+            return
+        if posture == "unknown":
+            self.add_check(
+                name="Sandbox Posture",
+                severity=Severity.ERROR,
+                message=(
+                    "Sandbox posture: unknown - settings could not be read; "
+                    "governed shell execution is refusing"
+                ),
+                suggestion="Fix the malformed settings file breaking the read",
+            )
+            return
+        # required or preferred: report enforcement availability.
+        try:
+            import shutil
+            import platform as _platform
+
+            system = _platform.system()
+            binary = (
+                "bwrap" if system == "Linux" else ("sandbox-exec" if system == "Darwin" else None)
+            )
+            available = binary is not None and shutil.which(binary) is not None
+        except Exception:
+            available = False
+        if available:
+            self.add_check(
+                name="Sandbox Posture",
+                severity=Severity.SUCCESS,
+                message=(
+                    f"Sandbox posture: {posture} - enforcing backend " f"available on {system}"
+                ),
+            )
+        else:
+            self.add_check(
+                name="Sandbox Posture",
+                severity=Severity.ERROR,
+                message=(
+                    f"Sandbox posture: {posture} but NO enforcing backend on "
+                    f"{system} - shell commands will be REFUSED"
+                ),
+                suggestion=(
+                    "Install bubblewrap (Linux) / use macOS sandbox-exec, or "
+                    "opt out: VICTOR_SANDBOX_POLICY=disabled (env) or "
+                    "sandbox_policy: 'disabled' (settings)"
+                ),
+            )
+
     def check_api_keys(self) -> None:
         """Check for API keys in environment."""
         api_keys = {
@@ -562,6 +693,86 @@ class DoctorChecks:
                     )
                     if is_default
                     else "Only needed when using the inferflux provider"
+                ),
+            )
+
+    def check_local_llama_server(self) -> None:
+        """Check the quickstart-managed llama.cpp daemon (healthz, 2s budget).
+
+        Mirrors :meth:`check_inferflux`: a healthy daemon is a success, a PID
+        file whose daemon no longer answers ``/health`` is a warning (stale
+        daemon), and no daemon at all is informational — the llama.cpp
+        provisioning path is a quickstart last resort, not a requirement.
+        """
+        import httpx
+
+        from victor.ui.commands.quickstart import LLAMACPP_BASE_URL
+
+        pid_file = self._get_effective_config_dir() / "llama-server.pid"
+        pid: str | None = None
+        if pid_file.exists():
+            try:
+                pid = pid_file.read_text().strip()
+            except OSError:
+                pid = None
+
+        try:
+            response = httpx.get(LLAMACPP_BASE_URL + "/health", timeout=2.0)
+        except Exception:
+            if pid:
+                self.add_check(
+                    name="Local Server: llama.cpp daemon",
+                    severity=Severity.WARNING,
+                    message=f"Managed llama-server daemon (PID {pid}) is not responding",
+                    suggestion=(
+                        "Remove the stale PID file and re-run 'victor init' to restart it: "
+                        f"rm {pid_file}"
+                    ),
+                )
+            else:
+                self.add_check(
+                    name="Local Server: llama.cpp",
+                    severity=Severity.INFO,
+                    message=f"No llama.cpp server running on {LLAMACPP_BASE_URL}",
+                    suggestion=(
+                        "'victor init' can download and start one automatically "
+                        "(or use Ollama instead)"
+                    ),
+                )
+            return
+
+        if response.status_code == 200:
+            try:
+                ok = response.json().get("status") == "ok"
+            except Exception:  # noqa: BLE001 — non-JSON 200 still means alive
+                ok = True
+            if ok:
+                self.add_check(
+                    name="Local Server: llama.cpp",
+                    severity=Severity.SUCCESS,
+                    message=(
+                        "llama.cpp server healthy at http://localhost:8080"
+                        + (f" (PID {pid})" if pid else "")
+                    ),
+                )
+                return
+
+        if pid:
+            self.add_check(
+                name="Local Server: llama.cpp daemon",
+                severity=Severity.WARNING,
+                message=f"Managed llama-server daemon (PID {pid}) returned "
+                f"HTTP {response.status_code}",
+                suggestion=f"Check the daemon log in {self._get_effective_config_dir()}",
+            )
+        else:
+            self.add_check(
+                name="Local Server: llama.cpp",
+                severity=Severity.INFO,
+                message=f"No llama.cpp server running on {LLAMACPP_BASE_URL}",
+                suggestion=(
+                    "'victor init' can download and start one automatically "
+                    "(or use Ollama instead)"
                 ),
             )
 
@@ -783,9 +994,12 @@ class DoctorChecks:
         self.check_dependencies()
         self.check_native_extensions()
         self.check_graph_indexing()
+        self.check_sandbox_posture()
+        self.check_mcp_clients()
         self.check_api_keys()
         self.check_local_providers()
         self.check_inferflux()
+        self.check_local_llama_server()
         self.check_default_model()  # Phase 6: Check model existence
         self.check_config_directory()
         self.check_performance_settings()
@@ -854,7 +1068,6 @@ class DoctorChecks:
         Returns:
             Exit code (0 for success, 1 for errors found)
         """
-        from rich.console import Console
         from rich.table import Table
 
         console = get_console()
@@ -929,7 +1142,6 @@ def run_doctor(verbose: bool = False, fix: bool = False) -> int:
     Returns:
         Exit code (0 for success, 1 for errors)
     """
-    from rich.console import Console
 
     console = get_console()
 

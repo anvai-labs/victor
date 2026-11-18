@@ -29,21 +29,80 @@ Each node is a pure function that receives state and returns updated state.
 
 from __future__ import annotations
 
-from victor.core.errors import ProviderPolicyError
+from victor.agent.loop_guards import LoopSpinError
+from victor.core.errors import AgentError, ProviderPolicyError, is_terminal_agent_error
 
 import logging
 from typing import Any, Dict, Optional
 
+from victor.agent.action_authorizer import ActionIntent
 from victor.framework.agentic_graph._state_utils import normalize_state_argument
 from victor.framework.agentic_graph.state import AgenticLoopStateModel
+from victor.framework.agentic_graph.turn_record import (
+    TURN_RECORD_SCHEMA_VERSION,
+    TurnRecord,
+)
 from victor.framework.evaluation_nodes import EvaluationDecision
 
 logger = logging.getLogger(__name__)
 
 
+def _text_value(value: Any, default: str) -> str:
+    """Normalize perception labels to durable, JSON-safe strings."""
+    if value is None:
+        return default
+    value = getattr(value, "value", value)
+    return value if isinstance(value, str) else str(value)
+
+
+def _confidence_value(value: Any) -> float:
+    """Normalize perception confidence without accepting arbitrary objects."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.5
+
+
+def _action_intent(value: Any) -> ActionIntent:
+    """Validate perception intent at the StateGraph boundary."""
+    if isinstance(value, ActionIntent):
+        return value
+    value = getattr(value, "value", value)
+    if not isinstance(value, str):
+        raise ValueError(f"Perception returned a non-string action intent: {value!r}")
+    try:
+        return ActionIntent(value)
+    except ValueError as exc:
+        raise ValueError(f"Perception returned an invalid action intent: {value!r}") from exc
+
+
 # =============================================================================
 # PERCEIVE Node
 # =============================================================================
+
+
+def _turn_record_from_action(action_result: Any) -> Optional[TurnRecord]:
+    """Coerce canonical and legacy graph ACT payloads to a durable record."""
+    if isinstance(action_result, TurnRecord):
+        return action_result
+    if not isinstance(action_result, dict):
+        return None
+    if action_result.get("schema_version") == TURN_RECORD_SCHEMA_VERSION:
+        try:
+            return TurnRecord.model_validate(action_result)
+        except ValueError:
+            return None
+    return None
+
+
+def _action_response_text(action_result: Any) -> str:
+    record = _turn_record_from_action(action_result)
+    if record is not None:
+        return record.content
+    if isinstance(action_result, dict):
+        response = action_result.get("response", "")
+    else:
+        response = getattr(action_result, "response", "")
+    if isinstance(response, str):
+        return response
+    return str(getattr(response, "content", "") or "")
 
 
 @normalize_state_argument()
@@ -87,11 +146,30 @@ async def perceive_node(
             # Fallback: create simple perception
             perception_result = _create_fallback_perception(state.query)
 
-        # Extract perception data
+        # RuntimeIntelligenceService returns a snapshot whose perception is nested;
+        # PerceptionIntegration returns the perception directly. Normalize that
+        # service-shape difference here so durable authorization fields always come
+        # from the actual Perception projection.
+        from victor.agent.services.runtime_intelligence import RuntimeIntelligenceSnapshot
+
+        perception_projection = (
+            perception_result.perception
+            if isinstance(perception_result, RuntimeIntelligenceSnapshot)
+            else perception_result
+        )
+        if perception_projection is None:
+            perception_projection = perception_result
+
+        # Extract perception data as primitives. Perception services can return
+        # enums or lightweight label objects; retaining those arbitrary objects
+        # prevents durable JSON checkpoints from serializing StateGraph state.
+        raw_intent = getattr(perception_projection, "intent", None)
+        raw_complexity = getattr(perception_projection, "complexity", "medium")
+        raw_confidence = getattr(perception_projection, "confidence", 0.5)
         perception = {
-            "intent": getattr(perception_result, "intent", None),
-            "complexity": getattr(perception_result, "complexity", "medium"),
-            "confidence": getattr(perception_result, "confidence", 0.5),
+            "intent": _action_intent(raw_intent).value,
+            "complexity": _text_value(raw_complexity, "medium"),
+            "confidence": _confidence_value(raw_confidence),
         }
 
         # Get task type from task_analysis if available
@@ -101,21 +179,24 @@ async def perceive_node(
         if hasattr(perception_result, "task_analysis"):
             task_analysis = perception_result.task_analysis
             if task_analysis:
-                task_type = getattr(task_analysis, "task_type", task_type)
-                complexity = getattr(perception_result, "complexity", complexity)
+                task_type = _text_value(getattr(task_analysis, "task_type", task_type), task_type)
+                complexity = _text_value(
+                    getattr(perception_result, "complexity", complexity), complexity
+                )
 
         # Update state
         return state.model_copy(
             update={
                 "stage": "perceive",
                 "perception": perception,
+                "original_intent": state.original_intent or perception["intent"],
                 "task_type": task_type,
                 "complexity": complexity,
                 "iteration": state.iteration + 1,
             }
         )
 
-    except ProviderPolicyError:
+    except (ProviderPolicyError, ValueError):
         raise
     except Exception as e:
         logger.warning(f"Perception failed: {e}, using fallback")
@@ -125,11 +206,12 @@ async def perceive_node(
             update={
                 "stage": "perceive",
                 "perception": {
-                    "intent": "query",
+                    "intent": ActionIntent.AMBIGUOUS.value,
                     "complexity": "medium",
                     "confidence": 0.5,
                     "error": str(e),
                 },
+                "original_intent": state.original_intent or ActionIntent.AMBIGUOUS.value,
                 "task_type": "general",
                 "complexity": "medium",
                 "iteration": state.iteration + 1,
@@ -349,6 +431,7 @@ def _build_fast_path_plan(state: AgenticLoopStateModel) -> Dict[str, Any]:
 async def act_node(
     state: AgenticLoopStateModel,
     turn_executor: Optional[Any] = None,
+    turn_record_channel: Optional[Any] = None,
 ) -> AgenticLoopStateModel:
     """ACT stage: Execute the plan.
 
@@ -367,25 +450,43 @@ async def act_node(
     try:
         if turn_executor is not None:
             # Execute via TurnExecutor
+            # FOU-D5f root cause (final seam): the legacy loop derives
+            # is_qa from the runtime's _is_question_only(user_message) and
+            # seeds it into the loop context; the graph path never did, so
+            # the runtime never marked Q&A turns, the evaluator's Q&A
+            # shortcut never fired, and simple questions spun to the
+            # iteration cap ("Insufficient progress" forever).
+            question_only = getattr(turn_executor, "_is_question_only", None)
+            is_qa_task = bool(question_only and question_only(state.query))
             result = await turn_executor.execute_turn(
                 user_message=state.query,
                 task_classification=state.task_type,
                 runtime_context_overrides=state.context,
+                is_qa_task=is_qa_task,
             )
 
-            # Extract results
-            action_result = {
-                "response": getattr(result, "response", ""),
-                "tool_results": getattr(result, "tool_results", []),
-            }
+            response = getattr(result, "response", None)
+            if response is not None:
+                from victor.agent.streaming.repetition_guard import (
+                    IntraTurnRepetitionDetector,
+                )
 
-            tool_results = action_result.get("tool_results", [])
+                repetition = IntraTurnRepetitionDetector()
+                repeated = repetition.feed(getattr(response, "content", "") or "")
+                if repeated is not None:
+                    response.content = response.content[
+                        : repetition.truncation_point(response.content)
+                    ]
+
+            if turn_record_channel is not None:
+                turn_record_channel.publish_live(result)
+            record = TurnRecord.from_turn_result(result)
 
             return state.model_copy(
                 update={
                     "stage": "act",
-                    "action_result": action_result,
-                    "tool_results": tool_results,
+                    "action_result": record,
+                    "tool_results": record.tool_results,
                 }
             )
 
@@ -407,6 +508,12 @@ async def act_node(
 
     except ProviderPolicyError:
         raise
+    except AgentError as e:
+        # Terminal admissions/policy failures must retain the legacy loop contract:
+        # propagate instead of becoming an ordinary action result that EVALUATE can retry.
+        if is_terminal_agent_error(e):
+            raise
+        logger.warning(f"Action execution failed: {e}")
     except Exception as e:
         logger.warning(f"Action execution failed: {e}")
 
@@ -468,15 +575,26 @@ async def evaluate_node(
 
     try:
         if evaluator is not None:
-            # Use provided evaluator
+            # The evaluator's legacy contract is a live TurnResult. Rebuild it
+            # from the durable record at this boundary; no runtime object is
+            # transported through graph state or a module-global channel.
+            eval_action_result = state.action_result
+            record = _turn_record_from_action(eval_action_result)
+            if record is not None:
+                eval_action_result = record.to_turn_result()
+            elif isinstance(eval_action_result, dict):
+                embedded = eval_action_result.get("_turn_result")
+                if embedded is not None:
+                    eval_action_result = embedded
             eval_result = await evaluator.evaluate(
                 perception=state.perception,
-                action_result=state.action_result,
+                action_result=eval_action_result,
                 state=state.to_dict(),
             )
 
+            decision = getattr(eval_result, "decision", "continue")
             evaluation = {
-                "decision": getattr(eval_result, "decision", "continue"),
+                "decision": getattr(decision, "value", decision),
                 "score": getattr(eval_result, "score", 0.5),
                 "reason": getattr(eval_result, "reason", ""),
             }
@@ -484,6 +602,13 @@ async def evaluate_node(
         else:
             # Default evaluation logic
             evaluation = _default_evaluation(state)
+
+        logger.debug(
+            "[EvaluateNode] decision=%s score=%s reason=%s",
+            evaluation.get("decision"),
+            evaluation.get("score"),
+            str(evaluation.get("reason"))[:120],
+        )
 
         # Update progress scores
         progress_scores = list(state.progress_scores)
@@ -495,19 +620,37 @@ async def evaluate_node(
             "progress_scores": progress_scores,
         }
 
-        # Optional fulfillment check
+        # Optional fulfillment check. FOU-D5f soak finding: this node called a
+        # phantom ``get_fulfillment_result`` API — the real FulfillmentDetector
+        # exposes ``async check_fulfillment`` (the legacy loop's contract), so
+        # every production evaluation crashed into the fallback 'continue' and
+        # graph runs never completed. Contained failure: a fulfillment error
+        # must not take the evaluation verdict down with it.
         if enable_fulfillment_check and fulfillment_detector is not None:
-            fulfillment_result = fulfillment_detector.get_fulfillment_result(
-                query=state.query,
-                action_result=state.action_result,
-                perception=state.perception,
-            )
-
-            update_dict["fulfillment"] = fulfillment_result
+            try:
+                fulfillment_result = await fulfillment_detector.check_fulfillment(
+                    task_type=getattr(state, "task_type", None),
+                    criteria=(
+                        dict((state.context or {}).get("criteria", {}))
+                        if isinstance(state.context, dict)
+                        else {}
+                    ),
+                    context=state.to_dict(),
+                )
+                update_dict["fulfillment"] = {
+                    "is_fulfilled": getattr(fulfillment_result, "is_fulfilled", False),
+                    "score": getattr(fulfillment_result, "score", 0.0),
+                    "reason": getattr(fulfillment_result, "reason", ""),
+                }
+            except Exception as fe:
+                logger.warning(f"Fulfillment check failed: {fe}")
+                update_dict["fulfillment"] = None
 
         return state.model_copy(update=update_dict)
 
     except ProviderPolicyError:
+        raise
+    except LoopSpinError:
         raise
     except Exception as e:
         logger.warning(f"Evaluation failed: {e}")
@@ -549,15 +692,17 @@ def _default_evaluation(state: AgenticLoopStateModel) -> Dict[str, Any]:
     action_result = state.action_result or {}
 
     # Check for errors
-    if action_result.get("error"):
+    if isinstance(action_result, dict) and action_result.get("error"):
         return {
             "decision": "fail",
             "score": 0.0,
             "reason": "Execution error occurred",
         }
 
-    # Check for completion signals
-    response = action_result.get("response", "")
+    # Check for completion signals. Coerce defensively: a CompletionResponse
+    # object leaked here used to crash evaluation into the fallback 'continue'
+    # decision (FOU-D5f soak finding).
+    response = _action_response_text(action_result)
     if response and any(
         marker in response.lower() for marker in ["done", "complete", "finished", "successfully"]
     ):
@@ -634,11 +779,11 @@ def _create_fallback_perception(query: str) -> Any:
         def __init__(self, query: str):
             query_lower = query.lower()
             if any(word in query_lower for word in ["write", "create", "implement"]):
-                self.intent = type("Intent", (), {"value": "write"})()
+                self.intent = ActionIntent.WRITE_ALLOWED
             elif any(word in query_lower for word in ["read", "show", "display"]):
-                self.intent = type("Intent", (), {"value": "read"})()
+                self.intent = ActionIntent.READ_ONLY
             else:
-                self.intent = type("Intent", (), {"value": "query"})()
+                self.intent = ActionIntent.AMBIGUOUS
 
             self.complexity = "medium"
             self.confidence = 0.5

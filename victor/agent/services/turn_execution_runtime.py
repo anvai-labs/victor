@@ -63,6 +63,7 @@ from victor.agent.services.context_service import compact_context_if_recommended
 from victor.agent.services.chat_runtime_services import ChatGovernance, MessagePolicyGate
 from victor.core.provider_messages import CompletionResponse
 from victor.framework.agentic_loop_executor import AgenticLoopExecutor
+from victor.runtime.context import resolve_execution_context
 
 if TYPE_CHECKING:
     from victor.framework.agentic_loop import LoopResult
@@ -538,11 +539,15 @@ class TurnExecutor:
     def require_supported_loop_executor(
         self, *, stategraph: bool | None = None
     ) -> AgenticLoopExecutor:
-        """Resolve once before admission and reject unqualified graph governance.
+        """Resolve the concrete executor once before admission.
 
         Direct graph callers pass their already selected mode explicitly. Ordinary
         service callers use the resolved session settings and pass the returned
         concrete selection through to the loop, never re-reading a global flag.
+        Governance is enforced at the surface (REQUEST gate at entry,
+        govern_response in the shared metered model turn) and verification runs
+        on the graph path (FOU-D5b) — neither gates admission here any more
+        (FOU-D5f soak finding: both refusals were stale).
         """
         from victor.framework.agentic_loop_executor import resolve_agentic_loop_executor
 
@@ -554,13 +559,11 @@ class TurnExecutor:
             selected = (
                 AgenticLoopExecutor.STATEGRAPH if stategraph else AgenticLoopExecutor.STANDARD
             )
-        if self._governance.gate is not None and selected is AgenticLoopExecutor.STATEGRAPH:
-            raise NotImplementedError("StateGraph execution does not support message governance")
-        if (
-            selected is AgenticLoopExecutor.STATEGRAPH
-            and getattr(self, "_verifier", None) is not None
-        ):
-            raise NotImplementedError("StateGraph execution does not support verification")
+        # FOU-D5f soak finding: the governance and verifier refusals here were
+        # stale. Message governance is applied at the surface (REQUEST gate at
+        # entry, govern_response in the shared metered model turn) —
+        # executor-agnostic by construction; verification parity landed with
+        # FOU-D5b. The parity suite pins stategraph+gate and stategraph+stream.
         return selected
 
     async def govern_response(self, response: CompletionResponse) -> CompletionResponse:
@@ -1200,9 +1203,13 @@ class TurnExecutor:
                 "enable_effect_gate": _effect_gate,
                 "enable_criteria_gate": bool((run_context or {}).get("criteria")),
             }
+        orchestrator = self._resolve_orchestrator()
+        runtime_intelligence = getattr(orchestrator, "_runtime_intelligence", None)
         loop = AgenticLoop(
             orchestrator=None,
+            execution_context=resolve_execution_context(orchestrator),
             turn_executor=self,
+            runtime_intelligence=runtime_intelligence,
             max_iterations=iteration_budget,
             enable_fulfillment_check=True,
             enable_adaptive_iterations=True,
@@ -1291,6 +1298,11 @@ class TurnExecutor:
         response.metadata = post_loop_recovery.response_metadata(
             response.metadata, loop_result, iterations=loop_iterations, error=loop_error
         )
+        if loop_result.paused:
+            # FEP-0032/FOU-D4: the run stopped at a graph boundary — carry the
+            # resume position so the TaskResult layer can promote it to a
+            # paused outcome instead of an ordinary (failed) verdict.
+            response.metadata["paused"] = loop_result.metadata["paused"]
         return response
 
     @classmethod

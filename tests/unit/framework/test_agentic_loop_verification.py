@@ -8,6 +8,7 @@ import pytest
 from victor.agent.services.turn_execution_runtime import TurnDisposition, TurnResult
 from victor.agent.task_analyzer import TaskAnalysis, TaskAnalyzer
 from victor.framework.agentic_loop import AgenticLoop
+from victor.framework.agentic_loop_executor import AgenticLoopExecutor
 from victor.framework.evaluation_nodes import EvaluationDecision, EvaluationResult
 from victor.framework.task.protocols import TaskComplexity
 from victor.framework.verification import VerificationResult
@@ -43,7 +44,14 @@ def make_loop(verifier, retries, iterations=6):
         max_iterations=iterations,
         enable_fulfillment_check=False,
         enable_adaptive_iterations=False,
-        config={"enable_topology_routing": False, "disable_enhanced_completion": True},
+        # These tests mock legacy-path internals (_act/_evaluate/_plan), so pin
+        # the standard executor explicitly: AUTO would now resolve to the
+        # StateGraph executor while USE_STATEGRAPH_AGENTIC_LOOP is flipped on.
+        config={
+            "enable_topology_routing": False,
+            "disable_enhanced_completion": True,
+            "executor": "standard",
+        },
     )
     loop._act = AsyncMock(return_value=turn)
     loop._evaluate = AsyncMock(
@@ -124,13 +132,111 @@ async def test_default_without_verifier_retains_completion(streaming):
         assert result.success is True
 
 
-async def test_stategraph_cannot_silently_ignore_verifier(monkeypatch):
+def _fake_graph_executor(results):
+    """Executor stand-in whose .run pops pre-built graph results (FOU-D5b)."""
+    from types import SimpleNamespace
+
+    calls = {"feedback": []}
+
+    async def run(**kwargs):
+        calls["feedback"].append((kwargs.get("context") or {}).get("verification_feedback"))
+        return results.pop(0)
+
+    return SimpleNamespace(run=run, calls=calls)
+
+
+def _graph_result(success=True):
+    from types import SimpleNamespace
+
+    from victor.framework.agentic_graph.executor import LoopResult as GraphLoopResult
+
+    final_state = SimpleNamespace(
+        action_result=None,
+        evaluation=None,
+        iteration=1,
+        max_iterations=10,
+        to_dict=lambda: {"workspace": None},
+    )
+    return GraphLoopResult(
+        success=success,
+        response=None,
+        iterations=1,
+        termination_reason="complete" if success else "failed",
+        metadata={"final_state": {"workspace": None}, "state_history": None},
+    )
+
+
+async def test_stategraph_executor_applies_verification_gate(monkeypatch):
+    """FOU-D5b: the graph path verifies COMPLETE runs like the legacy loop —
+    same verification dict shape, bounded re-entry with injected feedback."""
+    from unittest.mock import AsyncMock
+
     from victor.core.feature_flags import FeatureFlag
+    from victor.framework.verification import VerificationResult
 
     monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
-    loop = make_loop(MagicMock(), retries=1)
-    with pytest.raises(NotImplementedError, match="StateGraph.*verification"):
-        await loop.run("task")
+    verifier = MagicMock(
+        verify=AsyncMock(return_value=VerificationResult(0, 1, feedback="tests failed"))
+    )
+    loop = make_loop(verifier, retries=1)
+    loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+    executor = _fake_graph_executor([_graph_result(), _graph_result()])
+    loop._create_stategraph_executor = lambda turn_record_channel=None: executor
+
+    result = await loop.run("task")
+
+    # Verified the first (failed) run, injected feedback, re-entered once.
+    assert executor.calls["feedback"][0] is None
+    assert executor.calls["feedback"][1]  # feedback text present on the retry
+    verification = result.metadata["verification"]
+    assert verification == {
+        "passed": 0,
+        "total": 1,
+        "verified": False,
+        "retries_used": 1,
+        "max_retries": 1,
+        "reason": "tests failed; verification retry budget exhausted",
+    }
+
+
+async def test_stategraph_executor_passing_verifier_runs_once(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from victor.core.feature_flags import FeatureFlag
+    from victor.framework.verification import VerificationResult
+
+    monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
+    verifier = MagicMock(verify=AsyncMock(return_value=VerificationResult(1, 1)))
+    loop = make_loop(verifier, retries=1)
+    loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+    executor = _fake_graph_executor([_graph_result()])
+    loop._create_stategraph_executor = lambda turn_record_channel=None: executor
+
+    result = await loop.run("task")
+
+    assert executor.calls["feedback"] == [None]  # single run, no retry
+    assert result.metadata["verification"]["verified"] is True
+
+
+async def test_stategraph_executor_budget_exhaustion_stops_reentry(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from victor.core.feature_flags import FeatureFlag
+    from victor.framework.verification import VerificationResult
+
+    monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
+    verifier = MagicMock(verify=AsyncMock(return_value=VerificationResult(0, 1)))
+    loop = make_loop(verifier, retries=1)  # budget: 1 retry
+    loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+    executor = _fake_graph_executor([_graph_result(), _graph_result(), _graph_result()])
+    loop._create_stategraph_executor = lambda turn_record_channel=None: executor
+
+    result = await loop.run("task")
+
+    # Initial run + exactly one bounded re-entry; the third graph run never happens.
+    assert len(executor.calls["feedback"]) == 2
+    assert result.metadata["verification"]["retries_used"] == 1
+    assert "budget exhausted" in result.metadata["verification"].get("reason", "")
 
 
 async def test_iteration_stream_cannot_silently_ignore_verifier():
@@ -277,17 +383,32 @@ async def _collect_deadline_stream(loop):
 
 @pytest.mark.parametrize("mode", ["stategraph", "iterations"])
 async def test_unsupported_mode_rejects_configured_deadline_before_execution(monkeypatch, mode):
+    """Iteration streaming still refuses deadlines uniformly. The buffered
+    StateGraph path honors them since FOU-D5a (guarded like the legacy loop),
+    so the stategraph leg asserts the guarded contract instead of the old
+    NotImplementedError refusal."""
     loop = make_loop(None, retries=0)
     loop.config.total_timeout = 1
-    loop._run_with_stategraph = AsyncMock()
     if mode == "stategraph":
+        from victor.config.agentic_loop_settings import AgenticLoopExecutor
         from victor.core.feature_flags import FeatureFlag
+        from victor.framework.loop.guards import LoopSpinError
 
         monkeypatch.setenv(FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name(), "true")
-        with pytest.raises(NotImplementedError, match="deadlines"):
-            await loop.run("q")
-        loop._run_with_stategraph.assert_not_called()
+        # make_loop pins "standard" for its legacy-path mocks; this leg exercises
+        # the StateGraph deadline guard explicitly.
+        loop.config.executor = AgenticLoopExecutor.STATEGRAPH
+        # FOU-D5a: the guarded graph path converts a guard stop into the
+        # legacy spin-guard FAIL contract (no NotImplementedError, no crash).
+        loop._run_with_stategraph = AsyncMock(
+            side_effect=LoopSpinError("perception backstop exceeded")
+        )
+        result = await loop.run("q")
+        loop._run_with_stategraph.assert_awaited_once()
+        assert result.metadata.get("terminated_by") == "loop_spin_guard"
+        assert result.success is False
     else:
+        loop._run_with_stategraph = AsyncMock()
         with pytest.raises(NotImplementedError, match="deadlines"):
             await anext(loop.stream("q"))
     loop._act.assert_not_called()
@@ -387,6 +508,9 @@ async def test_direct_loop_resolves_auto_each_run_without_mutating_config(monkey
     from victor.framework.agentic_loop import LoopResult
 
     loop = make_loop(None, retries=0)
+    # make_loop pins "standard" so its legacy-path mocks apply; this test owns
+    # AUTO resolution, so restore AUTO and let the env flag decide per run.
+    loop.config.executor = AgenticLoopExecutor.AUTO
     graph_result = LoopResult(success=True, iterations=[], final_state={}, total_duration=0)
     loop._run_with_stategraph = AsyncMock(return_value=graph_result)
     env = FeatureFlag.USE_STATEGRAPH_AGENTIC_LOOP.get_env_var_name()
@@ -427,6 +551,8 @@ async def test_direct_loop_explicit_executor_overrides_legacy_flag(mode, monkeyp
         assert [event async for event in loop.stream("q")] == []
         assert visited == ["q"]
     else:
-        with pytest.raises(NotImplementedError, match="StateGraph.*token streaming"):
-            await anext(loop.run_streaming("q"))
+        # FOU-D5c: token streaming no longer refuses the StateGraph executor.
+        chunks = [chunk async for chunk in loop.run_streaming("q")]
+        assert chunks[-1].is_final is True
+        assert visited == ["q"]
     loop._act.assert_not_awaited()

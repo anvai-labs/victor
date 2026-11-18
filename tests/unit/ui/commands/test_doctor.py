@@ -490,3 +490,114 @@ class TestGraphIndexingCheck:
             monkeypatch.setattr(DoctorChecks, name, lambda self: None)
         DoctorChecks().run_all_checks()
         assert called == [True]
+
+
+class TestSandboxPostureCheck:
+    """ADR-035: doctor surfaces the effective containment posture — and
+    the no-backend-on-required lockout before the first refused command."""
+
+    def _doctor(self):
+        from victor.ui.commands.doctor import DoctorChecks as Doctor
+
+        return Doctor()
+
+    def test_check_reports_posture_name(self):
+        doctor = self._doctor()
+        doctor.check_sandbox_posture()
+        checks = [c for c in doctor.checks if c.name == "Sandbox Posture"]
+        assert len(checks) == 1
+        assert any(
+            c.message.startswith(f"Sandbox posture: {p}")
+            for c, p in [(checks[0], checks[0].message.split(": ")[1].split(" ")[0])]
+        )
+
+    def test_required_without_backend_is_error_with_escape_hatch(self, monkeypatch):
+        import platform as _platform
+        import shutil as _shutil
+
+        monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
+        doctor = self._doctor()
+        monkeypatch.setattr(_platform, "system", lambda: "Linux")
+        monkeypatch.setattr(_shutil, "which", lambda name: None)
+        doctor.check_sandbox_posture()
+        check = doctor.checks[-1]
+        assert check.severity.value == "error"
+        assert "REFUSED" in check.message
+        assert "VICTOR_SANDBOX_POLICY=disabled" in check.suggestion
+
+    def test_required_with_backend_is_success(self, monkeypatch):
+        import platform as _platform
+        import shutil as _shutil
+
+        monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
+        doctor = self._doctor()
+        monkeypatch.setattr(_platform, "system", lambda: "Linux")
+        monkeypatch.setattr(_shutil, "which", lambda name: "/usr/bin/bwrap")
+        doctor.check_sandbox_posture()
+        check = doctor.checks[-1]
+        assert check.severity.value == "success"
+
+    def test_disabled_is_warning_with_restore_hint(self, monkeypatch):
+        doctor = self._doctor()
+        monkeypatch.setenv("VICTOR_SANDBOX_POLICY", "disabled")
+        doctor.check_sandbox_posture()
+        check = doctor.checks[-1]
+        assert check.severity.value == "warning"
+        assert "UNSANDBOXED" in check.message
+
+    def test_unknown_posture_is_error(self, monkeypatch):
+        import victor.tools.sandbox.backends as sb
+
+        doctor = self._doctor()
+        monkeypatch.setattr(sb, "_effective_policy_from_settings", lambda **kw: "unknown")
+        doctor.check_sandbox_posture()
+        check = doctor.checks[-1]
+        assert check.severity.value == "error"
+        assert "unknown" in check.message
+
+    def test_included_in_run_all_checks(self):
+        doctor = self._doctor()
+        names = [c.name for c in doctor.run_all_checks()]
+        assert "Sandbox Posture" in names
+
+
+class TestMcpClientsCheck:
+    """Doctor surfaces the MCP attach command per detected client."""
+
+    def _doctor(self):
+        from victor.ui.commands.doctor import DoctorChecks
+
+        return DoctorChecks()
+
+    def test_detects_claude_code(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".claude.json").write_text("{}")
+        doctor = self._doctor()
+        doctor.check_mcp_clients()
+        check = doctor.checks[-1]
+        assert "Claude Code" in check.message
+        assert "claude mcp add victor -- victor mcp" in check.message
+
+    def test_no_clients_is_info_with_docs_pointer(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        doctor = self._doctor()
+        doctor.check_mcp_clients()
+        check = doctor.checks[-1]
+        assert check.severity.value == "info"
+        assert "claude mcp add" in check.message
+
+    def test_multiple_clients_all_listed(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".claude.json").write_text("{}")
+        cursor_dir = tmp_path / ".cursor"
+        cursor_dir.mkdir()
+        (cursor_dir / "mcp.json").write_text("{}")
+        doctor = self._doctor()
+        doctor.check_mcp_clients()
+        message = doctor.checks[-1].message
+        assert "Claude Code" in message and "Cursor" in message
+
+    def test_included_in_run_all_checks(self):
+        doctor = self._doctor()
+        names = [c.name for c in doctor.run_all_checks()]
+        assert "MCP Clients" in names

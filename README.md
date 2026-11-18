@@ -36,10 +36,27 @@ It is designed for teams that need agent systems to be testable, extensible, obs
 
 | Path | Commands | Best for |
 |------|----------|----------|
-| Local model | `uv tool install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat --provider ollama --model qwen2.5-coder:7b "Explain this repo"` | Private, low-cost, air-gapped work |
+| Local model | `uv tool install victor-ai`<br>`victor init`<br>`victor chat "Explain this repo"` | Zero-config local inference: `victor init` detects a running Ollama / llama.cpp / InferFlux server, pulls `qwen2.5-coder:7b` if needed, and — only if nothing is installed — offers to download and start a llama.cpp server for you. Skip with `victor init --no-quickstart` |
+| Local model (manual) | `uv tool install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat "Explain this repo"` | You manage the server yourself (Ollama is the default profile — no provider flags needed) |
 | Cloud model | `uv tool install victor-ai`<br>`export ANTHROPIC_API_KEY=...`<br>`victor chat --provider anthropic "Plan this refactor"` | Hosted provider access |
+| Homebrew (macOS) | `brew tap anvai-labs/tap https://github.com/anvai-labs/homebrew-tap`<br>`brew install anvai-labs/tap/victor` | Mac-dev default channel (formula auto-tracks PyPI releases) |
 | Python API | `pip install victor-ai` | Embedding Victor in applications |
 | Docker | `docker pull vjsingh1984/victor-ai:latest` | Isolated CLI/API runtime |
+
+### Use Victor's tools + code intelligence from YOUR agent (MCP)
+
+Victor ships an MCP server — expose its 34 tools and the intent-tier codegraph
+(structure + intent search over your indexed codebase) to Claude Code, Cursor,
+Claude Desktop, Cline, or any MCP client:
+
+```bash
+claude mcp add victor -- victor mcp          # Claude Code
+# Cursor: ~/.cursor/mcp.json -> {"mcpServers": {"victor": {"command": "victor", "args": ["mcp"]}}}
+```
+
+Sandboxed by default (the same fail-closed posture as Victor's own agent).
+See `docs/reference/api/mcp-server.md` for per-client setup and
+`victor mcp list-tools` to preview the inventory.
 
 ## Give Your Agent Durable Memory
 

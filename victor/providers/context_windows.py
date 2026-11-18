@@ -50,6 +50,7 @@ ANTHROPIC: list[tuple[str, int]] = [
 ANTHROPIC_DEFAULT = 200_000
 
 OPENAI: list[tuple[str, int]] = [
+    ("qwen3.7-plus", 262_144),  # Bailian coding plan — 256k
     ("gpt-5-nano", 400_000),
     ("gpt-5", 200_000),
     ("gpt-4.5", 200_000),

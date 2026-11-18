@@ -43,8 +43,9 @@ class TestBundledResource:
         assert text is not None
         raw = Settings._parse_profiles_yaml(text)
         assert "default" in raw
-        assert "local" in raw
-        assert raw["default"]["provider"] == "inferflux"
+        assert "inferflux" in raw
+        assert raw["default"]["provider"] == "ollama"
+        assert raw["default"]["model"] == "qwen2.5-coder:7b"
 
 
 class TestSeedOnFirstRun:
@@ -54,7 +55,8 @@ class TestSeedOnFirstRun:
         seeded = tmp_path / "profiles.yaml"
         assert seeded.exists()
         assert "default" in profiles
-        assert profiles["default"].provider == "inferflux"
+        assert profiles["default"].provider == "ollama"
+        assert profiles["default"].model == "qwen2.5-coder:7b"
 
     def test_existing_user_file_never_overwritten(self, tmp_path):
         user_yaml = "profiles:\n  mine:\n    provider: zai\n    model: glm-5.2\n"
@@ -82,17 +84,18 @@ class TestLayeredMerge:
             profiles = Settings.load_profiles()
         assert "mine" in profiles
         # New bundled profiles surface automatically after upgrades.
-        assert "local" in profiles
+        assert "inferflux" in profiles
 
     def test_per_profile_merge_is_key_level(self, tmp_path):
         # User overrides only the model — bundled provider/temperature remain.
         (tmp_path / "profiles.yaml").write_text(
-            "profiles:\n  local:\n    provider: ollama\n    model: llama3.3:70b\n"
+            "profiles:\n  inferflux:\n    model: llama3.3:70b\n"
         )
         with _patch_config_dir(tmp_path):
             profiles = Settings.load_profiles()
-        assert profiles["local"].model == "llama3.3:70b"
-        assert profiles["local"].max_tokens == 4096  # from bundled layer
+        assert profiles["inferflux"].model == "llama3.3:70b"
+        assert profiles["inferflux"].provider == "inferflux"
+        assert profiles["inferflux"].max_tokens == 8192  # from bundled layer
 
     def test_invalid_profile_skipped_not_fatal(self, tmp_path):
         (tmp_path / "profiles.yaml").write_text(

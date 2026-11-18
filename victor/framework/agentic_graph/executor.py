@@ -20,9 +20,10 @@ loop graph with proper service injection and result handling.
 
 from __future__ import annotations
 
-from victor.core.errors import ProviderPolicyError
+from victor.core.errors import ProviderPolicyError, is_terminal_agent_error
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, TYPE_CHECKING
 
@@ -34,10 +35,7 @@ from victor.framework.agentic_graph.builder import (
     AgenticLoopDependencies,
     create_agentic_loop_graph,
 )
-from victor.framework.agentic_graph.service_nodes import (
-    inject_execution_context,
-    prompt_service_node,
-)
+from victor.framework.agentic_graph.turn_record import TurnRecord, TurnRecordChannel
 from victor.framework.execution_checkpoint import execution_checkpoint_trace_metadata
 
 if TYPE_CHECKING:
@@ -67,25 +65,40 @@ class LoopResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
 
+    @property
+    def paused(self) -> bool:
+        """The run stopped at a graph boundary and can resume (FEP-0032/FOU-D4)."""
+        info = self.metadata.get("paused")
+        return isinstance(info, dict) and bool(info.get("thread_id"))
+
     @classmethod
     def from_graph_result(
         cls,
         graph_result: Any,
         final_state: AgenticLoopStateModel,
+        thread_id: Optional[str] = None,
     ) -> "LoopResult":
         """Create LoopResult from graph execution result.
 
         Args:
             graph_result: Raw graph execution result
             final_state: Final state after execution
+            thread_id: The executor-owned per-run thread id; when the run
+                stopped at a graph boundary (FEP-0032 ``interrupted``), the
+                paused position is surfaced under ``metadata["paused"]`` so
+                callers can resume via ``compiled.resume(thread_id)``. A
+                pause without a thread id is not surfaced (unresumable).
 
         Returns:
             LoopResult instance
         """
         # Extract response from final state
         response = None
-        if final_state.action_result:
-            response = final_state.action_result.get("response")
+        action_result = final_state.action_result
+        if isinstance(action_result, TurnRecord):
+            response = action_result.content
+        elif isinstance(action_result, dict):
+            response = action_result.get("response")
 
         # Determine termination reason
         termination_reason = "unknown"
@@ -116,6 +129,13 @@ class LoopResult:
                 for node_name, state in state_history
             ]
 
+        interrupted = bool(getattr(graph_result, "interrupted", False))
+        if interrupted and thread_id:
+            metadata["paused"] = {
+                "thread_id": thread_id,
+                "next_node": getattr(graph_result, "next_node", None),
+            }
+
         return cls(
             success=termination_reason != "failed",
             response=response,
@@ -123,6 +143,58 @@ class LoopResult:
             termination_reason=termination_reason,
             metadata=metadata,
         )
+
+
+def _turn_record_observer(
+    channel: Optional[TurnRecordChannel],
+) -> Any:
+    """Publish completed ACT records without putting a live sink in graph state."""
+
+    async def observe(
+        event: str,
+        node_id: str,
+        state: Any,
+        error: Optional[str],
+        duration: float,
+    ) -> None:
+        if event != "complete" or node_id != "act" or channel is None:
+            return
+        record = getattr(state, "action_result", None)
+        if isinstance(record, TurnRecord):
+            channel.publish(record)
+
+    async def observe_checkpoint_failure(
+        node_id: str,
+        state: Any,
+        _error: Optional[str],
+        _duration: float,
+    ) -> None:
+        # Durable checkpoint failure must not publicly announce node completion,
+        # but the completed ACT projection remains recoverable for this run.
+        if node_id != "act" or channel is None:
+            return
+        record = getattr(state, "action_result", None)
+        if isinstance(record, TurnRecord):
+            channel.publish(record)
+
+    observe.observe_checkpoint_failure = observe_checkpoint_failure
+
+    return observe
+
+
+def _resolve_default_checkpointer():
+    """Durable-by-default graph checkpointing (FEP-0047, FOU-D2).
+
+    Composition-root seam: resolves the settings-driven checkpointer from the
+    storage layer. The import is local so importing this module never pulls
+    storage infrastructure; any unexpected resolution failure warns and keeps
+    the framework's in-memory default rather than failing agent construction.
+    """
+    from victor.storage.checkpoints.graph_adapter import (
+        get_default_graph_checkpointer,
+    )
+
+    return get_default_graph_checkpointer()
 
 
 class AgenticLoopGraphExecutor:
@@ -172,14 +244,17 @@ class AgenticLoopGraphExecutor:
         self.runtime_intelligence: Optional[Any] = None
         self.planning_coordinator: Optional[Any] = None
         self.turn_executor: Optional[TurnExecutor] = None
+        self.turn_record_channel: Optional[TurnRecordChannel] = None
         self.evaluator: Optional[Any] = None
         self.fulfillment_detector: Optional[Any] = None
         self.dependencies = AgenticLoopDependencies(
             resolvers={
                 "runtime_intelligence": lambda: self.runtime_intelligence,
+                "execution_context": lambda: self.execution_context,
                 "planning_coordinator": lambda: self.planning_coordinator,
                 "use_llm_planning": lambda: self.planning_coordinator is not None,
                 "turn_executor": lambda: self.turn_executor,
+                "turn_record_channel": lambda: self.turn_record_channel,
                 "evaluator": lambda: self.evaluator,
                 "fulfillment_detector": lambda: self.fulfillment_detector,
             }
@@ -197,13 +272,19 @@ class AgenticLoopGraphExecutor:
         # per-iteration LoopResult data from GraphExecutionResult.state_history
         # (see LoopResult.from_graph_result below) — the one production
         # consumer of state_history, which is opt-in elsewhere (item 11).
-        self.compiled: CompiledGraph = self.graph.compile(record_state_history=True)
+        self.compiled: CompiledGraph = self.graph.compile(
+            record_state_history=True,
+            checkpointer=_resolve_default_checkpointer(),
+            checkpoint_after_nodes={"act"},
+        )
 
     async def run(
         self,
         query: str,
         context: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
+        *,
+        turn_record_channel: Optional[TurnRecordChannel] = None,
     ) -> LoopResult:
         """Run the agentic loop to completion.
 
@@ -226,19 +307,29 @@ class AgenticLoopGraphExecutor:
             conversation_history=conversation_history,
         )
 
-        # Inject ExecutionContext for service access
-        initial_state = inject_execution_context(initial_state, self.execution_context)
-        initial_state = await prompt_service_node(initial_state)
+        # Runtime services and the run-owned record sink stay outside durable
+        # state. They are injected through collaborators and lifecycle hooks.
+        observer = _turn_record_observer(turn_record_channel)
 
+        # Per-run thread identity (FOU-D2 ledger note): each run gets a fresh
+        # id so durable checkpoints never hijack a later run's input, and the
+        # paused result can name its resume point (FOU-D4).
+        run_thread_id = uuid.uuid4().hex
         try:
             # Execute graph
-            graph_result = await self.compiled.invoke(initial_state)
+            graph_result = await self.compiled.invoke(
+                initial_state,
+                thread_id=run_thread_id,
+                node_observer=observer,
+            )
 
             # Extract final state
             final_state = self._extract_final_state(graph_result)
 
             # Create result
-            result = LoopResult.from_graph_result(graph_result, final_state)
+            result = LoopResult.from_graph_result(
+                graph_result, final_state, thread_id=run_thread_id
+            )
 
             logger.info(
                 f"Agentic loop completed: {result.iterations} iterations, "
@@ -250,6 +341,8 @@ class AgenticLoopGraphExecutor:
         except ProviderPolicyError:
             raise
         except Exception as e:
+            if is_terminal_agent_error(e):
+                raise
             logger.error(f"Agentic loop execution failed: {e}")
             return LoopResult(
                 success=False,
@@ -264,6 +357,8 @@ class AgenticLoopGraphExecutor:
         query: str,
         context: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
+        *,
+        turn_record_channel: Optional[TurnRecordChannel] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """Stream agentic loop execution events.
 
@@ -286,13 +381,14 @@ class AgenticLoopGraphExecutor:
             conversation_history=conversation_history,
         )
 
-        # Inject ExecutionContext for service access
-        initial_state = inject_execution_context(initial_state, self.execution_context)
-        initial_state = await prompt_service_node(initial_state)
+        observer = _turn_record_observer(turn_record_channel)
 
         try:
             # Stream graph execution
-            async for node_name, state in self.compiled.stream(initial_state):
+            async for node_name, state in self.compiled.stream(
+                initial_state,
+                node_observer=observer,
+            ):
                 event = {
                     "node_name": node_name,
                     "state": state.to_dict() if hasattr(state, "to_dict") else state,
@@ -309,6 +405,8 @@ class AgenticLoopGraphExecutor:
         except ProviderPolicyError:
             raise
         except Exception as e:
+            if is_terminal_agent_error(e):
+                raise
             yield {
                 "node_name": "error",
                 "state": {},

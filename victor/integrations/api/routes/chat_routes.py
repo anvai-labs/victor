@@ -79,6 +79,18 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 approval_request=getattr(chat_result, "approval_request", None),
             )
 
+        # FEP-0032/FOU-D4: the turn stopped at a graph boundary — 202 "not
+        # final" with the thread to resume via compiled.resume(thread_id).
+        if status == "paused":
+            response.status_code = 202
+            return ChatResponse(
+                role="assistant",
+                content=content,
+                tool_calls=tool_calls,
+                status=status,
+                resume_thread_id=getattr(chat_result, "resume_thread_id", None),
+            )
+
         return ChatResponse(role="assistant", content=content, tool_calls=tool_calls)
 
     @router.post("/chat/resume", response_model=ChatResponse, tags=["Chat"])
