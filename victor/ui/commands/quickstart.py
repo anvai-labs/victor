@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import platform
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -519,7 +520,14 @@ def _safe_extract_zip(archive: Path, dest_dir: Path) -> None:
             target = (dest_dir / member.filename).resolve()
             if not target.is_relative_to(dest_resolved):
                 raise ValueError(f"archive member escapes destination: {member.filename}")
-        zf.extractall(dest_dir)
+        for member in zf.infolist():
+            target = (dest_dir / member.filename).resolve()
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as src_handle, open(target, "wb") as dst_handle:
+                shutil.copyfileobj(src_handle, dst_handle)
 
 
 def _safe_extract_tar(archive: Path, dest_dir: Path) -> None:
@@ -573,7 +581,10 @@ async def ensure_llamacpp_provisioned(
         if not gguf_path.exists():
             console.print(f"[dim]Downloading model ({LLAMACPP_GGUF_FILENAME})…[/]")
             await download_file(
-                client, LLAMACPP_GGUF_URL, gguf_path, console,
+                client,
+                LLAMACPP_GGUF_URL,
+                gguf_path,
+                console,
                 expected_min_bytes=LLAMACPP_GGUF_MIN_BYTES,
             )
         else:
@@ -596,7 +607,10 @@ async def ensure_llamacpp_provisioned(
             archive_path = tool_root / archive_name
             console.print(f"[dim]Downloading {archive_name}…[/]")
             await download_file(
-                client, asset_url, archive_path, console,
+                client,
+                asset_url,
+                archive_path,
+                console,
                 expected_min_bytes=LLAMACPP_ARCHIVE_MIN_BYTES,
             )
             if archive_name.endswith(".zip"):
