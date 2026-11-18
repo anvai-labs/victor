@@ -44,6 +44,8 @@ class IntentSyncReport:
     skipped_dirs: list[str] = field(default_factory=list)
     degraded_reason: Optional[str] = None
     profile_id: str = ""
+    oversized_skipped: list[str] = field(default_factory=list)
+    failed_files: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -53,6 +55,8 @@ class IntentSyncReport:
             "chunks_embedded": self.chunks_embedded,
             "skipped_by_root_shortcut": self.skipped_by_root_shortcut,
             "skipped_dirs": self.skipped_dirs,
+            "oversized_skipped": self.oversized_skipped,
+            "failed_files": self.failed_files,
             "degraded_reason": self.degraded_reason,
             "profile_id": self.profile_id,
         }
@@ -76,6 +80,19 @@ async def sync_intent_tier(
     the package encoder shape (``encode`` batch + ``profile_id``);
     ``intent_store`` is an :class:`IntentIndexStore` (or compatible).
     """
+    # Capability gate FIRST: stores without intent-state support (duckdb,
+    # memory, proxima) would silently re-embed the full corpus on every run
+    # -- markers never persist, so nothing short-circuits.
+    if getattr(graph_store, "record_intent_synced", None) is None:
+        return IntentSyncReport(
+            profile_id=profile_id,
+            scanned_files=len(current_manifest),
+            degraded_reason=(
+                "graph store does not implement intent-state tracking "
+                "(sqlite-backed stores support the intent tier)"
+            ),
+        )
+
     if encoder is None:
         return None
     encoder = _LazyEncoder(encoder)
@@ -86,46 +103,68 @@ async def sync_intent_tier(
     report = IntentSyncReport(profile_id=profile_id)
     previous: dict[str, str] = dict(intent_store.synced_manifest())
 
+    # Profile-drift check BEFORE the root shortcut: a model/contract upgrade
+    # with NO source edits must still rebuild (the shortcut would otherwise
+    # serve stale-profile vectors forever).
+    stale = intent_store.stale_files(profile_id)
+
     # Merkle projection for the shortcut + frontier granularity; the flat
     # diff stays the authoritative work set.
     current_tree = build_merkle_tree(current_manifest)
     previous_tree = build_merkle_tree(previous)
-    if not force and current_tree.root == previous_tree.root:
+    if not force and not stale and current_tree.root == previous_tree.root:
         report.skipped_by_root_shortcut = True
         report.scanned_files = len(current_manifest)
         return report
 
     diff = diff_manifest(current_manifest, previous)
 
-    # Profile change: everything stored under another profile is stale —
-    # full rebuild before the incremental pass.
-    stale = intent_store.stale_files(profile_id)
-    if stale:
-        await intent_store.clear()
-
-    removed = set(diff.removed) | (set(previous) - set(current_manifest) - set(diff.added))
+    # F9: diff_manifest defines removed = previous - current exactly.
+    removed = set(diff.removed)
     work = sorted(set(diff.added) | set(diff.changed))
-    if force:
-        work = sorted(set(current_manifest))
+    if stale or force:
+        # Full rebuild: clear() wipes ALL vectors and markers, so the work
+        # set must cover every current file -- not just the diff.
+        await intent_store.clear()
+        work = sorted(current_manifest)
         removed = set(previous)
+        if stale:
+            report.degraded_reason = "profile change: full intent-tier rebuild"
 
     report.scanned_files = len(current_manifest)
     report.deleted_files = len(removed)
     for path in sorted(removed):
         await intent_store.delete_file(path)
 
+    import asyncio
+
+    from victor.storage.graph.intent_index import _CHUNKS_PER_FILE_CEILING
+
     source_hashes = {p: current_manifest[p] for p in work}
+    failed_files: list[str] = []
     for rel_path in work:
         try:
             from victor_codegraph import chunk_path, embed_chunks
 
-            chunks = chunk_path(root / rel_path, repo_root=root)
+            # CPU-bound parse + inference off the event loop (the TUI,
+            # HTTP API and watch daemon share it).
+            chunks = await asyncio.to_thread(chunk_path, root / rel_path, repo_root=root)
+            if len(chunks) > _CHUNKS_PER_FILE_CEILING:
+                report.oversized_skipped.append(rel_path)
+                logger.warning(
+                    "Intent tier skipped %s: %d chunks exceed the per-file ceiling %d",
+                    rel_path,
+                    len(chunks),
+                    _CHUNKS_PER_FILE_CEILING,
+                )
+                continue
             if not chunks:
                 # Nothing chunkable: still commit the marker so the file
                 # does not re-appear in every future work set.
                 pass
             else:
-                docs = embed_chunks(
+                docs = await asyncio.to_thread(
+                    embed_chunks,
                     chunks,
                     encoder.encode,
                     _chunk_profile(),
@@ -151,11 +190,23 @@ async def sync_intent_tier(
                 report.chunks_embedded += len(docs)
             report.reembedded_files += 1
         except Exception as exc:
+            failed_files.append(rel_path)
             logger.warning("Intent-tier embed failed for %s: %s", rel_path, exc)
             report.degraded_reason = f"{rel_path}: {exc}"
             continue
         if not _marker_dropout:
             await intent_store.record_synced([(rel_path, current_manifest[rel_path], profile_id)])
+
+    # Systemic-failure escalation: every file failed -> the run is NOT a
+    # healthy partial; say so loudly (a missing sentence-transformers install
+    # used to loop N import-error retries per indexing run, invisibly).
+    if work and report.reembedded_files == 0:
+        report.failed_files = failed_files
+        report.degraded_reason = (
+            f"systemic: all {len(work)} work files failed; first error: "
+            f"{report.degraded_reason}"
+        )
+        logger.error("Intent-tier sync failed systemically: %s", report.degraded_reason)
 
     return report
 
@@ -167,18 +218,16 @@ class _LazyEncoder:
     def __init__(self, factory_or_encoder: Any) -> None:
         self._factory = factory_or_encoder
         self._inner: Any = None
-        self.profile_id = ""
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         if self._inner is None:
-            inner = (
+            # Marker identity comes from the profile_id argument, never from
+            # the encoder: a caller passing a divergent encoder is flagged
+            # by the store's profile metadata check, not hidden here.
+            self._inner = (
                 self._factory()
                 if callable(self._factory) and not hasattr(self._factory, "encode")
                 else self._factory
-            )
-            self._inner = inner
-            self.profile_id = getattr(inner, "profile_id", "") or getattr(
-                getattr(inner, "profile", None), "identity", ""
             )
         return self._inner.encode(texts)
 

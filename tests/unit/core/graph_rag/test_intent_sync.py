@@ -235,3 +235,84 @@ class TestIntentSync:
         )
         assert report is None
         assert not provider.docs
+
+
+class TestReviewFixes:
+    """Pin the FEP-0049 phase-3 adversarial-review fixes."""
+
+    def test_store_without_marker_support_degrades_without_work(self, tmp_path):
+        """A non-sqlite graph store must NOT silently re-embed the corpus
+        on every run (markers could never persist)."""
+        _write(tmp_path, "a.py", "def alpha():\n    return 1\n")
+        provider, encoder = FakeProvider(), FakeEncoder()
+
+        class NoMarkerStore:
+            pass  # no record_intent_synced
+
+        graph = NoMarkerStore()
+        report = _runner(tmp_path, provider, graph, encoder)
+        assert report is not None
+        assert report.degraded_reason and "intent-state" in report.degraded_reason
+        assert report.reembedded_files == 0
+        assert not provider.docs
+
+    def test_profile_change_rebuilds_even_when_root_unchanged(self, tmp_path):
+        """Model/contract upgrade with NO source edits: the root shortcut
+        must not serve stale-profile vectors forever."""
+        _write(tmp_path, "a.py", "def alpha():\n    return 1\n")
+        provider, graph, encoder = FakeProvider(), FakeGraphStore(), FakeEncoder()
+        _runner(tmp_path, provider, graph, encoder)
+
+        current = _manifest_for(tmp_path)
+
+        import asyncio
+        from victor.storage.graph.intent_index import IntentIndexStore
+
+        async def run_p2():
+            return await sync_intent_tier(
+                tmp_path,
+                graph,
+                current_manifest=current,
+                intent_store=IntentIndexStore(provider, graph),
+                profile_id="brand-new-profile",
+                encoder=encoder,
+            )
+
+        report = asyncio.run(run_p2())
+        assert report.skipped_by_root_shortcut is False
+        assert report.reembedded_files == 1
+        assert "profile change" in (report.degraded_reason or "")
+
+    def test_oversized_file_skipped_with_note(self, tmp_path, monkeypatch):
+        _write(tmp_path, "big.py", "def big():\n    return 1\n")
+        provider, graph, encoder = FakeProvider(), FakeGraphStore(), FakeEncoder()
+        from victor.storage.graph import intent_index
+
+        monkeypatch.setattr(intent_index, "_CHUNKS_PER_FILE_CEILING", 0)
+        report = _runner(tmp_path, provider, graph, encoder)
+        assert report.oversized_skipped == ["big.py"]
+
+    def test_systemic_failure_escalates(self, tmp_path):
+        _write(tmp_path, "a.py", "def alpha():\n    return 1\n")
+
+        class BoomEncoder(FakeEncoder):
+            def encode(self, texts):
+                raise ImportError("sentence-transformers not installed")
+
+        provider, graph, encoder = FakeProvider(), FakeGraphStore(), BoomEncoder()
+        report = _runner(tmp_path, provider, graph, encoder)
+        assert report.reembedded_files == 0
+        assert report.degraded_reason.startswith("systemic:")
+        assert report.failed_files
+
+    def test_graph_settings_flag_visible_to_graph_flag(self):
+        """The settings file path must reach graph_flag (GraphSettings group),
+        not die as a flat-getattr silent ignore."""
+        from types import SimpleNamespace
+
+        from victor.config.settings import graph_flag
+
+        settings = SimpleNamespace(
+            search=SimpleNamespace(graph=SimpleNamespace(codebase_intent_indexing_enabled=True))
+        )
+        assert graph_flag(settings, "codebase_intent_indexing_enabled", False) is True

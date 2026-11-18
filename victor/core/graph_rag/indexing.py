@@ -900,6 +900,7 @@ class GraphIndexingPipeline:
         # default off); the encoder is constructed lazily so a
         # root-shortcut no-op never pays the model-load cost.
         if getattr(self.config, "codebase_intent_indexing_enabled", False):
+            intent_store = None
             try:
                 from victor.core.graph_rag.intent_sync import sync_intent_tier
                 from victor.storage.graph.intent_index import INTENT_TABLE, IntentIndexStore
@@ -936,9 +937,17 @@ class GraphIndexingPipeline:
                         )
                         if report is not None:
                             stats.intent_sync = report.to_dict()
-                            await intent_store.close()
             except Exception as exc:
-                logger.warning("Intent-tier sync skipped: %s", exc)
+                # An explicit --intent request must be distinguishable from
+                # a synced run in the stats surface, not just debug logs.
+                stats.intent_sync = {"error": str(exc)}
+                logger.warning("Intent-tier sync failed: %s", exc)
+            finally:
+                if intent_store is not None:
+                    try:
+                        await intent_store.close()
+                    except Exception:
+                        logger.debug("Intent store close failed", exc_info=True)
 
         logger.info(
             f"Indexing complete: {stats.files_processed} files, "
