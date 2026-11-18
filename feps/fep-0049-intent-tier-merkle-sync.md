@@ -2,7 +2,7 @@
 fep: "0049"
 title: "Intent-Tier Code Embeddings with Merkle Incremental Sync"
 type: Standards Track
-status: Implemented (acceptance pending owner review)
+status: Implemented
 created: 2026-11-18
 modified: 2026-11-18
 authors:
