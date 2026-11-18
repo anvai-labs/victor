@@ -30,6 +30,7 @@ def test_stream_body_budget_becomes_one_integer_gateway_header(monkeypatch):
     provider = SandhiTypedProviderMixin()
     provider._gateway_overrides = lambda: {"url": "https://gateway.test"}
     monkeypatch.setattr(st, "_wire_call_headers", lambda: {"x-sandhi-step-id": "step-1"})
+    monkeypatch.setattr(st, "installed_chat_contract_minor", lambda: 14)
     provider.extra_config = {"stream_body_timeout_secs": 600}
     headers = provider._sandhi_stream_wire_headers()
     assert headers["x-sandhi-step-id"] == "step-1"
@@ -52,6 +53,7 @@ async def test_stream_body_budget_reaches_gateway_stream_wire_request(monkeypatc
     provider._typed_provider = lambda model: object()
     provider._gateway_overrides = lambda: {"url": "https://gateway.test"}
     monkeypatch.setattr(st, "_wire_call_headers", lambda: {"x-sandhi-step-id": "step-1"})
+    monkeypatch.setattr(st, "installed_chat_contract_minor", lambda: 14)
     provider._sandhi_timeout = lambda: 1.0
     provider._sandhi_stream_idle_timeout = lambda: 1.0
     captured = []
@@ -95,3 +97,79 @@ async def test_stream_body_budget_is_not_sent_on_buffered_complete_request(monke
 
     assert result == {"ok": True}
     assert captured == [json.dumps({"x-sandhi-step-id": "step-1"})]
+
+
+class TestStreamBodyBudgetReviewFixes:
+    """Pins for the six code-review findings on #1895."""
+
+    def test_direct_mode_validation_fails_fast(self):
+        """Finding 1a: the knob must fail the same way in direct mode as in
+        gateway mode — not silently no-op."""
+        provider = SandhiTypedProviderMixin()
+        provider.extra_config = {"stream_body_timeout_secs": True}
+        # Direct mode (no gateway overrides) still validates eagerly.
+        with pytest.raises(ValueError, match="stream body timeout"):
+            provider._sandhi_stream_body_timeout_secs()
+
+    def test_fractional_ms_rounds_not_truncates(self, monkeypatch):
+        """Finding 1e: 1.5ms must round to '2', not truncate to '1'."""
+        monkeypatch.setattr(st, "installed_chat_contract_minor", lambda: 14)
+        provider = SandhiTypedProviderMixin()
+        provider.extra_config = {"stream_body_timeout_secs": 0.0015}
+        headers = provider._sandhi_stream_wire_headers()
+        assert headers.get("x-sandhi-stream-body-budget-ms") == "2"
+
+    def test_bool_message_names_millisecond_floor(self):
+        """Finding 1 (cosmetic): the bool-rejection message must not say
+        'between 0 and 840' — the actual floor is one millisecond."""
+        provider = SandhiTypedProviderMixin()
+        provider.extra_config = {"stream_body_timeout_secs": True}
+        with pytest.raises(ValueError, match="one millisecond"):
+            provider._sandhi_stream_body_timeout_secs()
+
+    def test_non_numeric_gives_labeled_error(self):
+        """Finding (raw ValueError without context): a string value gets
+        a labeled error, not a bare float() conversion failure."""
+        provider = SandhiTypedProviderMixin()
+        provider.extra_config = {"stream_body_timeout_secs": "ten"}
+        with pytest.raises(ValueError, match="stream body timeout"):
+            provider._sandhi_stream_body_timeout_secs()
+
+    def test_buffered_path_uses_shared_base_headers(self):
+        """Finding 3: the buffered path must use the shared base-header
+        construction (single site, no drift)."""
+        provider = SandhiTypedProviderMixin()
+        provider._gateway_overrides = lambda: {"url": "https://gateway.test"}
+        provider.extra_config = {}
+        headers = provider._sandhi_base_wire_headers()
+        assert headers == provider._sandhi_stream_wire_headers()
+
+    def test_body_budget_gated_on_contract_minor(self, monkeypatch):
+        """Finding 4: the header is dropped with a warning when the
+        installed binding predates the body-budget contract minor."""
+        monkeypatch.setattr(st, "_wire_call_headers", lambda: {"x-sandhi-step-id": "s"})
+        monkeypatch.setattr(st, "installed_chat_contract_minor", lambda: 13)
+        provider = SandhiTypedProviderMixin()
+        provider.extra_config = {"stream_body_timeout_secs": 600}
+        headers = provider._sandhi_stream_wire_headers()
+        assert "x-sandhi-stream-body-budget-ms" not in headers
+
+    def test_idle_and_setup_use_shared_validator(self):
+        """Finding 1c: the shared validator enforces the same bounds as the
+        old inline checks (regression: no drift between the three knobs)."""
+        provider = SandhiTypedProviderMixin()
+        provider.extra_config = {"stream_idle_timeout_secs": True}
+        with pytest.raises(ValueError, match="stream idle timeout"):
+            provider._sandhi_stream_idle_timeout()
+        provider.extra_config = {"stream_setup_timeout_secs": "bad"}
+        with pytest.raises(ValueError, match="stream setup timeout"):
+            provider._sandhi_stream_setup_timeout()
+
+    def test_timeout_profile_documents_body_budget(self):
+        """Finding 5: the TimeoutProfile docstring inventory includes the
+        body-budget knob."""
+        import inspect
+        from victor.providers.timeout_profile import TimeoutProfile
+
+        doc = inspect.getdoc(TimeoutProfile)
+        assert "stream_body_timeout_seconds" in doc
