@@ -42,6 +42,19 @@ from victor.framework.evaluation_nodes import EvaluationDecision
 logger = logging.getLogger(__name__)
 
 
+def _text_value(value: Any, default: str) -> str:
+    """Normalize perception labels to durable, JSON-safe strings."""
+    if value is None:
+        return default
+    value = getattr(value, "value", value)
+    return value if isinstance(value, str) else str(value)
+
+
+def _confidence_value(value: Any) -> float:
+    """Normalize perception confidence without accepting arbitrary objects."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.5
+
+
 # =============================================================================
 # PERCEIVE Node
 # =============================================================================
@@ -108,11 +121,16 @@ async def perceive_node(
             # Fallback: create simple perception
             perception_result = _create_fallback_perception(state.query)
 
-        # Extract perception data
+        # Extract perception data as primitives. Perception services can return
+        # enums or lightweight label objects; retaining those arbitrary objects
+        # prevents durable JSON checkpoints from serializing StateGraph state.
+        raw_intent = getattr(perception_result, "intent", None)
+        raw_complexity = getattr(perception_result, "complexity", "medium")
+        raw_confidence = getattr(perception_result, "confidence", 0.5)
         perception = {
-            "intent": getattr(perception_result, "intent", None),
-            "complexity": getattr(perception_result, "complexity", "medium"),
-            "confidence": getattr(perception_result, "confidence", 0.5),
+            "intent": _text_value(raw_intent, "query"),
+            "complexity": _text_value(raw_complexity, "medium"),
+            "confidence": _confidence_value(raw_confidence),
         }
 
         # Get task type from task_analysis if available
@@ -122,8 +140,10 @@ async def perceive_node(
         if hasattr(perception_result, "task_analysis"):
             task_analysis = perception_result.task_analysis
             if task_analysis:
-                task_type = getattr(task_analysis, "task_type", task_type)
-                complexity = getattr(perception_result, "complexity", complexity)
+                task_type = _text_value(getattr(task_analysis, "task_type", task_type), task_type)
+                complexity = _text_value(
+                    getattr(perception_result, "complexity", complexity), complexity
+                )
 
         # Update state
         return state.model_copy(

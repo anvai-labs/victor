@@ -87,13 +87,26 @@ class AgenticLoopEvaluator(LoopEvaluator):
         """
         # ---- PERCEIVE ---------------------------------------------------------
 
+        # A model question needs the legacy classifier’s clarification rules.
+        # In particular, one-shot mode must return control instead of treating
+        # a direct-response prompt as satisfied merely because content exists.
+        intent = getattr(ctx.intent_result, "intent", None)
+        intent_value = getattr(intent, "value", intent)
+        if intent_value == "asking_input":
+            return LoopDecision(
+                action=ContinuationActionType.FINISH,
+                reason="asking_input_delegated_to_legacy",
+                confidence=0.0,
+                source="agentic_loop",
+            )
+
         # Direct-response fast path: model answered, no tools needed.
         if ctx.is_direct_response and ctx.content_length > 0:
             logger.info(
                 "[agentic-eval] direct_response satisfied (len=%d) — FINISH",
                 ctx.content_length,
             )
-            return self._finish("direct_response_complete", confidence=0.99)
+            return self._finish("direct-response-complete", confidence=0.99)
 
         # No content and no tool calls: model stalled — nudge once.
         if ctx.content_length == 0:
