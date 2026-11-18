@@ -16,7 +16,6 @@
 
 import click
 import typer
-from rich.console import Console
 from typing import Optional
 
 # NOTE: ``run_sync`` is imported function-locally in ``run_command`` (see below);
@@ -103,7 +102,6 @@ from victor.ui.commands.auth import auth_app
 from victor.ui.commands.verify import app as verify_app
 from victor.ui.cli_group import SuggestingGroup, suggest_command
 from victor.ui.console import get_console
-from victor.ui.theme import victor_theme
 
 app = typer.Typer(
     name="victor",
@@ -639,6 +637,15 @@ def callback(
         "--no-setup",
         help="Skip first-time setup wizard",
     ),
+    dangerously_unsandboxed: bool = typer.Option(
+        False,
+        "--dangerously-unsandboxed",
+        help=(
+            "Disable OS sandboxing for this invocation (ADR-035 explicit "
+            "opt-out; overrides settings and env, warns once). Tools run "
+            "UNSANDBOXED - use only in trusted environments"
+        ),
+    ),
 ) -> None:
     """Victor - Open-source agentic AI framework with multi-provider support."""
     # Install in-process hang/crash diagnostics as early as possible so a wedged
@@ -647,6 +654,17 @@ def callback(
     from victor.ui.diagnostics import install_fault_diagnostics
 
     install_fault_diagnostics()
+
+    # ADR-035 per-invocation escape hatch: apply BEFORE any tool can run,
+    # so the first spawn of this session already carries the decision.
+    if dangerously_unsandboxed:
+        from victor.tools.sandbox import force_unsandboxed_for_session
+
+        applied, message = force_unsandboxed_for_session()
+        if applied:
+            console.print(f"[yellow]WARNING: {message}[/yellow]")
+        else:
+            console.print(f"[red]ERROR: {message}[/red]")
 
     if ctx.invoked_subcommand is None:
         # Check if this is a first-time user
