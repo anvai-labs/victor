@@ -194,9 +194,13 @@ program adds the intent tier without giving up the structural model.
 - Wide sweep: 1,931 passed / 0 failed across sandbox/runtime/workflows/
   core/api/integrations/agent-tools; live executor smoke on this host
   (required posture, bwrap + seccomp enforcing): shell runs wrapped, rc=0.
-- Follow-ups queued: doctor CLI posture line; --dangerously-unsandboxed
-  per-invocation CLI flag; macOS live-execution qualification of the
-  deny-default Seatbelt profile (CI matrix has no macOS runner).
+- Follow-ups CLOSED (2026-11-18): doctor posture check (#1918);
+  --dangerously-unsandboxed CLI flag (#1920); macOS live-execution
+  qualification of the deny-default Seatbelt profile — 7/7 PASSED on
+  macOS 26.2 arm64 via the test/seatbelt-qualify battery (#1921, SSH
+  run on the MacBook against origin/test/seatbelt-qualify). S1b gate
+  reads QUALIFIED: the posture flip is execution-verified on Linux
+  (bubblewrap+seccomp) AND macOS (Seatbelt deny-default).
 ## Reboot instructions
 
 1. `git fetch origin develop`; check this table for `IN REVIEW`/`GREEN` rows and verify their
