@@ -153,7 +153,8 @@ The framework gains an additive compile option. Existing generic StateGraph chec
 - [ ] Typed state round-trips without importing arbitrary stored modules.
 - [ ] Runtime handles and `_turn_record_channel` are absent from durable state.
 - [ ] Agentic state is frozen and exposes no execution-context or channel fields.
-- [ ] Service nodes receive execution context through graph dependencies.
+- [ ] Service nodes receive execution context through graph dependencies, and every buffered/streaming context source passes through the same AgenticLoop graph-composition boundary before required collaborators are attached.
+- [ ] Runtime-intelligence snapshots and the shared evaluation method are adapted to graph dependency contracts without carrying live objects through durable state.
 - [ ] The ACT lifecycle observer is run-local and emits only durable turn records.
 - [ ] Checkpoint binding copies immutable state instead of mutating its input.
 - [ ] Recursive legacy-state copying is not used for canonical agentic transitions.
