@@ -163,6 +163,22 @@ def _turn_record_observer(
         if isinstance(record, TurnRecord):
             channel.publish(record)
 
+    async def observe_checkpoint_failure(
+        node_id: str,
+        state: Any,
+        _error: Optional[str],
+        _duration: float,
+    ) -> None:
+        # Durable checkpoint failure must not publicly announce node completion,
+        # but the completed ACT projection remains recoverable for this run.
+        if node_id != "act" or channel is None:
+            return
+        record = getattr(state, "action_result", None)
+        if isinstance(record, TurnRecord):
+            channel.publish(record)
+
+    observe.observe_checkpoint_failure = observe_checkpoint_failure
+
     return observe
 
 

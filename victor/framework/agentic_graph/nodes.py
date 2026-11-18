@@ -146,12 +146,26 @@ async def perceive_node(
             # Fallback: create simple perception
             perception_result = _create_fallback_perception(state.query)
 
+        # RuntimeIntelligenceService returns a snapshot whose perception is nested;
+        # PerceptionIntegration returns the perception directly. Normalize that
+        # service-shape difference here so durable authorization fields always come
+        # from the actual Perception projection.
+        from victor.agent.services.runtime_intelligence import RuntimeIntelligenceSnapshot
+
+        perception_projection = (
+            perception_result.perception
+            if isinstance(perception_result, RuntimeIntelligenceSnapshot)
+            else perception_result
+        )
+        if perception_projection is None:
+            perception_projection = perception_result
+
         # Extract perception data as primitives. Perception services can return
         # enums or lightweight label objects; retaining those arbitrary objects
         # prevents durable JSON checkpoints from serializing StateGraph state.
-        raw_intent = getattr(perception_result, "intent", None)
-        raw_complexity = getattr(perception_result, "complexity", "medium")
-        raw_confidence = getattr(perception_result, "confidence", 0.5)
+        raw_intent = getattr(perception_projection, "intent", None)
+        raw_complexity = getattr(perception_projection, "complexity", "medium")
+        raw_confidence = getattr(perception_projection, "confidence", 0.5)
         perception = {
             "intent": _action_intent(raw_intent).value,
             "complexity": _text_value(raw_complexity, "medium"),
