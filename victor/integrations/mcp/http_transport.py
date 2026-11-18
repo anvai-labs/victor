@@ -36,12 +36,17 @@ Session state is a ``dict[str, MCPServer]`` of per-session views (see
 request with a 1h TTL — no external dependency.
 """
 
+from __future__ import annotations
+
 import json
 import time
 import uuid
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Mapping, Optional, Tuple
 
-from victor.integrations.mcp.server import MCPServer
+if TYPE_CHECKING:
+    # Type-annotation-only dependency on the server (the layering ratchet
+    # skips TYPE_CHECKING blocks); no runtime upward import.
+    from victor.integrations.mcp.server import MCPServer
 
 # Protocol versions this server can speak. The stdio constant
 # (MCP_PROTOCOL_VERSION = "2024-11-05") is NOT flipped — only the HTTP
