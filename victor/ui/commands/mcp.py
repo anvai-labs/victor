@@ -75,36 +75,11 @@ def _mcp(stdio: bool, log_level: Optional[str], no_graph_tools: bool = False):
 
 async def _run_mcp_server(no_graph_tools: bool = False) -> None:
     """Run MCP server with all registered tools."""
-    # Graph tools are enabled for the explicit-MCP-launch process (B3);
-    # --no-graph-tools opts out. Runtime override > env precedence.
-    apply_graph_tool_flag(no_graph_tools)
-
-    # Unified tool discovery (single source of truth, FEP-0049-followup B1)
-    registry = ToolRegistry()
-    registered_tools_count = register_discovered_tools(registry)
-
-    # Launch-time sandbox admission (B2): on failure the server still starts
-    # but every tools/call is refused (fail-closed).
-    from victor.integrations.mcp.server import _admit_or_refuse
+    from victor.integrations.mcp.assembly import create_mcp_server
 
     workspace_root = Path(os.getcwd())
-    exec_context, admission_refusal = _admit_or_refuse(workspace_root)
-
-    server = MCPServer(
-        name="Victor MCP Server",
-        version="1.0.0",
-        tool_registry=registry,
-        exec_context=exec_context,
-        admission_refusal=admission_refusal,
-    )
-    register_graph_index_resource(server, workspace_root)
-
-    posture = "sandboxed (admitted policy)" if exec_context else "ADMISSION REFUSAL (fail-closed)"
-    print(
-        f"Victor MCP Server starting with {registered_tools_count} tools; " f"posture: {posture}",
-        file=sys.stderr,
-    )
-    await server.start_stdio_server()
+    assembly = create_mcp_server(workspace_root, no_graph_tools=no_graph_tools)
+    await assembly.server.start_stdio_server()
 
 
 @mcp_app.command("list-tools")

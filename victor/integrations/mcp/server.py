@@ -835,36 +835,11 @@ async def run_mcp_server_stdio(no_graph_tools: bool = False) -> None:
     """
     import os
 
-    from victor.config.settings import Settings
-    from victor.integrations.mcp.discovery import register_discovered_tools
-    from victor.tools.registry import ToolRegistry
-
-    # Initialize settings
-    Settings()
-
-    apply_graph_tool_flag(no_graph_tools)
+    from victor.integrations.mcp.assembly import create_mcp_server
 
     workspace_root = Path(os.getcwd())
-    registry = ToolRegistry()
-    registered_count = register_discovered_tools(registry)
-
-    exec_context, admission_refusal = _admit_or_refuse(workspace_root)
-
-    server = MCPServer(
-        name="Victor MCP Server",
-        version="1.0.0",
-        tool_registry=registry,
-        exec_context=exec_context,
-        admission_refusal=admission_refusal,
-    )
-    register_graph_index_resource(server, workspace_root)
-
-    posture = "sandboxed (admitted policy)" if exec_context else "ADMISSION REFUSAL (fail-closed)"
-    print(
-        f"Starting MCP server with {registered_count} tools; posture: {posture}",
-        file=sys.stderr,
-    )
-    await server.start_stdio_server()
+    assembly = create_mcp_server(workspace_root, no_graph_tools=no_graph_tools)
+    await assembly.server.start_stdio_server()
 
 
 def main() -> None:
