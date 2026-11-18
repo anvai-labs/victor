@@ -31,5 +31,6 @@ class SandboxSettings(BaseModel):
     sandbox_policy: Optional[Literal["disabled", "preferred", "required"]] = None
     sandbox_filesystem_mode: str = "workspace-only"
     sandbox_namespace_restrictions: bool = True
-    sandbox_network_isolation: bool = False
+    sandbox_network_isolation: bool = True
+    sandbox_seccomp: bool = True
     sandbox_allowed_mounts: List[str] = Field(default_factory=list)
