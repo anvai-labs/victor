@@ -305,6 +305,7 @@ async def _index_async(
     force: bool,
     enable_embeddings: bool = False,
     *,
+    intent: Optional[bool] = None,
     precise: Optional[bool] = None,
     precise_timeout: Optional[int] = None,
     parse_workers: Optional[int] = None,
@@ -403,6 +404,11 @@ async def _index_async(
         root_path=root_path,
         enable_ccg=enable_ccg,
         enable_embeddings=enable_embeddings,
+        codebase_intent_indexing_enabled=(
+            intent
+            if intent is not None
+            else graph_flag(settings, "codebase_intent_indexing_enabled", False)
+        ),
         enable_scope_binding=graph_flag(settings, "enable_scope_binding", True),
         enable_precise_index=enable_precise,
         precise_index_timeout_seconds=timeout_seconds,
@@ -805,6 +811,15 @@ def graph_index(
         False,
         "--embeddings/--no-embeddings",
         help="Generate node embeddings for semantic graph search",
+    ),
+    intent: Optional[bool] = typer.Option(
+        None,
+        "--intent/--no-intent",
+        help=(
+            "Chunk-source intent-tier embeddings with Merkle incremental "
+            "sync (FEP-0049; default: "
+            "codebase.codebase_intent_indexing_enabled in settings)"
+        ),
     ),
     precise: Optional[bool] = typer.Option(
         None,

@@ -167,9 +167,11 @@ program adds the intent tier without giving up the structural model.
   (LanceDB code_chunks + intent_file_state in graph sqlite; crash-safety by
   commit ordering; symbol_oid correlation; embedding_ref never written —
   guard test); codebase_intent_indexing_enabled flag. 9 tests.
-- **Phase 3 NEXT**: intent_sync.py (Merkle-driven incremental embedding in
-  GraphIndexingPipeline, root-shortcut, delete-then-upsert per file) + CLI
-  --intent. **Phase 4**: seeding intent leg (per-leg normalization) +
+- **Phase 3 (#1917, stacked, IN REVIEW)**: intent_sync.py sync_intent_tier
+  (O(1) root shortcut, chunk-precise delete-then-upsert, marker-last crash
+  ordering, lazy encoder, profile-change rebuild) + GraphIndexingPipeline
+  hook (post-publication, flag-gated) + graph index --intent CLI. 7 work-set
+  tests. **Phase 4 TODO**: seeding intent leg (per-leg normalization) +
   graph similar --mode intent + graph_semantic_search mode.
 
 
