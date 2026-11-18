@@ -97,6 +97,15 @@ class TestInjectExecutionContext:
         assert result._execution_context_private is mock_ctx
         assert result.context.get("session_id") == "test-session"
 
+    def test_inject_execution_context_tolerates_minimal_owner(self):
+        """A fallback owner without a session id must not mask policy errors."""
+        state = create_initial_state(query="Test")
+
+        result = inject_execution_context(state, MagicMock(spec=[]))
+
+        assert result._execution_context_private is not None
+        assert result.context == {}
+
 
 class TestChatServiceNode:
     """Tests for chat_service_node."""
