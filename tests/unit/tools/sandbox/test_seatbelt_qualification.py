@@ -135,3 +135,20 @@ class TestSeatbeltQualification:
         )
         proc = _run(argv)
         assert proc.returncode == 0 and "forked-from-child" in proc.stdout
+
+    def test_devnull_write_allowed_when_process_opens_it(self, tmp_path):
+        """The wrapped process itself must be able to open /dev/null
+        (shell-level redirection doesn't count — the unsandboxed parent
+        opens that fd before exec). Deny-default blocked it until the
+        literal allow; curl -o /dev/null was the live failure (rc=56)."""
+        sandbox = SeatbeltSandbox()
+        argv = _wrapped(
+            sandbox,
+            ["/bin/sh", "-c", "/bin/echo QUALIFY-DN > /dev/null"],
+            cwd=str(tmp_path),
+        )
+        proc = _run(argv)
+        assert proc.returncode == 0, (
+            f"write to /dev/null was denied inside the sandbox "
+            f"(rc={proc.returncode}, stderr={proc.stderr[:200]})"
+        )
