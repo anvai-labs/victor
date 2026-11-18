@@ -59,7 +59,11 @@ class TestFactoryParity:
 
 class TestGraphToolFlag:
     def test_no_graph_tools_disables_flag(self, workspace, monkeypatch):
-        from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager, reset_feature_flag_manager
+        from victor.core.feature_flags import (
+            FeatureFlag,
+            get_feature_flag_manager,
+            reset_feature_flag_manager,
+        )
 
         monkeypatch.setenv("VICTOR_USE_GRAPH_QUERY_TOOL", "true")
         reset_feature_flag_manager()
@@ -69,7 +73,11 @@ class TestGraphToolFlag:
         reset_feature_flag_manager()
 
     def test_default_enables_graph_tools(self, workspace, monkeypatch):
-        from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager, reset_feature_flag_manager
+        from victor.core.feature_flags import (
+            FeatureFlag,
+            get_feature_flag_manager,
+            reset_feature_flag_manager,
+        )
 
         monkeypatch.delenv("VICTOR_USE_GRAPH_QUERY_TOOL", raising=False)
         reset_feature_flag_manager()
@@ -85,7 +93,8 @@ class TestAdmission:
         import victor.config.settings as settings_mod
 
         monkeypatch.setattr(
-            settings_mod, "get_settings",
+            settings_mod,
+            "get_settings",
             lambda: (_ for _ in ()).throw(RuntimeError("bad yaml")),
         )
         assembly = create_mcp_server(workspace)
