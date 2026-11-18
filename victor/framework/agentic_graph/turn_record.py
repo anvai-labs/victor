@@ -222,13 +222,23 @@ class TurnRecordChannel:
     """
 
     _latest: Optional[TurnRecord] = None
+    _latest_live: Any = None
 
     def publish(self, record: TurnRecord) -> None:
         self._latest = record.model_copy(deep=True)
+
+    def publish_live(self, result: Any) -> None:
+        """Cache the run-local ACT object without serializing it into graph state."""
+        self._latest_live = result
 
     @property
     def latest(self) -> Optional[TurnRecord]:
         return self._latest.model_copy(deep=True) if self._latest is not None else None
 
+    @property
+    def latest_live(self) -> Any:
+        return self._latest_live
+
     def clear(self) -> None:
         self._latest = None
+        self._latest_live = None
