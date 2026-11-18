@@ -125,3 +125,103 @@ class TestSerialization:
     def test_wrong_shape_rejected(self):
         with pytest.raises(MerkleFormatError):
             deserialize_tree('{"root": "x"}')
+
+
+class TestChunkGranularity:
+    """The tree extends directory -> file -> CONSTITUENT CHUNK so
+    chunk-relevant graph identity is represented at leaf granularity."""
+
+    def _chunked(self, deep_digest: str):
+        manifest = _manifest(**{"a/b/c/deep.py": 5, "a/b/other.py": 6, "z/u.py": 8})
+        chunks = {
+            "a/b/c/deep.py": {
+                "sym_a#body#0": str(deep_digest).zfill(64),
+                "sym_a#body#1": f"{21:064d}",
+            },
+            "a/b/other.py": {"sym_b#body#0": f"{22:064d}"},
+        }
+        return manifest, chunks
+
+    def test_file_digest_rolls_chunk_digests(self):
+        manifest, chunks = self._chunked(51)
+        t1 = build_merkle_tree(manifest, chunks)
+        # Same file content hash but a different chunk digest -> the FILE
+        # digest changes even though the manifest leaf is unchanged.
+        manifest2 = dict(manifest)
+        manifest2["a/b/c/deep.py"] = manifest["a/b/c/deep.py"]
+        t2 = build_merkle_tree(
+            manifest2,
+            {**chunks, "a/b/c/deep.py": {**chunks["a/b/c/deep.py"], "sym_a#body#0": f"{52:064d}"}},
+        )
+        assert t1.root != t2.root
+        # And the manifest leaf itself is preserved as the integrity check.
+        assert t1.leaves["a/b/c/deep.py"] == t2.leaves["a/b/c/deep.py"]
+
+    def test_chunk_ids_present_at_leaf_granularity(self):
+        manifest, chunks = self._chunked("51")
+        tree = build_merkle_tree(manifest, chunks)
+        assert set(tree.chunks["a/b/c/deep.py"]) == {"sym_a#body#0", "sym_a#body#1"}
+        assert "sym_b#body#0" in tree.chunks["a/b/other.py"]
+
+    def test_chunk_precise_diff_lists_only_changed_chunk(self):
+        manifest, chunks = self._chunked("51")
+        old = build_merkle_tree(manifest, chunks)
+        new = build_merkle_tree(
+            manifest,
+            {**chunks, "a/b/c/deep.py": {**chunks["a/b/c/deep.py"], "sym_a#body#0": f"{99:064d}"}},
+        )
+        diff = diff_merkle(new, old)
+        assert diff.changed_chunks == [("a/b/c/deep.py", "sym_a#body#0")]
+        # The manifest leaf did not change (file content hash is the
+        # integrity check), so file-level changes are empty.
+        assert diff.changed_files == []
+
+    def test_chunk_add_and_remove(self):
+        manifest, chunks = self._chunked("51")
+        old = build_merkle_tree(manifest, chunks)
+        grown = {**chunks["a/b/c/deep.py"], "sym_a#body#2": f"{23:064d}"}
+        new = build_merkle_tree(manifest, {**chunks, "a/b/c/deep.py": grown})
+        diff = diff_merkle(new, old)
+        assert ("a/b/c/deep.py", "sym_a#body#2") in diff.changed_chunks
+        shrunk = {k: v for k, v in grown.items() if k != "sym_a#body#2"}
+        newer = build_merkle_tree(manifest, {**chunks, "a/b/c/deep.py": shrunk})
+        diff2 = diff_merkle(newer, new)
+        assert ("a/b/c/deep.py", "sym_a#body#2") in diff2.changed_chunks
+
+    def test_unchanged_file_chunks_not_in_work_set(self):
+        manifest, chunks = self._chunked("51")
+        old = build_merkle_tree(manifest, chunks)
+        touched = {**chunks, "a/b/other.py": {"sym_b#body#0": f"{77:064d}"}}
+        new = build_merkle_tree(manifest, touched)
+        diff = diff_merkle(new, old)
+        assert all(path == "a/b/other.py" for path, _ in diff.changed_chunks)
+        assert ("a/b/c/deep.py", "sym_a#body#0") not in diff.changed_chunks
+
+    def test_chunked_roundtrip(self):
+        manifest, chunks = self._chunked("51")
+        tree = build_merkle_tree(manifest, chunks)
+        restored = deserialize_tree(serialize_tree(tree))
+        assert restored == tree
+        assert restored.chunks == tree.chunks
+
+    def test_files_without_chunks_fall_back_to_content_hash(self):
+        manifest, chunks = self._chunked("51")
+        tree = build_merkle_tree(manifest, chunks)
+        # z/u.py has no chunk entry: its file digest is the manifest hash.
+        flat = build_merkle_tree(manifest)
+        assert tree.nodes["z/"] == flat.nodes["z/"]
+
+    def test_manifest_hash_change_with_same_chunks_keeps_root(self):
+        """Chunk digests are the leaf truth once a file is chunked; the
+        manifest content hash moves to ``leaves`` as the coverage-drift
+        integrity check (identical chunks + changed content hash = chunk
+        coverage drift, detectable by comparing leaves)."""
+        manifest, chunks = self._chunked("51")
+        old = build_merkle_tree(manifest, chunks)
+        m2 = dict(manifest)
+        m2["a/b/c/deep.py"] = f"{6:064d}"
+        new = build_merkle_tree(m2, chunks)
+        assert new.root == old.root  # chunk digests unchanged -> no rework
+        assert new.leaves["a/b/c/deep.py"] != old.leaves["a/b/c/deep.py"]  # drift signal
+        assert diff_merkle(new, old).changed_files == []
+        assert diff_merkle(new, old).changed_chunks == []
