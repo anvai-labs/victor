@@ -465,8 +465,13 @@ class TestRunQuickstart:
         assert FakePopen.instances == []
 
     @respx.mock
-    async def test_full_provisioning_flow(self, victor_dir):
+    async def test_full_provisioning_flow(self, victor_dir, monkeypatch):
         mock_all_down()
+        # Min-size guards are real production constants; the mocked payloads
+        # are tiny, so scale the guards down for this test.
+        mp = monkeypatch
+        mp.setattr(qs, "LLAMACPP_GGUF_MIN_BYTES", 10)
+        mp.setattr(qs, "LLAMACPP_ARCHIVE_MIN_BYTES", 10)
         # Release lookup + binary download + GGUF download
         respx.get(LLAMACPP_RELEASES_API_URL).mock(
             return_value=httpx.Response(
@@ -664,3 +669,48 @@ class TestUrlConstants:
     def test_detected_server_dataclass(self):
         server = DetectedServer(name="ollama", kind="ollama", base_url=OLLAMA_BASE_URL)
         assert server.models == []
+
+
+class TestDownloadTruncationGuard:
+    async def test_truncated_download_raises_and_cleans_up(self, tmp_path):
+        """A stream below the expected minimum raises and leaves no partial
+        file (FEP follow-up: truncated GGUF must fail loudly)."""
+        import httpx
+        import respx
+
+        from victor.ui.commands import quickstart as qs
+
+        dest = tmp_path / "model.gguf"
+        with respx.mock:
+            respx.get("https://files.test/model.gguf").mock(
+                return_value=httpx.Response(200, content=b"tiny")
+            )
+            async with httpx.AsyncClient() as client:
+                with pytest.raises(ValueError, match="truncated"):
+                    await qs.download_file(
+                        client,
+                        "https://files.test/model.gguf",
+                        dest,
+                        expected_min_bytes=100,
+                    )
+        assert not dest.exists()
+
+    async def test_download_passes_when_above_minimum(self, tmp_path):
+        import httpx
+        import respx
+
+        from victor.ui.commands import quickstart as qs
+
+        dest = tmp_path / "model.gguf"
+        with respx.mock:
+            respx.get("https://files.test/model.gguf").mock(
+                return_value=httpx.Response(200, content=b"x" * 200)
+            )
+            async with httpx.AsyncClient() as client:
+                result = await qs.download_file(
+                    client,
+                    "https://files.test/model.gguf",
+                    dest,
+                    expected_min_bytes=100,
+                )
+        assert result == dest and dest.stat().st_size == 200

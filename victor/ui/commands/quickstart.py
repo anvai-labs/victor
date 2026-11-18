@@ -75,6 +75,11 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b"
 #: Small instruct GGUF (~4.4 GB Q4_K_M) from bartowski's canonical quantized
 #: mirror of Qwen/Qwen2.5-Coder-7B-Instruct.
 LLAMACPP_GGUF_FILENAME = "qwen2.5-coder-7b-instruct-Q4_K_M.gguf"
+# Q4_K_M of this model is ~4.4 GB; anything materially smaller is a
+# truncated or placeholder download and must fail loudly.
+LLAMACPP_GGUF_MIN_BYTES = 4_000_000_000
+# llama.cpp release archives are tens of MB.
+LLAMACPP_ARCHIVE_MIN_BYTES = 1_000_000
 LLAMACPP_GGUF_URL = (
     "https://huggingface.co/bartowski/qwen2.5-coder-7b-instruct-GGUF/resolve/main/"
     + LLAMACPP_GGUF_FILENAME
@@ -482,6 +487,7 @@ async def download_file(
     url: str,
     dest: Path,
     console: Optional[Console] = None,
+    expected_min_bytes: int | None = None,
 ) -> Path:
     """Stream ``url`` to ``dest`` (parent directories created)."""
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -490,8 +496,17 @@ async def download_file(
         with open(dest, "wb") as fh:
             async for chunk in response.aiter_bytes(chunk_size=1 << 20):
                 fh.write(chunk)
+    actual = dest.stat().st_size
+    if expected_min_bytes is not None and actual < expected_min_bytes:
+        # A truncated stream (proxy reset, disk full) must not be mistaken
+        # for a usable model/binary: fail loudly and remove the partial.
+        dest.unlink(missing_ok=True)
+        raise ValueError(
+            f"download of {dest.name} is truncated: {actual} bytes < "
+            f"expected minimum {expected_min_bytes}"
+        )
     if console is not None:
-        size_mb = dest.stat().st_size / (1 << 20)
+        size_mb = actual / (1 << 20)
         console.print(f"[dim]  Downloaded {dest.name} ({size_mb:.1f} MB)[/]")
     return dest
 
@@ -557,7 +572,10 @@ async def ensure_llamacpp_provisioned(
     async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=True) as client:
         if not gguf_path.exists():
             console.print(f"[dim]Downloading model ({LLAMACPP_GGUF_FILENAME})…[/]")
-            await download_file(client, LLAMACPP_GGUF_URL, gguf_path, console)
+            await download_file(
+                client, LLAMACPP_GGUF_URL, gguf_path, console,
+                expected_min_bytes=LLAMACPP_GGUF_MIN_BYTES,
+            )
         else:
             console.print(f"[dim]Model already present: {gguf_path}[/]")
 
@@ -577,7 +595,10 @@ async def ensure_llamacpp_provisioned(
             archive_name = asset_url.rsplit("/", 1)[-1]
             archive_path = tool_root / archive_name
             console.print(f"[dim]Downloading {archive_name}…[/]")
-            await download_file(client, asset_url, archive_path, console)
+            await download_file(
+                client, asset_url, archive_path, console,
+                expected_min_bytes=LLAMACPP_ARCHIVE_MIN_BYTES,
+            )
             if archive_name.endswith(".zip"):
                 _safe_extract_zip(archive_path, tool_root)
             else:
