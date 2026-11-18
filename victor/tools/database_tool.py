@@ -366,6 +366,25 @@ async def _do_query(
         cursor = conn.cursor()
         cursor.execute(sql)
 
+        # DuckDB reports DML (INSERT/UPDATE/DELETE) as a one-column 'Count'
+        # result set rather than as a description-less statement; normalize it
+        # to the cross-backend rows_affected contract.
+        if (
+            connection_id.startswith("duckdb")
+            and cursor.description
+            and len(cursor.description) == 1
+            and cursor.description[0][0] == "Count"
+            and not sql.lstrip().upper().startswith("SELECT")
+        ):
+            row = cursor.fetchone()
+            affected = row[0] if row is not None else 0
+            conn.commit()
+            return {
+                "success": True,
+                "rows_affected": affected,
+                "message": f"Query executed successfully. Rows affected: {affected}",
+            }
+
         # Check if query returns results
         if cursor.description:
             # SELECT query - fetch results
@@ -426,7 +445,8 @@ async def _do_tables(
         elif connection_id.startswith("duckdb"):
             sql = (
                 "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = 'main' ORDER BY table_name"
+                "WHERE table_schema = 'main' AND table_type = 'BASE TABLE' "
+                "ORDER BY table_name"
             )
         elif connection_id.startswith("postgresql"):
             sql = "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
@@ -476,7 +496,18 @@ async def _do_describe(
             ]
 
         elif connection_id.startswith("duckdb"):
-            cursor.execute(f'DESCRIBE SELECT * FROM "{table}"')
+            # Guarded identifier: DuckDB has no parameter binding for
+            # identifiers, so escape embedded quotes and refuse anything that
+            # still contains statement structure (defense in depth against
+            # injection through the table name; the read-only guard only
+            # covers the query action).
+            safe_table = table.replace('"', '""')
+            if ";" in table or "--" in table:
+                return {
+                    "success": False,
+                    "error": "Invalid table name: statement delimiters are not allowed",
+                }
+            cursor.execute(f'DESCRIBE SELECT * FROM "{safe_table}"')
             rows = cursor.fetchall()
             columns = [
                 {

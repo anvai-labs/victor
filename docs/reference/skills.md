@@ -158,10 +158,11 @@ hard-coded, so the same skill transfers to any database with documentation.
 
 ### User-YAML form (override or standalone)
 
-Skills are source-agnostic: a YAML file in `~/.victor/skills/` with the **same name
-overrides the built-in** (the registry is keyed by name); a different name adds a new
-skill. Copy this to `~/.victor/skills/text_to_sql.yaml` to customize the built-in without
-touching the installed package:
+Skills are source-agnostic: a YAML file in `~/.victor/skills/` with the **same name takes
+precedence over the built-in at agent startup** (the registry is keyed by name, and user
+skills load after vertical skills); a different name adds a new skill. Copy this to
+`~/.victor/skills/text_to_sql.yaml` to customize the built-in without touching the
+installed package (restart the agent after editing so the registry reloads):
 
 ```yaml
 name: text_to_sql

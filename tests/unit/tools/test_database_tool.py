@@ -514,3 +514,97 @@ class TestDuckDB:
         finally:
             await database(action="disconnect", connection_id=result["connection_id"])
             os.unlink(parquet_path)
+
+
+class TestDuckDBHardening:
+    """Adversarial-review fixes: identifier safety, DML semantics, view filtering."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(not DUCKDB_AVAILABLE, reason="duckdb not installed")
+    async def test_describe_rejects_statement_delimiters(self):
+        """Injection through the table name must fail closed, not execute."""
+        conn = DatabaseConnection(database=":memory:", db_type="duckdb")
+        result = await database(action="connect", connection=conn)
+        cid = result["connection_id"]
+        try:
+            evil = 't"; CREATE TABLE pwned (x INT);--'
+            described = await database(action="describe", connection_id=cid, table=evil)
+            assert described["success"] is False
+            assert "Invalid table name" in described["error"]
+            tables = await database(action="tables", connection_id=cid)
+            assert "pwned" not in tables["tables"]
+        finally:
+            await database(action="disconnect", connection_id=cid)
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(not DUCKDB_AVAILABLE, reason="duckdb not installed")
+    async def test_describe_escapes_embedded_quotes(self):
+        """Legitimate table names containing double quotes describe correctly."""
+        conn = DatabaseConnection(database=":memory:", db_type="duckdb")
+        result = await database(action="connect", connection=conn)
+        cid = result["connection_id"]
+        try:
+            await database(
+                action="query",
+                connection_id=cid,
+                sql='CREATE TABLE "we""ird" (a INT)',
+                allow_modifications=True,
+            )
+            described = await database(action="describe", connection_id=cid, table='we"ird')
+            assert described["success"] is True
+            assert described["columns"][0]["name"] == "a"
+        finally:
+            await database(action="disconnect", connection_id=cid)
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(not DUCKDB_AVAILABLE, reason="duckdb not installed")
+    async def test_insert_reports_rows_affected(self):
+        """DML returns the cross-backend rows_affected contract, not a Count row."""
+        conn = DatabaseConnection(database=":memory:", db_type="duckdb")
+        result = await database(action="connect", connection=conn)
+        cid = result["connection_id"]
+        try:
+            await database(
+                action="query",
+                connection_id=cid,
+                sql="CREATE TABLE t (id INTEGER)",
+                allow_modifications=True,
+            )
+            inserted = await database(
+                action="query",
+                connection_id=cid,
+                sql="INSERT INTO t VALUES (1), (2), (3)",
+                allow_modifications=True,
+            )
+            assert inserted["success"] is True
+            assert inserted.get("rows_affected") == 3
+            assert "rows" not in inserted
+        finally:
+            await database(action="disconnect", connection_id=cid)
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(not DUCKDB_AVAILABLE, reason="duckdb not installed")
+    async def test_tables_excludes_views(self):
+        """Views are not listed as tables (parity with the sqlite branch)."""
+        conn = DatabaseConnection(database=":memory:", db_type="duckdb")
+        result = await database(action="connect", connection=conn)
+        cid = result["connection_id"]
+        try:
+            await database(
+                action="query",
+                connection_id=cid,
+                sql="CREATE TABLE base_t (a INT)",
+                allow_modifications=True,
+            )
+            await database(
+                action="query",
+                connection_id=cid,
+                sql="CREATE VIEW v AS SELECT * FROM base_t",
+                allow_modifications=True,
+            )
+            tables = await database(action="tables", connection_id=cid)
+            assert tables["success"] is True
+            assert "base_t" in tables["tables"]
+            assert "v" not in tables["tables"]
+        finally:
+            await database(action="disconnect", connection_id=cid)
