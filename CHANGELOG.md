@@ -23,6 +23,13 @@ Prepared package version: **0.31.1**.
   (#1933), the ADR-036 graduation-battery test skeleton (#1937), and MCP JSON-RPC
   notification/integer-id session semantics (#1938).
 
+### Fixed
+
+- Correct MCP JSON-RPC notification handling, strict request-ID validation, and
+  integer request-ID correlation (including ID `0`); preserve IDs on
+  method-not-found and malformed-parameter responses, and reset mutable
+  initialization/refusal state in per-session server views.
+
 ## [0.31.0] - Published 2026-11-18
 
 Published package version: **0.31.0**.
