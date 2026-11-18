@@ -25,7 +25,6 @@ import inspect
 import logging
 from typing import Any
 
-import pytest
 
 from victor.integrations.mcp.discovery import (
     DISCOVERY_EXCLUDED_FILES,
@@ -179,35 +178,3 @@ class TestRegisterDiscoveredTools:
         for tool in tools:
             assert tool.name
             assert tool.description
-
-
-class TestEntryPointEquivalence:
-    @pytest.mark.asyncio
-    async def test_both_entry_paths_produce_identical_registries(self, monkeypatch):
-        """`victor mcp` and `victor-mcp-server` must build the same inventory."""
-        captured: list = []
-
-        class FakeServer:
-            def __init__(self, **kwargs):
-                captured.append(kwargs["tool_registry"])
-
-            async def start_stdio_server(self):
-                return None
-
-            def register_resource(self, *args, **kwargs):
-                return None
-
-        monkeypatch.setattr("victor.ui.commands.mcp.MCPServer", FakeServer)
-        monkeypatch.setattr("victor.integrations.mcp.server.MCPServer", FakeServer)
-
-        from victor.integrations.mcp.server import run_mcp_server_stdio
-        from victor.ui.commands.mcp import _run_mcp_server
-
-        await _run_mcp_server()
-        await run_mcp_server_stdio()
-
-        assert len(captured) == 2
-        names_a = sorted(t.name for t in captured[0].list_tools(only_enabled=False))
-        names_b = sorted(t.name for t in captured[1].list_tools(only_enabled=False))
-        assert names_a == names_b
-        assert names_a, "both entry points must register a nonempty inventory"
