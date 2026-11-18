@@ -38,6 +38,7 @@ verticals:
       - complexity
       - documentation
       - codebase_verify
+      - database
     max_semantic_pool: 5
     readonly_only_for_analysis: true
 

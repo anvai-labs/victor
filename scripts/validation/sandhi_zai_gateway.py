@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -31,6 +32,9 @@ def private_write(path, text):
 
 
 def request(url, token=None, payload=None):
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Refusing non-HTTP URL scheme: {parsed.scheme!r}")
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"

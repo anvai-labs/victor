@@ -22,6 +22,7 @@ no base-schema tokens for coding/general sessions.
 
 Example commands:
     db connect --type sqlite --database ./app.db
+    db connect --type duckdb --database :memory:   # then: db query "SELECT * FROM read_parquet('f.parquet') LIMIT 10"
     db query "SELECT * FROM users LIMIT 5"
     db tables
     db describe users
@@ -57,7 +58,7 @@ def create_db_parser() -> UnifiedDbParser:
     subparsers = parser.add_subparsers(dest="subcommand", help="The operation to perform")
 
     connect = subparsers.add_parser("connect", help="Open a database connection")
-    connect.add_argument("--type", default="sqlite", help="sqlite|postgres|mysql|sqlserver")
+    connect.add_argument("--type", default="sqlite", help="sqlite|duckdb|postgres|mysql|sqlserver")
     connect.add_argument("--database", default=None, help="Database name/path")
     connect.add_argument("--host", default=None)
     connect.add_argument("--port", default=None, type=int)

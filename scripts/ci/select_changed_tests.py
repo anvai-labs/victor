@@ -1283,6 +1283,16 @@ RELATED_TESTS = {
         "tests/unit/tools/test_tool_registrar.py",
         "tests/unit/security/test_mcp_policy_boundary.py",
     ),
+    # MCP code-intel modules (FEP-0049 followup): unit suites live in
+    # tests/unit/agent/ (server/discovery/context) per the MCP server tests.
+    "victor/integrations/mcp/discovery.py": (
+        "tests/unit/agent/test_mcp_discovery.py",
+        "tests/unit/agent/test_mcp_server.py",
+    ),
+    "victor/integrations/mcp/context.py": (
+        "tests/unit/agent/test_mcp_context.py",
+        "tests/unit/agent/test_mcp_server.py",
+    ),
     "victor/integrations/mcp/protocol.py": (
         "tests/unit/agent/test_mcp_protocol.py",
         *MCP_SCHEMA_TESTS,
