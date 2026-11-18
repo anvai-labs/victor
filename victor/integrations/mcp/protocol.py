@@ -20,9 +20,11 @@ Based on the Model Context Protocol by Anthropic.
 
 from copy import deepcopy
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+MCPMessageID = Union[str, int]
 
 
 class MCPMessageType(str, Enum):
@@ -104,11 +106,19 @@ class MCPMessage(BaseModel):
     """MCP protocol message."""
 
     jsonrpc: str = Field(default="2.0", description="JSON-RPC version")
-    id: Optional[str] = Field(default=None, description="Message ID")
+    id: Optional[MCPMessageID] = Field(default=None, description="Message ID")
     method: Optional[MCPMessageType] = Field(default=None, description="Method name")
     params: Optional[Dict[str, Any]] = Field(default=None, description="Method parameters")
     result: Optional[Any] = Field(default=None, description="Result (for responses)")
     error: Optional[Dict[str, Any]] = Field(default=None, description="Error (for error responses)")
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def validate_json_rpc_id(cls, value: Any) -> Any:
+        """Reject IDs outside the JSON-RPC string/number set."""
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (str, int))):
+            raise ValueError("JSON-RPC ID must be a string or number")
+        return value
 
 
 class MCPCapabilities(BaseModel):

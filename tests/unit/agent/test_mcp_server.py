@@ -374,36 +374,148 @@ class TestMCPServerHandleMessage:
 
     @pytest.mark.asyncio
     async def test_handle_unknown_method(self):
-        """Test handling unknown method."""
+        """Unknown methods return method-not-found and preserve request IDs."""
         server = MCPServer()
 
         response = await server.handle_message(
             {
                 "jsonrpc": "2.0",
-                "id": "11",
+                "id": 73,
                 "method": "unknown_method",
             }
         )
 
-        # Unknown method triggers parse error due to MCPMessage validation
-        assert "error" in response
-        # Can be parse error (-32700) or method not found (-32601)
-        assert response["error"]["code"] in [-32700, -32601]
+        assert response["id"] == 73
+        assert response["error"]["code"] == -32601
 
     @pytest.mark.asyncio
-    async def test_handle_parse_error(self):
-        """Test handling parse errors or invalid messages."""
+    async def test_integer_id_zero_is_preserved(self):
+        """Integer zero is a valid JSON-RPC request ID."""
         server = MCPServer()
 
         response = await server.handle_message(
             {
-                "invalid": "message",
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": MCPMessageType.INITIALIZE.value,
+                "params": {},
             }
         )
 
+        assert response["id"] == 0
+        assert "result" in response
+        assert server.initialized is True
+
+    @pytest.mark.asyncio
+    async def test_malformed_params_preserve_request_id(self):
+        """Parsed requests with malformed params keep their correlation ID."""
+        server = MCPServer()
+
+        response = await server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": MCPMessageType.CALL_TOOL.value,
+                "params": [],
+            }
+        )
+
+        assert response["id"] == 0
+        assert response["error"]["code"] == -32602
+
+    @pytest.mark.asyncio
+    async def test_boolean_ids_are_invalid(self):
+        """Booleans are not JSON-RPC IDs even though Python bool is int."""
+        server = MCPServer()
+
+        response = await server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": True,
+                "method": MCPMessageType.PING.value,
+            }
+        )
+
+        assert response["id"] is None
+        assert response["error"]["code"] == -32600
+
+    @pytest.mark.asyncio
+    async def test_notifications_never_receive_responses(self):
+        """Id-less messages, including initialize, are notifications."""
+        server = MCPServer()
+
+        initialized = await server.handle_message(
+            {"jsonrpc": "2.0", "method": MCPMessageType.INITIALIZE.value, "params": {}}
+        )
+        ping = await server.handle_message(
+            {"jsonrpc": "2.0", "id": None, "method": MCPMessageType.PING.value}
+        )
+        unknown = await server.handle_message({"jsonrpc": "2.0", "method": "unknown/method"})
+
+        assert initialized is None
+        assert server.initialized is True
+        assert ping is None
+        assert unknown is None
+
+    @pytest.mark.asyncio
+    async def test_handle_parse_error(self):
+        """Id-less invalid messages are notifications — no response (spec).
+        Requests with an id that fail parsing still get -32700."""
+        server = MCPServer()
+
+        # Id-less invalid message: notification → None
+        response = await server.handle_message({"invalid": "message"})
+        assert response is None
+
+        # Valid request with unknown method: gets -32601
+        response = await server.handle_message(
+            {"jsonrpc": "2.0", "id": "req-1", "method": "nonexistent/method"}
+        )
         assert "error" in response
-        # Can be parse error (-32700) or method not found (-32601)
-        assert response["error"]["code"] in [-32700, -32601]
+        # -32700 is also acceptable: unknown shape may parse as invalid
+        assert response["error"]["code"] in (-32601, -32700)
+
+
+class TestMCPServerSessionViews:
+    """Tests for per-session server views."""
+
+    def test_for_session_resets_mutable_session_state(self):
+        """A session starts uninitialized and owns its refusal counter."""
+        registry = ToolRegistry()
+        root = MCPServer(tool_registry=registry)
+        root.initialized = True
+        root._refusal_count = 7
+        resource = MCPResource(uri="file:///a.txt", name="A", description="File A")
+        root.register_resource(resource, lambda: "read")
+
+        view = root.for_session("session-a")
+
+        assert view._session_id == "session-a"
+        assert view.initialized is False
+        assert view._refusal_count == 0
+        assert view.tool_registry is registry
+        assert view.resources is root.resources
+        assert view._resource_read_handlers is root._resource_read_handlers
+        assert root.initialized is True
+        assert root._refusal_count == 7
+
+    @pytest.mark.asyncio
+    async def test_session_view_requires_its_own_initialize(self):
+        """Root initialization cannot bypass a session handshake."""
+        root = MCPServer()
+        root.initialized = True
+        view = root.for_session("session-a")
+
+        response = await view.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": MCPMessageType.LIST_TOOLS.value,
+            }
+        )
+
+        assert response["id"] == 0
+        assert response["error"]["code"] == -32002
 
 
 class TestMCPServerHelpers:
@@ -604,8 +716,8 @@ class TestMCPServerMessageWithoutId:
     """Tests for messages without ID."""
 
     @pytest.mark.asyncio
-    async def test_handle_message_generates_id(self):
-        """Test that message ID is generated if not provided."""
+    async def test_initialize_without_id_is_a_notification(self):
+        """An initialize notification changes state but receives no response."""
         server = MCPServer()
 
         response = await server.handle_message(
@@ -616,9 +728,8 @@ class TestMCPServerMessageWithoutId:
             }
         )
 
-        # Should still work and return a response
-        assert "result" in response
-        assert response["id"] is not None
+        assert response is None
+        assert server.initialized is True
 
 
 class TestMCPServerListResourcesNotInitialized:

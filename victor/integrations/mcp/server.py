@@ -23,9 +23,10 @@ import inspect
 import json
 import logging
 import sys
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Tuple
+
+from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from victor.integrations.mcp.context import MCPToolContext
@@ -36,6 +37,7 @@ from victor.integrations.mcp.protocol import (
     MCP_PROTOCOL_VERSION,
     MCPCapabilities,
     MCPMessage,
+    MCPMessageID,
     MCPMessageType,
     MCPParameter,
     MCPParameterType,
@@ -48,6 +50,8 @@ from victor.tools.base import BaseTool
 from victor.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+_KNOWN_MCP_METHODS = frozenset(method.value for method in MCPMessageType)
 
 GRAPH_INDEX_RESOURCE_URI = "victor://graph/index-status"
 GRAPH_INDEX_RESOURCE_NAME = "Codegraph index status"
@@ -84,9 +88,10 @@ class MCPServer:
         """
         self.name = name
         self.version = version
-        self.tool_registry = tool_registry or ToolRegistry()
+        self.tool_registry = tool_registry if tool_registry is not None else ToolRegistry()
         self.exec_context = exec_context
         self.admission_refusal = admission_refusal
+        self._session_id: Optional[str] = None
         self._refusal_count = 0
 
         self.info = MCPServerInfo(
@@ -189,44 +194,117 @@ class MCPServer:
             parameters=mcp_params,
         )
 
-    async def handle_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def handle_message(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Handle incoming MCP message.
+
+        Notifications (id-less messages) are processed for state effects
+        and return ``None`` — JSON-RPC spec: notifications are never
+        answered, even for errors. Transports decide what ``None`` means
+        (stdio: no write; HTTP: 202 Accepted).
 
         Args:
             message: MCP message dictionary
 
         Returns:
-            Response message dictionary
+            Response message dictionary, or ``None`` for notifications.
         """
+        is_notification = "id" not in message or message["id"] is None
+        raw_id = message.get("id")
+        raw_method = message.get("method")
+        raw_id_is_valid = raw_id is None or (
+            isinstance(raw_id, (str, int)) and not isinstance(raw_id, bool)
+        )
+
+        # MCPMessage intentionally models known methods as an enum. Handle a
+        # syntactically valid but unknown JSON-RPC method before validation so
+        # the request receives -32601 (not a parse error) and keeps its ID.
+        if isinstance(raw_method, str) and raw_method not in _KNOWN_MCP_METHODS and raw_id_is_valid:
+            if is_notification:
+                return None
+            return self._create_error(raw_id, -32601, f"Method not found: {raw_method}")
+
         try:
             mcp_msg = MCPMessage(**message)
-            msg_id = mcp_msg.id or str(uuid.uuid4())
 
             if mcp_msg.method == MCPMessageType.INITIALIZE:
-                return await self._handle_initialize(msg_id, mcp_msg.params or {})
+                if is_notification:
+                    self.initialized = True
+                    return None
+                return await self._handle_initialize(mcp_msg.id, mcp_msg.params or {})
 
             elif mcp_msg.method == MCPMessageType.LIST_TOOLS:
-                return await self._handle_list_tools(msg_id)
+                if is_notification:
+                    return None
+                return await self._handle_list_tools(mcp_msg.id)
 
             elif mcp_msg.method == MCPMessageType.CALL_TOOL:
-                return await self._handle_call_tool(msg_id, mcp_msg.params or {})
+                if is_notification:
+                    return None
+                return await self._handle_call_tool(mcp_msg.id, mcp_msg.params or {})
 
             elif mcp_msg.method == MCPMessageType.LIST_RESOURCES:
-                return await self._handle_list_resources(msg_id)
+                if is_notification:
+                    return None
+                return await self._handle_list_resources(mcp_msg.id)
 
             elif mcp_msg.method == MCPMessageType.READ_RESOURCE:
-                return await self._handle_read_resource(msg_id, mcp_msg.params or {})
+                if is_notification:
+                    return None
+                return await self._handle_read_resource(mcp_msg.id, mcp_msg.params or {})
 
             elif mcp_msg.method == MCPMessageType.PING:
-                return self._create_response(msg_id, {"pong": True})
+                if is_notification:
+                    return None
+                return self._create_response(mcp_msg.id, {"pong": True})
 
             else:
-                return self._create_error(msg_id, -32601, f"Method not found: {mcp_msg.method}")
+                # Unknown notifications never receive an answer. A missing
+                # method on a request is an invalid request.
+                if is_notification:
+                    return None
+                return self._create_error(mcp_msg.id, -32600, "Invalid request: method is required")
 
+        except ValidationError as e:
+            if is_notification:
+                return None
+            invalid_params = any(error.get("loc", ())[:1] == ("params",) for error in e.errors())
+            code = -32602 if invalid_params else -32600
+            label = "Invalid params" if invalid_params else "Invalid request"
+            response_id = raw_id if raw_id_is_valid and not is_notification else None
+            return self._create_error(response_id, code, f"{label}: {e}")
         except Exception as e:
+            if is_notification:
+                return None
             return self._create_error(None, -32700, f"Parse error: {str(e)}")
 
-    async def _handle_initialize(self, msg_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    def for_session(self, session_id: str) -> "MCPServer":
+        """Create a per-session view sharing immutable state.
+
+        Shares: tool_registry, exec_context, admission_refusal, resources,
+        _resource_read_handlers (all registered at launch, read-only after).
+        Copies (per-session): ``initialized = False``, ``_refusal_count = 0``,
+        and the stdio transport fields stay only on the root instance.
+
+        Concurrency: ``tool_registry.execute`` is already invoked concurrently
+        by the agent loop; MCP tool calls across sessions hit the same
+        registry — no new lock needed. ``resources`` list mutation after
+        launch would race; ``register_resource`` is launch-time only.
+        """
+        view = MCPServer(
+            name=self.name,
+            version=self.version,
+            tool_registry=self.tool_registry,
+            exec_context=self.exec_context,
+            admission_refusal=self.admission_refusal,
+        )
+        view._session_id = session_id
+        view.resources = self.resources
+        view._resource_read_handlers = self._resource_read_handlers
+        return view
+
+    async def _handle_initialize(
+        self, msg_id: MCPMessageID, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Handle initialize request.
 
         Args:
@@ -247,7 +325,7 @@ class MCPServer:
             },
         )
 
-    async def _handle_list_tools(self, msg_id: str) -> Dict[str, Any]:
+    async def _handle_list_tools(self, msg_id: MCPMessageID) -> Dict[str, Any]:
         """Handle list tools request.
 
         Args:
@@ -266,7 +344,9 @@ class MCPServer:
 
         return self._create_response(msg_id, {"tools": tools})
 
-    async def _handle_call_tool(self, msg_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_call_tool(
+        self, msg_id: MCPMessageID, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Handle call tool request.
 
         Args:
@@ -343,7 +423,7 @@ class MCPServer:
         except Exception as e:
             return self._create_error(msg_id, -32603, f"Tool execution error: {str(e)}")
 
-    async def _handle_list_resources(self, msg_id: str) -> Dict[str, Any]:
+    async def _handle_list_resources(self, msg_id: MCPMessageID) -> Dict[str, Any]:
         """Handle list resources request.
 
         Args:
@@ -358,7 +438,9 @@ class MCPServer:
         resources = [r.model_dump() for r in self.resources]
         return self._create_response(msg_id, {"resources": resources})
 
-    async def _handle_read_resource(self, msg_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_read_resource(
+        self, msg_id: MCPMessageID, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Handle read resource request.
 
         Args:
@@ -426,7 +508,7 @@ class MCPServer:
 
         return self._create_error(msg_id, -32001, "Resource type not supported")
 
-    def _create_response(self, msg_id: str, result: Any) -> Dict[str, Any]:
+    def _create_response(self, msg_id: MCPMessageID, result: Any) -> Dict[str, Any]:
         """Create success response.
 
         Args:
@@ -438,7 +520,9 @@ class MCPServer:
         """
         return {"jsonrpc": "2.0", "id": msg_id, "result": result}
 
-    def _create_error(self, msg_id: Optional[str], code: int, message: str) -> Dict[str, Any]:
+    def _create_error(
+        self, msg_id: Optional[MCPMessageID], code: int, message: str
+    ) -> Dict[str, Any]:
         """Create error response.
 
         Args:
@@ -556,8 +640,10 @@ class MCPServer:
                     message = json.loads(line_str)
                     response = await self.handle_message(message)
 
-                    # Write response using native async write
-                    await self._write_response(writer, response)
+                    # Notifications (handle_message → None) are never
+                    # written — JSON-RPC spec: no response for notifications.
+                    if response is not None:
+                        await self._write_response(writer, response)
 
                 except json.JSONDecodeError as e:
                     error_response = self._create_error(None, -32700, f"Parse error: {str(e)}")
