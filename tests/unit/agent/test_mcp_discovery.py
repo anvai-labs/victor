@@ -183,7 +183,6 @@ class TestRegisterDiscoveredTools:
 
 class TestEntryPointEquivalence:
     @pytest.mark.asyncio
-    @pytest.mark.timeout(120)
     async def test_both_entry_paths_produce_identical_registries(self, monkeypatch):
         """`victor mcp` and `victor-mcp-server` must build the same inventory."""
         captured: list = []

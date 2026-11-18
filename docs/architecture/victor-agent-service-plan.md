@@ -97,7 +97,7 @@ edit. A mock test is not live provider or C5 evidence.
   (`feat/run-policy-snapshot`), baseline `fc83a1bcd`; merged as squash
   `e671e56e7` with every applicable CI check green (including Vertical Py3.12,
   changed-file tests, full collection and both FEP validators). Draft
-  [FEP-0044](../feps/fep-0044-immutable-run-policy-snapshot.md). RED
+  FEP-0044. RED
   (six intended failures after adding only the missing typed owner): buffered
   and streaming durable pauses had no `run_policy` metadata; unreadable
   settings reached chat-runtime resolution; and an approved paused write
