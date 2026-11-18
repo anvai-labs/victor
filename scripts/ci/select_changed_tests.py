@@ -1346,6 +1346,14 @@ RELATED_TESTS = {
         "tests/unit/agent/test_turn_policy.py",
     ),
     "victor/config/groups/recovery_config.py": ("tests/unit/config/test_phase4_config_groups.py",),
+    "victor/config/groups/codebase_config.py": (
+        "tests/unit/config/test_phase5_config_groups.py",
+        "tests/unit/config/test_settings_stratification.py",
+    ),
+    "victor/config/groups/embedding_config.py": (
+        "tests/unit/config/test_phase5_config_groups.py",
+        "tests/unit/config/test_settings_stratification.py",
+    ),
     "victor/config/pipeline_settings.py": ("tests/unit/config/test_settings_stratification.py",),
     "victor/contrib/mode_config/mode_helpers.py": ("tests/unit/contrib/test_contrib_base.py",),
     "victor/core/vertical_types.py": (
