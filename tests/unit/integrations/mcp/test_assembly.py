@@ -65,7 +65,11 @@ class TestGraphToolFlag:
         reset_feature_flag_manager()
 
     def test_default_enables_graph_tools(self, workspace, monkeypatch):
-        from victor.core.feature_flags import FeatureFlag, get_feature_flag_manager, reset_feature_flag_manager
+        from victor.core.feature_flags import (
+            FeatureFlag,
+            get_feature_flag_manager,
+            reset_feature_flag_manager,
+        )
 
         monkeypatch.delenv("VICTOR_USE_GRAPH_QUERY_TOOL", raising=False)
         reset_feature_flag_manager()
