@@ -160,8 +160,13 @@ class TestDeviceDetection:
 
     def test_cuda_available_returns_cuda(self):
         """GPU hosts get cuda (NVIDIA or AMD/ROCm — both surface through torch.cuda)."""
-        import torch
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                pytest.skip("CUDA not available")
+        except ImportError:
+            pytest.skip("torch not installed")
         from victor_codegraph.embeddings import detect_best_device
 
-        if torch.cuda.is_available():
-            assert detect_best_device() == "cuda"
+        assert detect_best_device() == "cuda"
