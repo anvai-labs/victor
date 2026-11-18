@@ -189,42 +189,91 @@ class MCPServer:
             parameters=mcp_params,
         )
 
-    async def handle_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def handle_message(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Handle incoming MCP message.
+
+        Notifications (id-less messages) are processed for state effects
+        and return ``None`` — JSON-RPC spec: notifications are never
+        answered, even for errors. Transports decide what ``None`` means
+        (stdio: no write; HTTP: 202 Accepted).
 
         Args:
             message: MCP message dictionary
 
         Returns:
-            Response message dictionary
+            Response message dictionary, or ``None`` for notifications.
         """
+        is_notification = "id" not in message or message["id"] is None
         try:
             mcp_msg = MCPMessage(**message)
-            msg_id = mcp_msg.id or str(uuid.uuid4())
 
             if mcp_msg.method == MCPMessageType.INITIALIZE:
+                msg_id = mcp_msg.id or str(uuid.uuid4())
                 return await self._handle_initialize(msg_id, mcp_msg.params or {})
 
             elif mcp_msg.method == MCPMessageType.LIST_TOOLS:
-                return await self._handle_list_tools(msg_id)
+                if is_notification:
+                    return None
+                return await self._handle_list_tools(mcp_msg.id)
 
             elif mcp_msg.method == MCPMessageType.CALL_TOOL:
-                return await self._handle_call_tool(msg_id, mcp_msg.params or {})
+                if is_notification:
+                    return None
+                return await self._handle_call_tool(mcp_msg.id, mcp_msg.params or {})
 
             elif mcp_msg.method == MCPMessageType.LIST_RESOURCES:
-                return await self._handle_list_resources(msg_id)
+                if is_notification:
+                    return None
+                return await self._handle_list_resources(mcp_msg.id)
 
             elif mcp_msg.method == MCPMessageType.READ_RESOURCE:
-                return await self._handle_read_resource(msg_id, mcp_msg.params or {})
+                if is_notification:
+                    return None
+                return await self._handle_read_resource(mcp_msg.id, mcp_msg.params or {})
 
             elif mcp_msg.method == MCPMessageType.PING:
-                return self._create_response(msg_id, {"pong": True})
+                if is_notification:
+                    return None
+                return self._create_response(mcp_msg.id, {"pong": True})
 
             else:
-                return self._create_error(msg_id, -32601, f"Method not found: {mcp_msg.method}")
+                # Notifications are never answered (JSON-RPC spec) — even
+                # unknown methods get no response, just a parse error if
+                # the notification carries a valid id.
+                if is_notification:
+                    return None
+                return self._create_error(None, -32601, f"Method not found: {mcp_msg.method}")
 
         except Exception as e:
+            if is_notification:
+                return None
             return self._create_error(None, -32700, f"Parse error: {str(e)}")
+
+    def for_session(self, session_id: str) -> "MCPServer":
+        """Create a per-session view sharing immutable state.
+
+        Shares: tool_registry, exec_context, admission_refusal, resources,
+        _resource_read_handlers (all registered at launch, read-only after).
+        Copies (per-session): ``initialized = False``, ``_refusal_count = 0``,
+        and the stdio transport fields stay only on the root instance.
+
+        Concurrency: ``tool_registry.execute`` is already invoked concurrently
+        by the agent loop; MCP tool calls across sessions hit the same
+        registry — no new lock needed. ``resources`` list mutation after
+        launch would race; ``register_resource`` is launch-time only.
+        """
+        view = MCPServer(
+            name=self.name,
+            version=self.version,
+            tool_registry=self.tool_registry,
+            exec_context=self.exec_context,
+            admission_refusal=self.admission_refusal,
+        )
+        view.initialized = self.initialized
+        view._refusal_count = self._refusal_count
+        view.resources = self.resources
+        view._resource_read_handlers = self._resource_read_handlers
+        return view
 
     async def _handle_initialize(self, msg_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle initialize request.
@@ -556,8 +605,10 @@ class MCPServer:
                     message = json.loads(line_str)
                     response = await self.handle_message(message)
 
-                    # Write response using native async write
-                    await self._write_response(writer, response)
+                    # Notifications (handle_message → None) are never
+                    # written — JSON-RPC spec: no response for notifications.
+                    if response is not None:
+                        await self._write_response(writer, response)
 
                 except json.JSONDecodeError as e:
                     error_response = self._create_error(None, -32700, f"Parse error: {str(e)}")
