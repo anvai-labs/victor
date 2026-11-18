@@ -559,3 +559,45 @@ class TestSandboxPostureCheck:
         doctor = self._doctor()
         names = [c.name for c in doctor.run_all_checks()]
         assert "Sandbox Posture" in names
+
+
+class TestMcpClientsCheck:
+    """Doctor surfaces the MCP attach command per detected client."""
+
+    def _doctor(self):
+        from victor.ui.commands.doctor import DoctorChecks
+
+        return DoctorChecks()
+
+    def test_detects_claude_code(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".claude.json").write_text("{}")
+        doctor = self._doctor()
+        doctor.check_mcp_clients()
+        check = doctor.checks[-1]
+        assert "Claude Code" in check.message
+        assert "claude mcp add victor -- victor mcp" in check.message
+
+    def test_no_clients_is_info_with_docs_pointer(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        doctor = self._doctor()
+        doctor.check_mcp_clients()
+        check = doctor.checks[-1]
+        assert check.severity.value == "info"
+        assert "claude mcp add" in check.message
+
+    def test_multiple_clients_all_listed(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".claude.json").write_text("{}")
+        cursor_dir = tmp_path / ".cursor"
+        cursor_dir.mkdir()
+        (cursor_dir / "mcp.json").write_text("{}")
+        doctor = self._doctor()
+        doctor.check_mcp_clients()
+        message = doctor.checks[-1].message
+        assert "Claude Code" in message and "Cursor" in message
+
+    def test_included_in_run_all_checks(self):
+        doctor = self._doctor()
+        names = [c.name for c in doctor.run_all_checks()]
+        assert "MCP Clients" in names
