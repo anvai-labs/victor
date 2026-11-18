@@ -96,6 +96,17 @@ class TestPerceiveNode:
         assert result.perception is not None
 
     @pytest.mark.asyncio
+    async def test_perceive_node_fallback_is_json_serializable(self):
+        """Fallback labels must survive durable JSON checkpoint serialization."""
+        result = await perceive_node(create_initial_state(query="Write a function"))
+
+        assert result.perception == {
+            "intent": "write",
+            "complexity": "medium",
+            "confidence": 0.5,
+        }
+        assert result.model_dump(mode="json")["perception"] == result.perception
+
     async def test_perceive_node_accepts_dict_input(self):
         """Perceive node should normalize raw dict input at the boundary."""
         result = await perceive_node({"query": "Test dict input"})
