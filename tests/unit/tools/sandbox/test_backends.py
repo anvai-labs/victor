@@ -143,7 +143,7 @@ def test_resolve_darwin_with_seatbelt(monkeypatch):
 def test_resolve_fail_open_when_binary_missing(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         backend = resolve_sandbox_backend(_Settings())
     assert backend.type_name == "none"
@@ -152,14 +152,14 @@ def test_resolve_fail_open_when_binary_missing(monkeypatch, caplog):
 
 def test_resolve_fail_open_unsupported_platform(monkeypatch):
     monkeypatch.setattr(sb.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     assert resolve_sandbox_backend(_Settings()).type_name == "none"
 
 
 def test_warn_once_only(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         resolve_sandbox_backend(_Settings())
         resolve_sandbox_backend(_Settings())
@@ -235,7 +235,7 @@ def test_resolve_required_returns_backend_when_available(monkeypatch):
 def test_resolve_required_does_not_emit_fail_open_warning(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         with pytest.raises(sb.SandboxRequiredUnavailableError):
             resolve_sandbox_backend(_Settings(sandbox_policy="required"))
@@ -245,7 +245,7 @@ def test_resolve_required_does_not_emit_fail_open_warning(monkeypatch, caplog):
 def test_resolve_preferred_still_fails_open_with_degradation(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         backend = resolve_sandbox_backend(_Settings(sandbox_policy="preferred"))
     assert backend.type_name == "none"

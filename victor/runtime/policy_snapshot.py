@@ -86,7 +86,7 @@ class RunPolicySnapshot:
         """Copy a successfully loaded settings object into immutable values.
 
         Any settings read or type failure raises before a run is admitted. A
-        successful read with ``sandbox=None`` is the existing explicit disabled
+        successful read with ``sandbox=None`` derives the ADR-035 fail-closed default
         policy and remains valid.
         """
         try:

@@ -101,8 +101,8 @@ class TestOptOutWarning:
     def test_explicit_disabled_warns_once(self, monkeypatch, caplog, no_env):
         """ADR-035 decision 2: explicit opt-out logs a one-time warning."""
         monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(sb, "_warned_categories", set())
         with caplog.at_level("WARNING", logger="victor.tools.sandbox.backends"):
-            sb._warned_unavailable = False
             resolve_sandbox_backend(
                 SimpleNamespace(sandbox_enabled=False, sandbox_policy="disabled")
             )
@@ -111,7 +111,6 @@ class TestOptOutWarning:
             )
         warnings = [r for r in caplog.records if "UNSANDBOXED" in r.message]
         assert len(warnings) == 1
-        sb._warned_unavailable = False
 
 
 class TestSnapshotDelegation:
@@ -150,3 +149,36 @@ class TestApiSurface:
         from victor.tools.sandbox import current_sandbox_posture
 
         assert current_sandbox_posture() in {"required", "preferred", "disabled"}
+
+
+class TestReviewFixes:
+    def test_posture_reports_unknown_on_settings_read_failure(self, monkeypatch):
+        """A broken settings read must surface as 'unknown', never as a
+        healthy-looking 'required' (adversarial review finding)."""
+
+        import victor.config.settings as settings_mod
+        from victor.tools.sandbox import current_sandbox_posture
+
+        def _boom():
+            raise RuntimeError("malformed profiles.yaml")
+
+        monkeypatch.setattr(settings_mod, "get_settings", _boom)
+        assert current_sandbox_posture() == "unknown"
+
+    def test_settings_policy_matching_normalizes_case(self):
+        """Settings-like objects that bypass pydantic validation still get
+        the same strip/lower treatment the env path applies."""
+        settings = SimpleNamespace(sandbox_policy="DISABLED")
+        assert effective_sandbox_policy(settings) == "disabled"
+
+    def test_warning_categories_are_independent(self, monkeypatch, caplog):
+        """A preferred-degradation warning must not suppress a later
+        explicit-opt-out warning (separate categories)."""
+        monkeypatch.setattr(sb.platform, "system", lambda: "Plan9")
+        monkeypatch.setattr(sb, "_warned_categories", set())
+        with caplog.at_level("WARNING", logger="victor.tools.sandbox.backends"):
+            resolve_sandbox_backend(SimpleNamespace(sandbox_policy="preferred"))
+            resolve_sandbox_backend(SimpleNamespace(sandbox_policy="disabled"))
+        messages = [r.message for r in caplog.records if "UNSANDBOXED" in r.message]
+        assert len(messages) == 2
+        monkeypatch.setattr(sb, "_warned_categories", set())
