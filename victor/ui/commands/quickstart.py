@@ -75,6 +75,12 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b"
 
 #: Small instruct GGUF (~4.4 GB Q4_K_M) from bartowski's canonical quantized
 #: mirror of Qwen/Qwen2.5-Coder-7B-Instruct.
+# Model choice (upgrade path): qwen2.5-coder-7b is deliberate — stable GGUF
+# on any llama.cpp build, proven --jinja tool-calling, CPU-runnable size, and
+# consistency with the Ollama default path. Qwen4 is preview-only (llama.cpp
+# support landed 2026-08; production pending). When production GGUFs
+# stabilize: swap LLAMACPP_GGUF_URL + LLAMACPP_GGUF_MIN_BYTES here and the
+# default model name in profiles.default.yaml / provider_config.py together.
 LLAMACPP_GGUF_FILENAME = "qwen2.5-coder-7b-instruct-Q4_K_M.gguf"
 # Q4_K_M of this model is ~4.4 GB; anything materially smaller is a
 # truncated or placeholder download and must fail loudly.
