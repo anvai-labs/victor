@@ -36,14 +36,17 @@ import asyncio
 import copy
 import json
 import logging
+import math
 import sqlite3
 import sys
 import threading
 import weakref
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from enum import Enum
+from uuid import UUID
 from typing import Any, List, Optional
-from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel
 
@@ -70,6 +73,70 @@ def _namespaced_session(thread_id: str) -> str:
 
 
 _MODEL_STATE_MARKER = "__victor_model_state__"
+_NON_DURABLE_FIELD_NAMES = frozenset(
+    {
+        "access_token",
+        "api_key",
+        "authorization",
+        "client_secret",
+        "credential",
+        "credentials",
+        "password",
+        "provider_response",
+        "raw_provider_response",
+        "raw_response",
+        "refresh_token",
+        "secret",
+        "virtual_key",
+    }
+)
+
+
+def _drop_legacy_runtime_handles(value: Any) -> Any:
+    """Remove only the explicitly legacy handle keys; never stringify values."""
+    from victor.framework.graph_checkpoint import _LEGACY_RUNTIME_HANDLE_KEYS
+
+    if isinstance(value, dict):
+        return {
+            key: _drop_legacy_runtime_handles(item)
+            for key, item in value.items()
+            if key not in _LEGACY_RUNTIME_HANDLE_KEYS
+        }
+    if isinstance(value, list):
+        return [_drop_legacy_runtime_handles(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_drop_legacy_runtime_handles(item) for item in value)
+    return value
+
+
+def _durable_json_value(value: Any) -> Any:
+    """Project only deliberate JSON data and reject opaque runtime values."""
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("Workflow checkpoint contains a non-finite float")
+        return value
+    if isinstance(value, Enum):
+        return _durable_json_value(value.value)
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (date, datetime, time)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        durable: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("Workflow checkpoint contains a non-string mapping key")
+            if key.lower() in _NON_DURABLE_FIELD_NAMES:
+                raise ValueError(f"Workflow checkpoint refuses durable field {key!r}")
+            durable[key] = _durable_json_value(item)
+        return durable
+    if isinstance(value, (list, tuple)):
+        return [_durable_json_value(item) for item in value]
+    if isinstance(value, BaseModel):
+        return _durable_json_value(value.model_dump(mode="python"))
+    raise ValueError(f"Workflow checkpoint contains non-JSON value of type {type(value).__name__}")
 
 
 def _encode_state(state: Any) -> Any:
@@ -330,17 +397,20 @@ class ProjectDatabaseGraphCheckpointer(CheckpointerProtocol):
 
     @staticmethod
     def _encode_durable_state(state: Any) -> tuple[Any, Optional[str]]:
-        from victor.framework.graph_checkpoint import strip_runtime_handles
-
-        encoded = _encode_state(strip_runtime_handles(state))
-        if isinstance(encoded, dict) and encoded.get(_MODEL_STATE_MARKER) is True:
-            return encoded["data"], encoded["type"]
-        return encoded, None
+        state_type: Optional[str] = None
+        raw_state = state
+        if isinstance(state, BaseModel):
+            model_type = type(state)
+            state_type = f"{model_type.__module__}.{model_type.__qualname__}"
+            raw_state = state.model_dump(mode="python")
+        durable_state = _durable_json_value(_drop_legacy_runtime_handles(raw_state))
+        return durable_state, state_type
 
     @staticmethod
     def _dump_json(value: Any, field: str) -> str:
         try:
-            return json.dumps(value, allow_nan=False, separators=(",", ":"))
+            durable_value = _durable_json_value(value)
+            return json.dumps(durable_value, allow_nan=False, separators=(",", ":"))
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 f"Workflow checkpoint {field} is not strict JSON-safe; live handles, "

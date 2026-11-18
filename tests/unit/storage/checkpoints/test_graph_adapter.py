@@ -412,8 +412,62 @@ def test_project_checkpointer_models_interrupt_before_without_completed_node(tmp
 def test_project_checkpointer_rejects_non_json_state(tmp_path):
     adapter = ProjectDatabaseGraphCheckpointer(tmp_path / "project.db")
     checkpoint = _checkpoint("thread-1", "act", 1)
-    checkpoint.state["credential"] = b"secret"
-    with pytest.raises(ValueError, match="strict JSON-safe"):
+    checkpoint.state["runtime_handle"] = b"opaque"
+    with pytest.raises(ValueError, match="non-JSON value of type bytes"):
+        adapter._save_sync(checkpoint)
+
+
+def test_project_checkpointer_round_trips_typed_state(tmp_path):
+    adapter = ProjectDatabaseGraphCheckpointer(tmp_path / "project.db")
+    state = _TypedCheckpointState(query="resume me", context={"step": 2})
+    checkpoint = WorkflowCheckpoint(
+        checkpoint_id="typed-project-cp",
+        thread_id="typed-project-thread",
+        node_id="act",
+        state=state,
+        timestamp=time.time(),
+        metadata={"next_node": "evaluate"},
+    )
+
+    adapter._save_sync(checkpoint)
+    loaded = adapter._load_sync("typed-project-thread")
+
+    assert loaded is not None
+    assert isinstance(loaded.state, _TypedCheckpointState)
+    assert loaded.state.query == "resume me"
+    assert loaded.state.context == {"step": 2}
+    assert loaded.next_node == "evaluate"
+
+
+def test_project_checkpointer_rejects_typed_opaque_state(tmp_path):
+    adapter = ProjectDatabaseGraphCheckpointer(tmp_path / "project.db")
+    state = _TypedCheckpointState(query="opaque", context={"runtime_handle": object()})
+    checkpoint = WorkflowCheckpoint(
+        checkpoint_id="typed-opaque",
+        thread_id="typed-opaque",
+        node_id="act",
+        state=state,
+        timestamp=time.time(),
+        metadata={},
+    )
+
+    with pytest.raises(ValueError, match="non-JSON value of type object"):
+        adapter._save_sync(checkpoint)
+
+
+def test_project_checkpointer_rejects_typed_credential_field(tmp_path):
+    adapter = ProjectDatabaseGraphCheckpointer(tmp_path / "project.db")
+    state = _TypedCheckpointState(query="secret", context={"credential": "not-a-real-secret"})
+    checkpoint = WorkflowCheckpoint(
+        checkpoint_id="typed-credential",
+        thread_id="typed-credential",
+        node_id="act",
+        state=state,
+        timestamp=time.time(),
+        metadata={},
+    )
+
+    with pytest.raises(ValueError, match="refuses durable field 'credential'"):
         adapter._save_sync(checkpoint)
 
 

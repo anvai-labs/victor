@@ -35,6 +35,7 @@ from victor.core.errors import AgentError, ProviderPolicyError, is_terminal_agen
 import logging
 from typing import Any, Dict, Optional
 
+from victor.agent.action_authorizer import ActionIntent
 from victor.framework.agentic_graph._state_utils import normalize_state_argument
 from victor.framework.agentic_graph.state import AgenticLoopStateModel
 from victor.framework.agentic_graph.turn_record import (
@@ -57,6 +58,19 @@ def _text_value(value: Any, default: str) -> str:
 def _confidence_value(value: Any) -> float:
     """Normalize perception confidence without accepting arbitrary objects."""
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.5
+
+
+def _action_intent(value: Any) -> ActionIntent:
+    """Validate perception intent at the StateGraph boundary."""
+    if isinstance(value, ActionIntent):
+        return value
+    value = getattr(value, "value", value)
+    if not isinstance(value, str):
+        raise ValueError(f"Perception returned a non-string action intent: {value!r}")
+    try:
+        return ActionIntent(value)
+    except ValueError as exc:
+        raise ValueError(f"Perception returned an invalid action intent: {value!r}") from exc
 
 
 # =============================================================================
@@ -139,7 +153,7 @@ async def perceive_node(
         raw_complexity = getattr(perception_result, "complexity", "medium")
         raw_confidence = getattr(perception_result, "confidence", 0.5)
         perception = {
-            "intent": _text_value(raw_intent, "query"),
+            "intent": _action_intent(raw_intent).value,
             "complexity": _text_value(raw_complexity, "medium"),
             "confidence": _confidence_value(raw_confidence),
         }
@@ -168,7 +182,7 @@ async def perceive_node(
             }
         )
 
-    except ProviderPolicyError:
+    except (ProviderPolicyError, ValueError):
         raise
     except Exception as e:
         logger.warning(f"Perception failed: {e}, using fallback")
@@ -178,12 +192,12 @@ async def perceive_node(
             update={
                 "stage": "perceive",
                 "perception": {
-                    "intent": "query",
+                    "intent": ActionIntent.AMBIGUOUS.value,
                     "complexity": "medium",
                     "confidence": 0.5,
                     "error": str(e),
                 },
-                "original_intent": state.original_intent or "query",
+                "original_intent": state.original_intent or ActionIntent.AMBIGUOUS.value,
                 "task_type": "general",
                 "complexity": "medium",
                 "iteration": state.iteration + 1,
@@ -735,11 +749,11 @@ def _create_fallback_perception(query: str) -> Any:
         def __init__(self, query: str):
             query_lower = query.lower()
             if any(word in query_lower for word in ["write", "create", "implement"]):
-                self.intent = type("Intent", (), {"value": "write"})()
+                self.intent = ActionIntent.WRITE_ALLOWED
             elif any(word in query_lower for word in ["read", "show", "display"]):
-                self.intent = type("Intent", (), {"value": "read"})()
+                self.intent = ActionIntent.READ_ONLY
             else:
-                self.intent = type("Intent", (), {"value": "query"})()
+                self.intent = ActionIntent.AMBIGUOUS
 
             self.complexity = "medium"
             self.confidence = 0.5

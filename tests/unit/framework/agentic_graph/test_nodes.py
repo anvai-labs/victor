@@ -43,7 +43,7 @@ class TestPerceiveNode:
 
         # Create mock perception result
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="write"),
+            intent=MagicMock(value="write_allowed"),
             complexity="medium",
             task_analysis=MagicMock(task_type="code_generation"),
             confidence=0.8,
@@ -69,7 +69,7 @@ class TestPerceiveNode:
         )
 
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="edit"),
+            intent=MagicMock(value="write_allowed"),
             complexity="low",
             task_analysis=MagicMock(task_type="debugging"),
             confidence=0.9,
@@ -101,11 +101,38 @@ class TestPerceiveNode:
         result = await perceive_node(create_initial_state(query="Write a function"))
 
         assert result.perception == {
-            "intent": "write",
+            "intent": "write_allowed",
             "complexity": "medium",
             "confidence": 0.5,
         }
         assert result.model_dump(mode="json")["perception"] == result.perception
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_error_fallback_is_valid_durable_intent(self):
+        runtime_intelligence = AsyncMock()
+        runtime_intelligence.analyze_turn = AsyncMock(
+            side_effect=RuntimeError("perception unavailable")
+        )
+
+        result = await perceive_node(
+            create_initial_state(query="Test"), runtime_intelligence=runtime_intelligence
+        )
+
+        assert result.perception is not None
+        assert result.perception["intent"] == "ambiguous"
+        assert result.original_intent == "ambiguous"
+
+    @pytest.mark.asyncio
+    async def test_perceive_node_rejects_invalid_service_intent(self):
+        runtime_intelligence = AsyncMock()
+        runtime_intelligence.analyze_turn = AsyncMock(
+            return_value=MagicMock(intent="query", confidence=0.9)
+        )
+
+        with pytest.raises(ValueError, match="invalid action intent"):
+            await perceive_node(
+                create_initial_state(query="Test"), runtime_intelligence=runtime_intelligence
+            )
 
     async def test_perceive_node_accepts_dict_input(self):
         """Perceive node should normalize raw dict input at the boundary."""
@@ -570,7 +597,7 @@ class TestNodeIntegration:
 
         # Create mock perception
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="write"),
+            intent=MagicMock(value="write_allowed"),
             complexity="medium",
             task_analysis=MagicMock(task_type="code_generation"),
             confidence=0.8,
@@ -599,7 +626,7 @@ class TestNodeIntegration:
 
         # Perceive (mocked)
         mock_perception_result = MagicMock(
-            intent=MagicMock(value="query"),
+            intent=MagicMock(value="ambiguous"),
             complexity="low",
             task_analysis=MagicMock(task_type="general"),
             confidence=0.9,
