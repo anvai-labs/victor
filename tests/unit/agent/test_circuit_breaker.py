@@ -40,6 +40,70 @@ class TestSharedCircuitBreakerTypes:
         assert CircuitState is CoreState
 
 
+class TestCanonicalBreakerLocation:
+    """FOU-C1: the single breaker implementation lives in victor.core."""
+
+    def test_providers_module_is_a_pure_shim(self) -> None:
+        """victor.providers.circuit_breaker must re-export the core classes."""
+        from victor.core import circuit_breaker as core_cb
+
+        assert CircuitBreaker is core_cb.CircuitBreaker
+        assert CircuitBreakerRegistry is core_cb.CircuitBreakerRegistry
+        assert CircuitBreakerConfig is core_cb.CircuitBreakerConfig
+        assert CircuitBreakerError is core_cb.CircuitBreakerError
+        assert CircuitState is core_cb.CircuitState
+
+
+class TestTryAcquire:
+    """FOU-C1: try_acquire = can_execute + half-open slot reservation."""
+
+    def test_closed_allows_without_reservation(self) -> None:
+        breaker = CircuitBreaker(name="ta_closed")
+        assert breaker.try_acquire() is True
+        assert breaker.can_execute() is True
+
+    def test_open_rejects(self) -> None:
+        breaker = CircuitBreaker(failure_threshold=1, name="ta_open")
+        breaker._failure_count = 1
+        breaker._record_failure()
+        assert breaker.try_acquire() is False
+
+    def test_half_open_reserves_limited_slots(self) -> None:
+        breaker = CircuitBreaker(
+            failure_threshold=1,
+            recovery_timeout=0.0,
+            half_open_max_calls=2,
+            name="ta_half",
+        )
+        breaker._failure_count = 1
+        breaker._record_failure()
+        # Expire the recovery timeout so the next probe enters HALF_OPEN.
+        breaker._last_failure_time -= 1.0
+
+        assert breaker.try_acquire() is True
+        assert breaker.try_acquire() is True
+        # All half-open slots consumed -> subsequent probes rejected.
+        assert breaker.try_acquire() is False
+        assert breaker._half_open_calls == 2
+
+    def test_can_execute_does_not_consume_slots(self) -> None:
+        """can_execute must stay a pure probe (no reservation)."""
+        breaker = CircuitBreaker(
+            failure_threshold=1,
+            recovery_timeout=0.0,
+            half_open_max_calls=2,
+            name="ta_probe",
+        )
+        breaker._failure_count = 1
+        breaker._record_failure()
+        breaker._last_failure_time -= 1.0
+        assert breaker.state == CircuitState.HALF_OPEN
+
+        assert breaker.can_execute() is True
+        assert breaker.can_execute() is True
+        assert breaker._half_open_calls == 0
+
+
 class TestCircuitBreaker:
     """Tests for CircuitBreaker class."""
 

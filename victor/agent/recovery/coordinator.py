@@ -38,7 +38,7 @@ This coordinator reuses existing Victor components instead of creating duplicate
    - Proactive compaction at configurable threshold
    - Intelligent truncation strategies
 
-4. Circuit Breaker: victor.providers.circuit_breaker.CircuitBreaker
+4. Circuit Breaker: victor.core.circuit_breaker.CircuitBreaker
    - Full CLOSED/OPEN/HALF_OPEN state machine
    - Registry for managing multiple breakers
 
@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from victor.agent.adaptive_mode_controller import QLearningStore
     from victor.agent.usage_analytics import UsageAnalytics
     from victor.agent.context_compactor import ContextCompactor
-    from victor.providers.circuit_breaker import CircuitBreakerRegistry
+    from victor.core.circuit_breaker import CircuitBreakerRegistry
 
 logger = logging.getLogger(__name__)
 
