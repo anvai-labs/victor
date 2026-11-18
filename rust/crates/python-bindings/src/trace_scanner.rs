@@ -48,9 +48,21 @@ pub struct SessionStats {
 ///
 /// Handles both `.jsonl` and `.jsonl.gz` files automatically based on extension.
 /// Malformed lines are silently skipped.
+///
+/// Detach audit: file read + per-line serde_json parse is I/O + CPU work that
+/// is firmly multi-millisecond on real usage logs (multi-MB JSONL); the whole
+/// body is Rust-only (std fs/serde_json, no Python API, no side effect that
+/// could be replayed on failure), so it runs detached on an owned `String`
+/// path. `SessionStats` values are plain Rust structs here; Python-object
+/// conversion happens once at the boundary, after the GIL returns.
 #[pyfunction]
 #[pyo3(signature = (file_path))]
-pub fn scan_usage_file(file_path: &str) -> Vec<SessionStats> {
+pub fn scan_usage_file(py: Python<'_>, file_path: &str) -> Vec<SessionStats> {
+    py.detach(|| scan_usage_file_impl(file_path))
+}
+
+/// Rust-facing implementation of [`scan_usage_file`] (no GIL, no `PyErr`).
+fn scan_usage_file_impl(file_path: &str) -> Vec<SessionStats> {
     let path = Path::new(file_path);
     if !path.exists() {
         return Vec::new();
@@ -79,37 +91,22 @@ pub fn scan_usage_file(file_path: &str) -> Vec<SessionStats> {
         // Partial results are fine — return what we have
     }
 
-    // Convert to output format with completion scoring
-    let mut stats: Vec<SessionStats> = sessions
-        .into_iter()
-        .filter(|(_, s)| s.tool_calls >= 2) // Skip trivially broken sessions
-        .map(|(sid, s)| {
-            let failure_rate = s.tool_failures as f32 / s.tool_calls.max(1) as f32;
-            let completion_score = (1.0 - failure_rate * 1.5).max(0.0);
-            SessionStats {
-                session_id: sid,
-                tool_calls: s.tool_calls,
-                tool_failures: s.tool_failures,
-                task_type: s.task_type,
-                tokens: s.tokens,
-                completion_score,
-            }
-        })
-        .collect();
-
-    // Sort by completion score descending
-    stats.sort_by(|a, b| {
-        b.completion_score
-            .partial_cmp(&a.completion_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    stats
+    finalize_session_stats(sessions)
 }
 
 /// Scan multiple JSONL files and merge results.
+///
+/// Detach audit: same profile as [`scan_usage_file`] — multi-file I/O plus
+/// JSONL parsing, multi-millisecond on real logs; owned `Vec<String>` input,
+/// Rust-only body, single detach for the whole batch (one FFI crossing).
 #[pyfunction]
 #[pyo3(signature = (file_paths))]
-pub fn scan_usage_files(file_paths: Vec<String>) -> Vec<SessionStats> {
+pub fn scan_usage_files(py: Python<'_>, file_paths: Vec<String>) -> Vec<SessionStats> {
+    py.detach(move || scan_usage_files_impl(file_paths))
+}
+
+/// Rust-facing implementation of [`scan_usage_files`] (no GIL, no `PyErr`).
+fn scan_usage_files_impl(file_paths: Vec<String>) -> Vec<SessionStats> {
     let mut all_sessions: HashMap<String, RawSession> = HashMap::new();
 
     for path_str in &file_paths {
@@ -133,9 +130,15 @@ pub fn scan_usage_files(file_paths: Vec<String>) -> Vec<SessionStats> {
         };
     }
 
-    let mut stats: Vec<SessionStats> = all_sessions
+    finalize_session_stats(all_sessions)
+}
+
+/// Shared scoring/filter/sort tail used by both scan entry points, so they
+/// can never diverge.
+fn finalize_session_stats(sessions: HashMap<String, RawSession>) -> Vec<SessionStats> {
+    let mut stats: Vec<SessionStats> = sessions
         .into_iter()
-        .filter(|(_, s)| s.tool_calls >= 2)
+        .filter(|(_, s)| s.tool_calls >= 2) // Skip trivially broken sessions
         .map(|(sid, s)| {
             let failure_rate = s.tool_failures as f32 / s.tool_calls.max(1) as f32;
             let completion_score = (1.0 - failure_rate * 1.5).max(0.0);
@@ -150,6 +153,7 @@ pub fn scan_usage_files(file_paths: Vec<String>) -> Vec<SessionStats> {
         })
         .collect();
 
+    // Sort by completion score descending
     stats.sort_by(|a, b| {
         b.completion_score
             .partial_cmp(&a.completion_score)
@@ -230,7 +234,7 @@ mod tests {
 
     #[test]
     fn test_empty_path() {
-        let result = scan_usage_file("/nonexistent/path.jsonl");
+        let result = scan_usage_file_impl("/nonexistent/path.jsonl");
         assert!(result.is_empty());
     }
 }

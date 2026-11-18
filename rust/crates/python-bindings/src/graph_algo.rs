@@ -10,15 +10,21 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 
 /// PageRank via power iteration.
+///
+/// Detach audit: dict extraction (per-node Python access) stays attached;
+/// the power-iteration loop itself is O(iterations·E) pure-Rust work that is
+/// plausibly multi-millisecond on real module graphs, so it runs detached on
+/// fully owned data (`PyErr` is `!Ungil` and never crosses the detach).
 #[pyfunction]
 #[pyo3(signature = (adjacency, damping=0.85, iterations=100, tolerance=1e-6))]
 pub fn pagerank(
+    py: Python<'_>,
     adjacency: &Bound<'_, PyDict>,
     damping: f64,
     iterations: usize,
     tolerance: f64,
 ) -> PyResult<HashMap<String, f64>> {
-    // Parse adjacency dict: Dict[str, List[str]]
+    // Parse adjacency dict: Dict[str, List[str]] — GIL-held extraction.
     let mut adj: AHashMap<String, Vec<String>> = AHashMap::new();
     let mut all_nodes: Vec<String> = Vec::new();
 
@@ -29,9 +35,21 @@ pub fn pagerank(
         adj.insert(node, neighbors);
     }
 
+    // Power iteration: Rust-only, owned inputs, no Python API.
+    Ok(py.detach(move || pagerank_compute(adj, all_nodes, damping, iterations, tolerance)))
+}
+
+/// Rust-facing PageRank iteration (no GIL, no `PyErr`).
+fn pagerank_compute(
+    adj: AHashMap<String, Vec<String>>,
+    all_nodes: Vec<String>,
+    damping: f64,
+    iterations: usize,
+    tolerance: f64,
+) -> HashMap<String, f64> {
     let n = all_nodes.len();
     if n == 0 {
-        return Ok(HashMap::new());
+        return HashMap::new();
     }
 
     let inv_n = 1.0 / n as f64;
@@ -75,13 +93,18 @@ pub fn pagerank(
         }
     }
 
-    Ok(scores.into_iter().collect())
+    scores.into_iter().collect()
 }
 
 /// Weighted PageRank where adjacency is Dict[str, Dict[str, int]].
+///
+/// Detach audit: extraction stays attached; the fixed-`iterations` update
+/// loop is O(iterations·E) pure-Rust work (100 sweeps over every edge by
+/// default) — plausibly multi-millisecond on real graphs — and runs detached.
 #[pyfunction]
 #[pyo3(signature = (adjacency, damping=0.85, iterations=100))]
 pub fn weighted_pagerank(
+    py: Python<'_>,
     adjacency: &Bound<'_, PyDict>,
     damping: f64,
     iterations: usize,
@@ -102,9 +125,19 @@ pub fn weighted_pagerank(
         adj.insert(node, edges);
     }
 
+    Ok(py.detach(move || weighted_pagerank_compute(adj, all_nodes, damping, iterations)))
+}
+
+/// Rust-facing weighted PageRank iteration (no GIL, no `PyErr`).
+fn weighted_pagerank_compute(
+    adj: AHashMap<String, Vec<(String, f64)>>,
+    all_nodes: Vec<String>,
+    damping: f64,
+    iterations: usize,
+) -> HashMap<String, f64> {
     let n = all_nodes.len();
     if n == 0 {
-        return Ok(HashMap::new());
+        return HashMap::new();
     }
 
     let inv_n = 1.0 / n as f64;
@@ -137,13 +170,19 @@ pub fn weighted_pagerank(
         scores = new_scores;
     }
 
-    Ok(scores.into_iter().collect())
+    scores.into_iter().collect()
 }
 
 /// Betweenness centrality using Brandes algorithm.
+///
+/// Detach audit: Brandes is O(V·E) with a BFS from every source — the most
+/// expensive algorithm in this module and firmly multi-millisecond on real
+/// module graphs. Extraction stays attached; the Brandes sweep runs detached
+/// on owned data.
 #[pyfunction]
 #[pyo3(signature = (adjacency, normalized=true))]
 pub fn betweenness_centrality(
+    py: Python<'_>,
     adjacency: &Bound<'_, PyDict>,
     normalized: bool,
 ) -> PyResult<HashMap<String, f64>> {
@@ -157,6 +196,15 @@ pub fn betweenness_centrality(
         adj.insert(node, neighbors);
     }
 
+    Ok(py.detach(move || betweenness_centrality_compute(adj, all_nodes, normalized)))
+}
+
+/// Rust-facing Brandes sweep (no GIL, no `PyErr`).
+fn betweenness_centrality_compute(
+    adj: AHashMap<String, Vec<String>>,
+    all_nodes: Vec<String>,
+    normalized: bool,
+) -> HashMap<String, f64> {
     let n = all_nodes.len();
     let mut cb: AHashMap<String, f64> = AHashMap::new();
     for node in &all_nodes {
@@ -219,10 +267,16 @@ pub fn betweenness_centrality(
         }
     }
 
-    Ok(cb.into_iter().collect())
+    cb.into_iter().collect()
 }
 
 /// Find connected components using union-find.
+///
+/// Detach audit: a single O(V+E·α) union-find pass — sub-millisecond on
+/// realistic module graphs, and extraction (GIL-bound dict access) dominates
+/// the call. The compute would need an extraction restructure to cross a
+/// detach, so `Python::detach` is not applied (see `pagerank` for the
+/// split-extraction pattern if this ever becomes hot).
 #[pyfunction]
 pub fn connected_components(adjacency: &Bound<'_, PyDict>) -> PyResult<Vec<Vec<String>>> {
     let mut all_nodes: Vec<String> = Vec::new();
@@ -291,6 +345,10 @@ pub fn connected_components(adjacency: &Bound<'_, PyDict>) -> PyResult<Vec<Vec<S
 }
 
 /// Detect cycles using DFS coloring.
+///
+/// Detach audit: a single O(V+E) DFS pass with early cycle capture —
+/// sub-millisecond on realistic module graphs; extraction dominates. No
+/// `Python::detach` (same rationale as `connected_components`).
 #[pyfunction]
 pub fn detect_cycles(adjacency: &Bound<'_, PyDict>) -> PyResult<Vec<Vec<String>>> {
     let mut adj: AHashMap<String, Vec<String>> = AHashMap::new();
