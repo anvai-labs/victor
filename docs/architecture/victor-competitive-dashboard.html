@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Victor Competitive Dashboard — Foundations Program Status</title>
+<style>
+  :root {
+    --bg: #0d1117; --fg: #c9d1d9; --dim: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149; --card: #161b22;
+    --border: #30363d; --victor: #58a6ff; --leader: #3fb950;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; padding: 2rem; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.5rem; color: var(--fg); }
+  h2 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; color: var(--accent); }
+  .subtitle { color: var(--dim); font-size: 0.85rem; margin-bottom: 1.5rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; color: var(--dim); padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+  td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+  .bar-container { position: relative; background: #21262d; border-radius: 3px; height: 18px; min-width: 120px; }
+  .bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .bar.old { position: absolute; top: 0; left: 0; opacity: 0.35; }
+  .bar.new { position: absolute; top: 0; left: 0; }
+  .delta-up { color: var(--green); font-weight: bold; }
+  .delta-flat { color: var(--dim); }
+  .quadrant-wrap { position: relative; width: 100%; max-width: 580px; aspect-ratio: 1; margin: 1rem auto; }
+  .q-label { position: absolute; color: var(--dim); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; }
+  .peer { position: absolute; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%, 50%); }
+  .peer-label { position: absolute; color: var(--fg); font-size: 0.75rem; font-weight: 500; white-space: nowrap; transform: translate(8px, -50%); }
+  .peer.victor { width: 14px; height: 14px; background: var(--victor); border: 2px solid #fff; z-index: 2; }
+  .peer.victor-old { width: 14px; height: 14px; border-radius: 50%; transform: translate(-50%, 50%); background: transparent; border: 2px dashed var(--dim); z-index: 1; }
+  .peer.leader { background: var(--leader); }
+  .move-arrow { position: absolute; stroke: var(--victor); stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+  .todo { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+  .todo:last-child { border-bottom: none; }
+  .todo input[type="checkbox"] { margin-top: 3px; accent-color: var(--accent); }
+  .todo label { cursor: pointer; font-size: 0.85rem; }
+  .todo .priority { font-size: 0.7rem; padding: 1px 6px; border-radius: 3px; font-weight: 600; min-width: 50px; text-align: center; display: inline-block; }
+  .p-critical { background: var(--red); color: #fff; }
+  .p-high { background: var(--yellow); color: #000; }
+  .p-medium { background: var(--accent); color: #000; }
+  .p-low { background: var(--dim); color: #000; }
+  .badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+  .badge-merged { background: var(--green); color: #000; }
+  .badge-open { background: var(--yellow); color: #000; }
+  .badge-blocked { background: var(--red); color: #fff; }
+  svg.quadrant { width: 100%; height: 100%; }
+  .axis-label { font-size: 0.75rem; fill: var(--dim); }
+  .grid-line { stroke: var(--border); stroke-width: 0.5; }
+  .midline { stroke: var(--dim); stroke-width: 0.75; stroke-dasharray: 4 4; }
+  .solo-section { margin-top: 2rem; }
+  .solo-section h3 { color: var(--accent); font-size: 1rem; margin-bottom: 0.75rem; }
+  .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; }
+  .metric-name { font-size: 0.85rem; }
+  .metric-scores { display: flex; gap: 0.75rem; align-items: center; font-size: 0.8rem; }
+  .score-old { color: var(--dim); text-decoration: line-through; }
+  .score-new { color: var(--green); font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Victor Competitive Dashboard</h1>
+<p class="subtitle">Foundations Program — 2026-11-17 | 15 PRs merged | Durability 9.0 DONE, Loop 9.0 | Tier D CLOSED (flip merged #1904); Tier S shippedier S/A next</p>
+
+<!-- ═══════════════════════ RADAR CHART ═══════════════════════ -->
+<h2>Capability Radar (before → after)</h2>
+<div class="card">
+<table>
+<tr><th>Dimension</th><th>Before</th><th>After</th><th>Δ</th><th>Bar</th><th>Peer Leader</th></tr>
+<tr><td>Provider breadth/resilience</td><td>9.5</td><td>9.5</td><td class="delta-flat">held</td>
+<td><div class="bar-container"><div class="bar new" style="width:95%;background:var(--accent)"></div></div></td><td>Victor leads</td></tr>
+<tr><td>Eval / RL / observability</td><td>9.0</td><td>9.0</td><td class="delta-flat">held</td>
+<td><div class="bar-container"><div class="bar new" style="width:90%;background:var(--accent)"></div></div></td><td>Victor leads</td></tr>
+<tr><td>Code intelligence</td><td>8.5</td><td>8.5</td><td class="delta-flat">held</td>
+<td><div class="bar-container"><div class="bar new" style="width:85%;background:var(--accent)"></div></div></td><td>Victor leads</td></tr>
+<tr><td>Agentic loop depth</td><td>8.5</td><td>9.0</td><td class="delta-up">▲0.5</td>
+<td><div class="bar-container"><div class="bar old" style="width:85%;background:var(--dim)"></div><div class="bar new" style="width:90%;background:var(--green)"></div></div></td><td>Claude Code ~9</td></tr>
+<tr><td><strong>Workflow durability</strong></td><td>7.0</td><td><strong>8.5</strong></td><td class="delta-up">▲1.5</td>
+<td><div class="bar-container"><div class="bar old" style="width:70%;background:var(--dim)"></div><div class="bar new" style="width:85%;background:var(--green)"></div></div></td><td>LangGraph ~9.5</td></tr>
+<tr><td>Context engineering</td><td>8.0</td><td>8.0</td><td class="delta-flat">held</td>
+<td><div class="bar-container"><div class="bar new" style="width:80%;background:var(--accent)"></div></div></td><td>Claude Code ~9</td></tr>
+<tr><td>Interaction surfaces</td><td>7.5</td><td>7.75</td><td class="delta-up">▲0.25</td>
+<td><div class="bar-container"><div class="bar old" style="width:75%;background:var(--dim)"></div><div class="bar new" style="width:77.5%;background:var(--green)"></div></div></td><td>Claude Code ~9</td></tr>
+<tr><td>DX & onboarding</td><td>5.0</td><td>5.5</td><td class="delta-up">▲0.5</td>
+<td><div class="bar-container"><div class="bar old" style="width:50%;background:var(--dim)"></div><div class="bar new" style="width:55%;background:var(--green)"></div></div></td><td>CrewAI/OAI SDK ~9</td></tr>
+<tr><td>Multi-agent patterns</td><td>7.0</td><td>7.0</td><td class="delta-flat">held</td>
+<td><div class="bar-container"><div class="bar new" style="width:70%;background:var(--accent)"></div></div></td><td>LangGraph/MAF ~9</td></tr>
+<tr><td>Security/sandbox defaults</td><td>6.0</td><td>6.0</td><td class="delta-flat">held</td>
+<td><div class="bar-container"><div class="bar new" style="width:60%;background:var(--accent)"></div></div></td><td>Codex ~9.5</td></tr>
+<tr><td>Extensibility & ecosystem</td><td>3.0</td><td>3.0</td><td class="delta-flat">held</td>
+<td><div class="bar-container"><div class="bar new" style="width:30%;background:var(--red)"></div></div></td><td>LangChain ~10</td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════ QUADRANT ═══════════════════════ -->
+<h2>Competitive Quadrant</h2>
+<div class="card">
+<div class="quadrant-wrap">
+<svg class="quadrant" viewBox="0 0 600 600">
+  <defs><marker id="arrowhead" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" fill="#58a6ff"/></marker></defs>
+  <!-- grid lines every 100px (= 2 units) -->
+  <line x1="100" y1="0" x2="100" y2="500" class="grid-line"/><line x1="200" y1="0" x2="200" y2="500" class="grid-line"/>
+  <line x1="300" y1="0" x2="300" y2="500" class="grid-line"/><line x1="400" y1="0" x2="400" y2="500" class="grid-line"/>
+  <line x1="500" y1="0" x2="500" y2="500" class="grid-line"/>
+  <line x1="0" y1="100" x2="600" y2="100" class="grid-line"/><line x1="0" y1="200" x2="600" y2="200" class="grid-line"/>
+  <line x1="0" y1="300" x2="600" y2="300" class="grid-line"/><line x1="0" y1="400" x2="600" y2="400" class="grid-line"/>
+  <!-- midlines (5,5) -->
+  <line x1="300" y1="0" x2="300" y2="500" class="midline"/>
+  <line x1="0" y1="250" x2="600" y2="250" class="midline"/>
+  <!-- axis labels -->
+  <text x="300" y="530" text-anchor="middle" class="axis-label">Adoption surface (X) →</text>
+  <text x="5" y="10" class="axis-label" transform="rotate(90, 15, 250)" x="15" y="250">Production depth (Y) →</text>
+  <!-- quadrant labels -->
+  <text x="100" y="60" class="q-label" text-anchor="middle">DEEP-NARROW</text>
+  <text x="450" y="60" class="q-label" text-anchor="middle">LEADERS</text>
+  <text x="100" y="470" class="q-label" text-anchor="middle">EMERGING</text>
+  <text x="450" y="470" class="q-label" text-anchor="middle">GENERALISTS</text>
+  <!-- peers (x = adoption*50, y = 500 - depth*50) -->
+  <!-- Claude Code (8.5, 9.0) → (425, 50) -->
+  <circle cx="425" cy="50" r="6" fill="#3fb950"/><text x="432" y="46" class="peer-label">Claude Code</text>
+  <!-- Codex (7.5, 8.5) → (375, 75) -->
+  <circle cx="375" cy="75" r="5" fill="#3fb950"/><text x="382" y="71" class="peer-label">Codex</text>
+  <!-- LangGraph (8.0, 9.5) → (400, 25) -->
+  <circle cx="400" cy="25" r="5" fill="#3fb950"/><text x="407" y="21" class="peer-label">LangGraph</text>
+  <!-- MAF (7.5, 6.5) → (375, 175) -->
+  <circle cx="375" cy="175" r="5" fill="#8b949e"/><text x="382" y="171" class="peer-label">MAF</text>
+  <!-- CrewAI (6.5, 5.5) → (325, 225) -->
+  <circle cx="325" cy="225" r="5" fill="#8b949e"/><text x="332" y="221" class="peer-label">CrewAI</text>
+  <!-- OpenAI SDK (6.0, 5.0) → (300, 250) -->
+  <circle cx="300" cy="250" r="5" fill="#8b949e"/><text x="307" y="246" class="peer-label">OAI SDK</text>
+  <!-- DSPy (3.5, 4.5) → (175, 275) -->
+  <circle cx="175" cy="275" r="5" fill="#8b949e"/><text x="182" y="271" class="peer-label">DSPy</text>
+  <!-- LangChain (9.5, 4.5) → (475, 275) -->
+  <circle cx="475" cy="275" r="5" fill="#8b949e"/><text x="482" y="271" class="peer-label">LangChain</text>
+  <!-- Victor OLD (3.5, 8.0) → (175, 100) dashed circle -->
+  <circle cx="175" cy="100" r="8" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="165" y="92" class="peer-label" fill="#8b949e">Victor 11-16</text>
+  <!-- Victor NEW (3.5, 8.8) → (175, 60) solid blue -->
+  <circle cx="175" cy="60" r="7" fill="#58a6ff" stroke="#fff" stroke-width="2" z-index="2"/>
+  <text x="165" y="48" class="peer-label" fill="#58a6ff" font-weight="bold">Victor today</text>
+  <!-- movement arrow -->
+  <line x1="175" y1="100" x2="175" y2="68" class="move-arrow"/>
+</svg>
+</div>
+<p class="subtitle" style="text-align:center;">Y-axis moved 8.0 → 8.8 (durability +1.5, loop +0.5, DX +0.5). X-axis unchanged (Tier A next).</p>
+</div>
+
+<!-- ═══════════════════════ SOLO ENTREPRENEUR ADOPTION TODO ═══════════════════════ -->
+<div class="solo-section">
+<h2>TODO: Move Right — Adoption Surface (X-axis) for a Solo Entrepreneur</h2>
+<p class="subtitle">Priority-ordered. Checked = done. Each item targets a specific X-axis score increase.</p>
+
+<div class="card">
+<h3>Critical Path (X: 3 → 5) — weeks 1–4</h3>
+
+<div class="todo">
+  <input type="checkbox" id="t1" checked>
+  <label for="t1"><span class="priority p-critical">CRITICAL</span> <strong>One-command install</strong> — `pip install victor-ai` must work with zero post-install steps. Remove the editable-contracts dance for end users (keep for contributors). <em>Target: X +0.5. Effort: 2–3 days.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t2">
+  <label for="t2"><span class="priority p-critical">CRITICAL</span> <strong>Quickstart in under 5 minutes</strong> — README quickstart: install → set 1 API key → `victor chat "hello"` → working agent. Remove all caveats. <em>Target: X +0.5. Effort: 1–2 days.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t3">
+  <label for="t2"><span class="priority p-critical">CRITICAL</span> <strong>Subagent-spawn tool</strong> — LLM-callable `spawn_subagent(prompt, tools, background)` wired via the tool registry. Claude Code proved this is the highest-leverage loop primitive. <em>Target: X +0.5. Effort: 3–5 days. Design sketch: FOU ledger §A1.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t4">
+  <label for="t4"><span class="priority p-high">HIGH</span> <strong>Public benchmark publication</strong> — publish the Victor-vs-Claude-Code impact-analysis benchmark with reproducible methodology. Visibility drives adoption more than features. <em>Target: X +0.5. Effort: 2–3 days.</em></label>
+</div>
+
+<h3>Growth Path (X: 5 → 7) — weeks 5–12</h3>
+
+<div class="todo">
+  <input type="checkbox" id="t5">
+  <label for="t5"><span class="priority p-high">HIGH</span> <strong>Core long-term memory</strong> — user/project preference + episodic store injected at PERCEIVE (FEP-0048). Claude Code has Memories; Victor needs parity. <em>Target: Y +0.5, X +0.5. Effort: 1–2 weeks.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t6">
+  <label for="t6"><span class="priority p-high">HIGH</span> <strong>Plugin marketplace seed</strong> — 5–10 first-party plugins using the contract-plugin API (published to PyPI). Each is a tutorials/marketing asset. <em>Target: X +0.5. Effort: 1 week each, parallelizable.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t7">
+  <label for="t7"><span class="priority p-medium">MEDIUM</span> <strong>TUI polish pass</strong> — the TUI is the primary solo-entrepreneur surface. Fix the remaining 6 TUI-remediation items (diff tokens, markup leaks, session_restore). <em>Target: X +0.25. Effort: 3–5 days.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t8">
+  <label for="t8"><span class="priority p-medium">MEDIUM</span> <strong>VS Code extension to 1.0</strong> — the vscode-victor extension (38k LOC TS/TSX) is at 0.5.x. Ship 1.0 with chat + inline completion + code-intel panel. <em>Target: X +0.5. Effort: 2–4 weeks.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t9">
+  <label for="t9"><span class="priority p-medium">MEDIUM</span> <strong>Research stack upgrade</strong> — Tavily/Brave/Serper API adapters + proper page-read tool + Playwright browser tool. Replace DDG scraping. <em>Target: Y +0.25, X +0.25. Effort: 3–5 days.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t10">
+  <label for="t10"><span class="priority p-medium">MEDIUM</span> <strong>MCP server at /mcp</strong> — expose Victor as an MCP server (stdio + SSE) so any MCP client can use Victor's tools. <em>Target: X +0.25. Effort: 2–3 days.</em></label>
+</div>
+
+<h3>Long-term (X: 7 → 8+) — months 2–6</h3>
+
+<div class="todo">
+  <input type="checkbox" id="t11">
+  <label for="t11"><span class="priority p-medium">MEDIUM</span> <strong>RBAC/SSO wiring</strong> — wire the existing RBAC/SSO modules into the FastAPI middleware for multi-user deployments. <em>Target: X +0.25 (enterprise door). Effort: 1–2 weeks.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t12">
+  <label for="t12"><span class="priority p-low">LOW</span> <strong>External committer program</strong> — onboard 2–3 external committers via the contract-plugin API. The single-maintainer concentration is now a strategic risk. <em>Target: X +0.5 (community). Effort: ongoing.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t13">
+  <label for="t13"><span class="priority p-low">LOW</span> <strong>Native-parity CI broadened</strong> — expand required-parity CI beyond tokenizer/context-fitter to all 20+ native modules. <em>Target: Y +0.25. Effort: 1 week.</em></label>
+</div>
+
+<div class="todo">
+  <input type="checkbox" id="t14">
+  <label for="t14"><span class="priority p-low">LOW</span> <strong>Windows ARM64 wheels</strong> — add Windows ARM64 to the native wheel matrix (currently absent). <em>Target: X +0.25. Effort: 3–5 days.</em></label>
+</div>
+</div>
+
+<!-- ═══════════════════════ PR STATUS ═══════════════════════ -->
+<h2>PR Status (Foundations Program)</h2>
+<div class="card">
+<table>
+<tr><th>PR</th><th>Content</th><th>Status</th></tr>
+<tr><td>#1878</td><td>Specs (FEP-0047/0048, ADR-035/036/037, vision, ledger)</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1879</td><td>D1: GraphSQLiteCheckpointer adapter</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1881</td><td>D2: Durable-by-default checkpointing</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1882</td><td>D3: Loud input discard (FEP-0032 Accepted)</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1883</td><td>D4: Paused-result surfacing</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1884</td><td>D5a: Executor timeout parity</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1885</td><td>D5b: Executor verification parity</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1886</td><td>D5c: Executor streaming parity</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1887</td><td>S1–S5: Five live-soak fixes</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1888</td><td>S6: TurnResult → evaluator + is_qa seam</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1889</td><td>S6b/S7: Checkpoint strip + lmstudio /v1 fix</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1890</td><td>S8: Dict-content streaming + tolerant fallback</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1891</td><td>Handoff: Q&A guard, sandhi 14, qwen3.7-plus</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1892</td><td>Diagnosis probe recipe</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1893</td><td>Shallow model copy fallback</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>#1894</td><td>Checkpoint strip + context-dict removal</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td><strong>#1897</strong></td><td><strong>D5f flip: StateGraph executor default-on</strong></td><td><span class="badge badge-open">IN REVIEW</span></td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════ KEY METRICS ═══════════════════════ -->
+<div class="grid">
+<div class="card">
+<h2>Score Summary</h2>
+<div class="metric-row"><span class="metric-name">Workflow durability</span><div class="metric-scores"><span class="score-old">7.0</span> → <span class="score-new">8.5</span></div></div>
+<div class="metric-row"><span class="metric-name">Agentic loop depth</span><div class="metric-scores"><span class="score-old">8.5</span> → <span class="score-new">9.0</span></div></div>
+<div class="metric-row"><span class="metric-name">DX & onboarding</span><div class="metric-scores"><span class="score-old">5.0</span> → <span class="score-new">5.5</span></div></div>
+<div class="metric-row"><span class="metric-name">Interaction surfaces</span><div class="metric-scores"><span class="score-old">7.5</span> → <span class="score-new">7.75</span></div></div>
+<div class="metric-row"><span class="metric-name">All others</span><div class="metric-scores"><span class="score-old">held</span></div></div>
+</div>
+<div class="card">
+<h2>Adoption X-Axis Path</h2>
+<div class="metric-row"><span class="metric-name">Now</span><div class="metric-scores"><span class="score-new">3.0 / 10</span></div></div>
+<div class="metric-row"><span class="metric-name">Critical path (wk 1–4)</span><div class="metric-scores"><span class="score-new">5.0</span></div></div>
+<div class="metric-row"><span class="metric-name">Growth path (wk 5–12)</span><div class="metric-scores"><span class="score-new">7.0</span></div></div>
+<div class="metric-row"><span class="metric-name">Long-term (mo 2–6)</span><div class="metric-scores"><span class="score-new">8.0+</span></div></div>
+<div class="metric-row"><span class="metric-name">Quadrant</span><div class="metric-scores"><span class="score-new">LEADERS band</span></div></div>
+</div>
+</div>
+
+<p class="subtitle" style="margin-top:1.5rem;">Generated 2026-11-17 | Foundations Program session 4 | Victor v0.30.0-dev | 15 PRs merged</p>
+</body>
+</html>

@@ -35,10 +35,10 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-D5f-S3 | Soak fix: ACT node stores response text; evaluation coerces objects | D | — | — | this PR | 3 tests (node shape, default-eval complete, object-defense) |
 | FOU-D5f-S4 | Soak fix: evaluate node uses the real `check_fulfillment` API | D | — | — | this PR | real-API + contained-failure tests; phantom-pinning test migrated |
 | FOU-D5f-S5 | Soak fix: stale governance/verifier admission refusals removed (`require_supported_loop_executor`) | D | — | FOU-D5b/D5c | this PR | streaming-parity stategraph+gate tests (were the RED evidence) + admission seam test; documented boundary: governance enforced at the chat surface, direct graph-API runs ungated by design |
-| FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | IN REVIEW | fou/s1-sandbox-hardening |
-| FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a (qualification green on CI matrix) | TODO | — |
+| FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | GREEN (7622060af + enforcement fix 6027d4aaa) | #1907, #1910 |
+| FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a (qualification green on CI matrix) | IN REVIEW | fou/s1b-posture-flip (#1912) |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | TODO | — |
-| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b IN REVIEW (S3c-d TODO) | fou/s3a-containment-envelope, fou/s3b-canary-blocking |
+| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c-d TODO | #1908, #1911 |
 | FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | TODO | — |
 | FOU-A1 | Subagent-spawn tool (Task-tool pattern) | A | ledger §A1 design | FOU-D2 | TODO | — |
 | FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | TODO | — |
