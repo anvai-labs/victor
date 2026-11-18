@@ -152,7 +152,9 @@ async def graph_semantic_search(
         graph_store = create_graph_store(name="auto", project_path=project_path)
         await graph_store.initialize()
 
-        effective_mode = mode if mode in ("semantic", "structural", "hybrid") else "semantic"
+        effective_mode = (
+            mode if mode in ("semantic", "structural", "hybrid", "intent") else "semantic"
+        )
         mode_note: Optional[str] = None
         seed_report: Any = None
 
@@ -180,6 +182,13 @@ async def graph_semantic_search(
             result = await retriever.retrieve(query, config)
         elif effective_mode == "structural":
             seed_scores = await _structural_seed_scores(graph_store, query, max_results)
+            result = await retriever.expand_from_seeds(seed_scores, query, config)
+        elif effective_mode == "intent":
+            # FEP-0049: chunk-source seeds (natural-language hits over code
+            # bodies), max-aggregated per symbol node, then normal expansion.
+            seed_scores, intent_note = await _intent_seed_scores(graph_store, query, max_results)
+            mode_note = intent_note
+            seed_report = None
             result = await retriever.expand_from_seeds(seed_scores, query, config)
         else:
             seed_scores, seed_report = await _hybrid_seeds(graph_store, query, max_results)
@@ -430,12 +439,58 @@ async def _hybrid_seeds(
     """
     from victor.core.graph_rag.seeding import hybrid_seeds
 
+    from victor.config.settings import graph_flag, get_settings
+
+    try:
+        intent_enabled = graph_flag(get_settings(), "codebase_intent_indexing_enabled", False)
+    except Exception:
+        intent_enabled = False
+
     return await hybrid_seeds(
         graph_store,
         query,
         seed_count,
         vector_provider_factory=lambda store: _vector_provider_for(store),
+        intent_store_factory=(
+            (lambda store: _intent_provider_for(store)) if intent_enabled else None
+        ),
     )
+
+
+async def _intent_seed_scores(
+    graph_store: Any,
+    query: str,
+    seed_count: int,
+) -> tuple[Dict[str, float], Optional[str]]:
+    """Intent-tier chunk seeds max-aggregated per symbol node.
+
+    The store factory is looked up on this module at call time so callers
+    and tests that substitute it keep doing so. Flag-gated at the caller:
+    when the FEP-0049 flag is off this returns the degraded note without
+    touching the vector store.
+    """
+    from victor.config.settings import graph_flag, get_settings
+    from victor.core.graph_rag.seeding import intent_seed_scores
+
+    try:
+        enabled = graph_flag(get_settings(), "codebase_intent_indexing_enabled", False)
+    except Exception:
+        enabled = False
+    if not enabled:
+        return {}, "intent leg disabled (codebase_intent_indexing_enabled is off)"
+
+    return await intent_seed_scores(
+        graph_store,
+        query,
+        seed_count,
+        intent_store_factory=lambda store: _intent_provider_for(store),
+    )
+
+
+async def _intent_provider_for(graph_store: Any) -> Any:
+    from victor.core.graph_rag.seeding import intent_provider_for
+
+    return intent_provider_for(graph_store)
 
 
 async def _hybrid_seed_scores(

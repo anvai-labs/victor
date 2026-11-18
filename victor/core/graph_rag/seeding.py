@@ -170,6 +170,66 @@ def _join_notes(*notes: Optional[str]) -> Optional[str]:
     return joined or None
 
 
+def intent_provider_for(graph_store: Any) -> Any:
+    """Intent-tier chunk-index provider (FEP-0049), or None when unavailable.
+
+    Mirrors the pipeline's construction: the graph store's embedding config
+    with the dedicated ``code_chunks`` table, wrapped in the store facade.
+    Read-safe: a missing/unopenable provider yields None (the leg degrades
+    with a note rather than creating stray directories).
+    """
+    try:
+        from victor.storage.graph.intent_index import INTENT_TABLE, IntentIndexStore
+        from victor.storage.vector_stores.registry import EmbeddingRegistry
+
+        build = getattr(graph_store, "_build_embedding_config", None)
+        if build is None:
+            return None
+        config = build()
+        config.extra_config = {**(config.extra_config or {}), "table_name": INTENT_TABLE}
+        provider = EmbeddingRegistry.create(config)
+        return IntentIndexStore(provider, graph_store)
+    except Exception as e:
+        logger.debug(f"Intent-tier provider unavailable: {e}")
+        return None
+
+
+async def intent_seed_scores(
+    graph_store: Any,
+    query: str,
+    limit: int,
+    *,
+    intent_store_factory: Optional[VectorProviderFactory] = None,
+) -> Tuple[Dict[str, float], Optional[str]]:
+    """Intent-tier seeds: chunk hits max-aggregated per symbol node.
+
+    Returns ``{node_id: score}`` plus an availability note. Rank-normalized
+    per the RRF contract (scale-free across legs).
+    """
+    factory = intent_store_factory or intent_provider_for
+    store = factory(graph_store)
+    if store is None:
+        return {}, "intent leg unavailable: no intent index provider"
+    try:
+        hits = await store.search(query, limit=limit)
+    except Exception as e:
+        return {}, f"intent leg unavailable: {e}"
+    if not hits:
+        return {}, (
+            "intent leg empty (no chunk embeddings indexed — " "run `victor graph index --intent`)"
+        )
+    per_node: Dict[str, float] = {}
+    for rank, hit in enumerate(hits):
+        node_id = str(hit["metadata"].get("symbol_id") or "")
+        if not node_id:
+            continue
+        score = 1.0 / (1 + rank)  # rank normalization (RRF-compatible)
+        per_node[node_id] = max(per_node.get(node_id, 0.0), score)
+    if not per_node:
+        return {}, "intent leg empty: chunk hits carried no symbol ids"
+    return per_node, None
+
+
 async def structural_seeds(
     graph_store: Any,
     query: str,
@@ -194,6 +254,7 @@ async def hybrid_seeds(
     seed_count: int,
     *,
     vector_provider_factory: Optional[VectorProviderFactory] = None,
+    intent_store_factory: Optional[VectorProviderFactory] = None,
 ) -> Tuple[Dict[str, float], SeedReport]:
     """Fuse keyword seeds with vector-similarity seeds via RRF.
 
@@ -274,7 +335,25 @@ async def hybrid_seeds(
         note = f"semantic leg unavailable: {e}"
         logger.debug(f"Hybrid semantic leg failed: {e}")
 
-    if not semantic_results:
+    # Intent leg (FEP-0049): chunk-source hits aggregated per symbol,
+    # rank-normalized. Present only when a factory is injected (flag-gated
+    # by the caller); failures degrade with a note, never raise.
+    intent_results: List[Dict[str, Any]] = []
+    if intent_store_factory is not None:
+        intent_scores, intent_note = await intent_seed_scores(
+            graph_store,
+            query,
+            limit,
+            intent_store_factory=intent_store_factory,
+        )
+        if intent_note:
+            note = _join_notes(note, intent_note)
+        intent_results = [
+            {"file_path": node_id, "content": "", "score": score}
+            for node_id, score in intent_scores.items()
+        ]
+
+    if not semantic_results and not intent_results:
         note = note or (
             "semantic leg empty (no node embeddings indexed — "
             "run `victor graph index --embeddings`); degraded to structural seeds"
@@ -295,6 +374,16 @@ async def hybrid_seeds(
 
     engine = create_hybrid_search_engine()
     fused = engine.combine_results(semantic_results, keyword_results, max_results=seed_count)
+    if intent_results:
+        # Pairwise RRF: intent leg fused against the semantic+keyword union.
+        # Rank-normalized on both sides (scores are 1/(1+rank)), so no
+        # cross-scale mixing. The first fuse emits result objects; the
+        # second takes dicts, so project the union back to its shape.
+        union = [
+            {"file_path": r.file_path, "content": r.content, "score": r.combined_score}
+            for r in fused
+        ]
+        fused = engine.combine_results(intent_results, union, max_results=seed_count)
     max_score = max((r.combined_score for r in fused), default=1.0) or 1.0
     scores = {r.file_path: r.combined_score / max_score for r in fused}
     return scores, SeedReport(
@@ -303,7 +392,7 @@ async def hybrid_seeds(
         semantic_seeds=len(semantic_results),
         fused_seeds=len(scores),
         semantic_leg=SEMANTIC_USED,
-        note=keyword_error,
+        note=_join_notes(keyword_error, note),
         keyword_leg=keyword_leg,
         keyword_match=keyword_match,
     )
