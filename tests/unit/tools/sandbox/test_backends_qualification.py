@@ -148,6 +148,67 @@ def test_live_unshare_denied_by_seccomp():
 
 
 @requires_bwrap
+def test_live_full_escape_surface_denied_by_seccomp():
+    """GREEN: pivot_root / mount / namespace-clone all deny; plain fork works.
+
+    Regression net for the S1a follow-up: the first shipped program had
+    cBPF fall-through offsets relative to pc instead of pc+1, silently
+    skipping alternate deny checks (pivot_root was enforced nowhere).
+    """
+    sandbox = BubblewrapSandbox()
+    probe = (
+        "import ctypes, os, sys\n"
+        "libc = ctypes.CDLL(None, use_errno=True)\n"
+        "libc.syscall.restype = ctypes.c_long\n"
+        "out = []\n"
+        "out.append('pivot_root=' + ('EPERM' if libc.pivot_root(b'/tmp', b'/tmp') != 0 else 'OK'))\n"
+        "out.append('mount=' + ('EPERM' if libc.syscall(165, 0, 0, 0, 0) < 0 else 'OK'))\n"
+        "out.append('cloneNS=' + ('EPERM' if libc.syscall(56, 0x10000000, 0, 0, 0, 0) < 0 else 'OK'))\n"
+        "pid = os.fork()\n"
+        "if pid == 0: os._exit(0)\n"
+        "os.waitpid(pid, 0)\n"
+        "out.append('fork=OK')\n"
+        "sys.exit(0 if all(v.endswith('EPERM') or v == 'fork=OK' for v in out) else 7)\n"
+    )
+    argv = sandbox.wrap_argv(["/usr/bin/python3", "-c", probe], cwd=None)
+    proc = os.spawnvpe(os.P_WAIT, argv[0], argv, os.environ)
+    assert proc == 0, "escape-surface probe failed inside the sandbox"
+
+
+@pytest.mark.skipif(platform.system() != "Linux", reason="seccomp(2) is Linux-only")
+def test_seccomp_program_loads_in_kernel():
+    """The cBPF program must pass kernel validation (seccomp SET_MODE_FILTER).
+
+    Loads the filter in a forked child (the filter only affects that child)
+    via the raw syscall; kernel EINVAL is the ground-truth validator that
+    caught the jump-offset bugs the structural tests could not see.
+    """
+    import ctypes
+
+    from victor.tools.sandbox.backends import build_seccomp_deny_program
+
+    libc = ctypes.CDLL(None, use_errno=True)
+
+    class sock_fprog(ctypes.Structure):
+        _fields_ = [
+            ("len", ctypes.c_uint16),
+            ("filter", ctypes.POINTER(ctypes.c_char)),
+        ]
+
+    prog = build_seccomp_deny_program()
+
+    pid = os.fork()
+    if pid == 0:
+        libc.prctl(38, 1, 0, 0, 0)  # PR_SET_NO_NEW_PRIVS
+        buf = ctypes.create_string_buffer(bytes(prog), len(prog))
+        fprog = sock_fprog(len(prog) // 8, ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
+        rc = libc.syscall(317, 1, 0, ctypes.byref(fprog))  # seccomp(SET_MODE_FILTER)
+        os._exit(0 if rc == 0 else (ctypes.get_errno() or -1))
+    _, status = os.waitpid(pid, 0)
+    assert os.waitstatus_to_exitcode(status) == 0, "kernel rejected the seccomp program"
+
+
+@requires_bwrap
 def test_live_full_executor_run_wrapped():
     """The canonical executor path stays green end-to-end under hardening."""
     import asyncio

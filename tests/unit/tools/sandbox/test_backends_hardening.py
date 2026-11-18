@@ -118,60 +118,120 @@ def _decode(program: bytes):
     return [tuple(flat[i * 4 : i * 4 + 4]) for i in range(n)]
 
 
+_X86, _ARM = 0xC000003E, 0xC00000B7
+
+
+class _Emulator:
+    """Evaluate the seccomp program exactly as the kernel would."""
+
+    def __init__(self, program: bytes):
+        self.insns = _decode(program)
+
+    def run(self, arch: int, nr: int, arg0: int = 0) -> str:
+        acc = 0
+        i = 0
+        while True:
+            code, jt, jf, k = self.insns[i]
+            if code == 0x20:  # LD
+                if k == sb._SECCOMP_DATA_ARCH:
+                    acc = arch
+                elif k == sb._SECCOMP_DATA_NR:
+                    acc = nr
+                else:
+                    acc = arg0
+                i += 1
+                continue
+            if code == 0x54:  # AND
+                acc &= k
+                i += 1
+                continue
+            if code == 0x15:  # JEQ
+                # First two jeqs compare the loaded arch; later jeqs compare
+                # whatever was loaded last (nr, then clone flags).
+                take = jt if acc == k else jf
+                i = i + 1 + take
+                continue
+            if code == 0x06:  # RET
+                return "ALLOW" if k == 0x7FFF0000 else "EPERM"
+
+
 class TestSeccompProgram:
     def setup_method(self):
         self.program = sb.build_seccomp_deny_program()
+        self.vm = _Emulator(self.program)
 
-    def test_known_deny_syscalls_x86_64(self):
-        """x86_64 deny numbers must include the sandbox-escape set."""
-        insns = _decode(self.program)
-        denies_x86_64 = {
+    def test_deny_syscalls_x86_64(self):
+        """Verified-number escape/integrity set must ALL deny on x86_64."""
+        for nr in (
             165,  # mount
             166,  # umount2
-            203,  # pivot_root
+            155,  # pivot_root
+            161,  # chroot
+            430,  # fsopen (new mount API)
             272,  # unshare
             308,  # setns
             321,  # bpf
             101,  # ptrace
             298,  # perf_event_open
             246,  # kexec_load
-            294,  # kexec_file_load
+            320,  # kexec_file_load
             313,  # finit_module
             304,  # open_by_handle_at
             250,  # keyctl
-        }
-        # Every syscall-compare JEQ k (all jeqs except the two arch checks)
-        # is a deny rule by construction of the deny-list builder.
-        denied = {
-            insn[3] for insn in insns if insn[0] == 0x15 and insn[3] not in (0xC000003E, 0xC00000B7)
-        }
-        missing = denies_x86_64 - denied
-        assert not missing, f"x86_64 deny list missing syscall numbers: {missing}"
+            312,  # kcmp
+            323,  # userfaultfd
+            227,  # clock_settime
+            438,  # pidfd_getfd
+            440,  # process_madvise
+            170,  # sethostname
+        ):
+            verdict = self.vm.run(_X86, nr)
+            assert verdict == "EPERM", f"x86_64 syscall {nr}: {verdict}"
 
-    def test_aarch64_arch_section_present(self):
-        """The program must handle AUDIT_ARCH_AARCH64, not silently allow it."""
-        insns = _decode(self.program)
-        arch_consts = {insn[3] for insn in insns if insn[0] == 0x15}
-        assert 0xC000003E in arch_consts  # AUDIT_ARCH_X86_64
-        assert 0xC00000B7 in arch_consts  # AUDIT_ARCH_AARCH64
-        denied = {
-            insn[3] for insn in insns if insn[0] == 0x15 and insn[3] not in (0xC000003E, 0xC00000B7)
-        }
-        assert 266 in denied  # unshare on aarch64
+    def test_deny_syscalls_aarch64(self):
+        """aarch64 uses the generic table — several numbers DIFFER from x86."""
+        for nr in (
+            97,  # unshare
+            40,  # mount
+            51,  # chroot
+            268,  # setns
+            273,  # finit_module
+            294,  # kexec_file_load (320 on x86_64!)
+            280,  # bpf
+            117,  # ptrace
+            58,  # vhangup
+            18,  # lookup_dcookie
+            262,  # fanotify_init
+            112,  # clock_settime
+        ):
+            verdict = self.vm.run(_ARM, nr)
+            assert verdict == "EPERM", f"aarch64 syscall {nr}: {verdict}"
+
+    def test_benign_syscalls_stay_allowed(self):
+        assert self.vm.run(_X86, 0) == "ALLOW"  # read
+        assert self.vm.run(_X86, 1) == "ALLOW"  # write
+        assert self.vm.run(_X86, 59) == "ALLOW"  # execve
+        assert self.vm.run(_ARM, 63) == "ALLOW"  # read (arm)
+        assert self.vm.run(_ARM, 64) == "ALLOW"  # write (arm)
+
+    def test_no_collateral_denies(self):
+        """Numbers previously denied by mistake must NOT deny."""
+        assert self.vm.run(_X86, 203) == "ALLOW"  # was wrongly denied (reserved)
+        assert self.vm.run(_X86, 294) == "ALLOW"  # was wrongly denied (reserved)
+        assert self.vm.run(_ARM, 266) == "ALLOW"  # clock_adjtime (was collateral)
+
+    def test_clone_flag_filter(self):
+        """clone() stays allowed for threads but denies namespace creation."""
+        assert self.vm.run(_X86, 56, arg0=0x00000000) == "ALLOW"  # plain thread
+        assert self.vm.run(_ARM, 220, arg0=0x00000000) == "ALLOW"
+        for flag in (0x10000000, 0x40000000, 0x00020000, 0x20000000):  # USER/NET/NS/PID
+            assert self.vm.run(_X86, 56, arg0=flag) == "EPERM"
+            assert self.vm.run(_ARM, 220, arg0=flag) == "EPERM"
 
     def test_unknown_arch_fails_closed(self):
-        """An architecture outside the tables must hit RET ERRNO, not ALLOW."""
-        insns = _decode(self.program)
-        # Find the instruction reached when arch matches neither known const.
-        # Structural check: an unconditional RET ERRNO exists and is placed
-        # before both arch sections (fail-closed ordering).
-        rets = [insn for insn in insns if insn[0] == 0x06]
-        errno_rets = [insn for insn in rets if (insn[3] & 0xFFFF0000) == 0x00050000]
-        assert errno_rets, "program must contain RET ERRNO(EPERM) for unknown arch"
-
-    def test_default_verdict_is_allow(self):
-        insns = _decode(self.program)
-        assert (0x06, 0, 0, 0x7FFF0000) in insns
+        """Compat ABIs (int $0x80 / x32) get EPERM across the board."""
+        for arch in (0x40000003, 0x40000002, 0x80000000):
+            assert self.vm.run(arch, 0) == "EPERM"
 
     def test_within_bpf_max_insns(self):
         assert len(self.program) // 8 <= 4096
