@@ -731,6 +731,38 @@ def _effective_policy_from_settings(*, on_error: str) -> str:
         return on_error
 
 
+def force_unsandboxed_for_session() -> tuple[bool, str]:
+    """CLI ``--dangerously-unsandboxed``: explicit per-invocation opt-out.
+
+    An explicit CLI request is the strongest signal, so this overrides BOTH
+    the environment and any settings-file policy for the process lifetime.
+    The ADR-035 opt-out warning still fires (deliberate unsandboxed
+    execution must stay visible). Returns ``(applied, message)`` — on a
+    settings failure the fail-closed posture stays in effect (the safe
+    direction; never degrade on error).
+    """
+    try:
+        from victor.config.sandbox_settings import SandboxSettings
+        from victor.config.settings import get_settings
+
+        settings = get_settings()
+        if getattr(settings, "sandbox", None) is None:
+            settings.sandbox = SandboxSettings(sandbox_policy="disabled")
+        else:
+            settings.sandbox.sandbox_policy = "disabled"
+    except Exception as exc:
+        return (
+            False,
+            f"could not apply the opt-out ({exc}); the fail-closed posture " "stays in effect",
+        )
+    _warn_once(
+        "opt_out_disabled",
+        "Sandbox policy is 'disabled' (--dangerously-unsandboxed): tools are "
+        "running UNSANDBOXED for this session.",
+    )
+    return True, "tools will run UNSANDBOXED for this session"
+
+
 def current_sandbox_posture() -> str:
     """Effective sandbox posture from global settings (observability seam).
 
@@ -754,6 +786,7 @@ __all__ = [
     "build_seccomp_deny_program",
     "_effective_policy_from_settings",
     "current_sandbox_posture",
+    "force_unsandboxed_for_session",
     "effective_sandbox_policy",
     "resolve_required_launch",
     "resolve_sandbox_backend",
