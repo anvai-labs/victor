@@ -82,6 +82,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             if hasattr(orchestrator, "adaptive_controller") and orchestrator.adaptive_controller:
                 mode = orchestrator.adaptive_controller.current_mode.value
 
+            from victor.tools.sandbox import current_sandbox_posture
+
             return StatusResponse(
                 connected=True,
                 mode=mode,
@@ -89,9 +91,12 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 model=model_name,
                 workspace=server.workspace_root,
                 capabilities=server._detect_capabilities(),
+                sandbox_posture=current_sandbox_posture(),
             )
         except Exception as e:
             logger.warning(f"Status check error: {e}")
+            from victor.tools.sandbox import current_sandbox_posture
+
             return StatusResponse(
                 connected=False,
                 mode="unknown",
@@ -99,6 +104,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 model="unknown",
                 workspace=server.workspace_root,
                 capabilities=server._detect_capabilities(),
+                sandbox_posture=current_sandbox_posture(),
             )
 
     @router.get("/events/recent")

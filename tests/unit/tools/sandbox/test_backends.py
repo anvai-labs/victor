@@ -119,11 +119,13 @@ def test_seatbelt_full_fs_mode_has_no_write_deny():
 
 
 def test_resolve_disabled_returns_none():
-    assert resolve_sandbox_backend(_Settings(sandbox_enabled=False)).type_name == "none"
-    assert resolve_sandbox_backend(None).type_name == "none"
+    """Disabled is now explicit-only (ADR-035); without it the posture is
+    required, so plain settings resolve to an enforcing backend or raise."""
+    assert resolve_sandbox_backend(_Settings(sandbox_policy="disabled")).type_name == "none"
 
 
 def test_resolve_linux_with_bwrap(monkeypatch):
+    monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: "/usr/bin/bwrap")
     backend = resolve_sandbox_backend(_Settings())
@@ -131,6 +133,7 @@ def test_resolve_linux_with_bwrap(monkeypatch):
 
 
 def test_resolve_darwin_with_seatbelt(monkeypatch):
+    monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
     monkeypatch.setattr(sb.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(sb.shutil, "which", lambda name: "/usr/bin/sandbox-exec")
     backend = resolve_sandbox_backend(_Settings())
@@ -140,7 +143,7 @@ def test_resolve_darwin_with_seatbelt(monkeypatch):
 def test_resolve_fail_open_when_binary_missing(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         backend = resolve_sandbox_backend(_Settings())
     assert backend.type_name == "none"
@@ -149,14 +152,14 @@ def test_resolve_fail_open_when_binary_missing(monkeypatch, caplog):
 
 def test_resolve_fail_open_unsupported_platform(monkeypatch):
     monkeypatch.setattr(sb.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     assert resolve_sandbox_backend(_Settings()).type_name == "none"
 
 
 def test_warn_once_only(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         resolve_sandbox_backend(_Settings())
         resolve_sandbox_backend(_Settings())
@@ -181,17 +184,14 @@ def test_sandbox_settings_policy_field_defaults_disabled():
         SandboxSettings(sandbox_policy="always")
 
 
-def test_effective_policy_mapping():
-    # Legacy bool: enabled=True without an explicit policy -> preferred
-    # (today's fail-open semantics).
-    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=False)) == "disabled"
-    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=True)) == "preferred"
-    assert sb.effective_sandbox_policy(None) == "disabled"
-    assert (
-        sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy=None))
-        == "preferred"
-    )
-    # Explicit policy wins over the bool in both directions.
+def test_effective_policy_mapping(monkeypatch):
+    # ADR-035: absent policy defaults to REQUIRED; the legacy bool no longer
+    # maps to fail-open preferred (that mode is explicit opt-in now).
+    monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
+    assert sb.effective_sandbox_policy(None) == "required"
+    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=False)) == "required"
+    assert sb.effective_sandbox_policy(_Settings(sandbox_enabled=True)) == "required"
+    # Explicit policy wins in both directions.
     assert (
         sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy="required"))
         == "required"
@@ -203,6 +203,10 @@ def test_effective_policy_mapping():
     assert (
         sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy="disabled"))
         == "disabled"
+    )
+    assert (
+        sb.effective_sandbox_policy(_Settings(sandbox_enabled=True, sandbox_policy="preferred"))
+        == "preferred"
     )
 
 
@@ -231,7 +235,7 @@ def test_resolve_required_returns_backend_when_available(monkeypatch):
 def test_resolve_required_does_not_emit_fail_open_warning(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         with pytest.raises(sb.SandboxRequiredUnavailableError):
             resolve_sandbox_backend(_Settings(sandbox_policy="required"))
@@ -241,7 +245,7 @@ def test_resolve_required_does_not_emit_fail_open_warning(monkeypatch, caplog):
 def test_resolve_preferred_still_fails_open_with_degradation(monkeypatch, caplog):
     monkeypatch.setattr(sb.platform, "system", lambda: "Linux")
     monkeypatch.setattr(sb.shutil, "which", lambda name: None)
-    monkeypatch.setattr(sb, "_warned_unavailable", False)
+    monkeypatch.setattr(sb, "_warned_categories", set())
     with caplog.at_level("WARNING"):
         backend = resolve_sandbox_backend(_Settings(sandbox_policy="preferred"))
     assert backend.type_name == "none"

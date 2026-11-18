@@ -172,6 +172,29 @@ program adds the intent tier without giving up the structural model.
   --intent. **Phase 4**: seeding intent leg (per-leg normalization) +
   graph similar --mode intent + graph_semantic_search mode.
 
+
+## FOU-S1b evidence (2026-11-18, fou/s1b-posture-flip)
+
+- **RED**: 11 of 15 new posture tests failed on develop (default was
+  disabled/preferred; no env hatch; no posture surface).
+- **GREEN**: `effective_sandbox_policy` resolution order = explicit
+  settings policy > VICTOR_SANDBOX_POLICY env (invalid values ignored) >
+  **required** (default). Legacy `sandbox_enabled` bool no longer maps to
+  fail-open preferred. Explicit opt-out warns once per process (ADR-035
+  decision 2). Refusal errors name the exact escape hatch.
+- Snapshot: `RunPolicySnapshot._effective_policy` now DELEGATES to the
+  canonical function (hand-synced copy removed — the F1 drift class).
+- API surface: `/system/status` reports `sandbox_posture`
+  (StatusResponse.sandbox_posture, current_sandbox_posture() helper).
+- Ripple containment: tests/conftest.py sets VICTOR_SANDBOX_POLICY=disabled
+  (CI runners cannot enforce OS sandboxes; dedicated flip tests delenv to
+  exercise required); 4 legacy tests migrated to the new semantics.
+- Wide sweep: 1,931 passed / 0 failed across sandbox/runtime/workflows/
+  core/api/integrations/agent-tools; live executor smoke on this host
+  (required posture, bwrap + seccomp enforcing): shell runs wrapped, rc=0.
+- Follow-ups queued: doctor CLI posture line; --dangerously-unsandboxed
+  per-invocation CLI flag; macOS live-execution qualification of the
+  deny-default Seatbelt profile (CI matrix has no macOS runner).
 ## Reboot instructions
 
 1. `git fetch origin develop`; check this table for `IN REVIEW`/`GREEN` rows and verify their

@@ -1036,6 +1036,12 @@ RELATED_TESTS = {
     "victor/integrations/api/routes/team_routes.py": (
         "tests/unit/integrations/api/test_ws_auth_gate.py",
     ),
+    # /system routes: status contract incl. the ADR-035 sandbox_posture
+    # reporting is pinned by the consolidated-routes suite (no per-route
+    # mirror file).
+    "victor/integrations/api/routes/system_routes.py": (
+        "tests/unit/api/test_consolidated_routes.py",
+    ),
     # /agents route: owner-scoped background-agent event delivery is pinned
     # by the background agent manager owner (no per-route mirror file).
     "victor/integrations/api/routes/agent_routes.py": (

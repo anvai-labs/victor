@@ -84,6 +84,7 @@ class StatusResponse(BaseModel):
     model: str
     workspace: str
     capabilities: List[str] = Field(default_factory=list)
+    sandbox_posture: str = "unknown"
 
 
 class ChatMessage(BaseModel):

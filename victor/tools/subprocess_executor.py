@@ -361,9 +361,10 @@ def check_pip_available() -> bool:
 def _resolve_default_sandbox(
     run_policy_snapshot: Optional[RunPolicySnapshot] = None,
 ) -> "SandboxBackend":
-    """Resolve the sandbox backend from global settings (fail-open to none).
+    """Resolve the sandbox backend from global settings (ADR-035: fail-closed
+    default; degrades only under an explicit ``preferred`` policy).
 
-    Reads ``settings.sandbox`` (off by default). A ``required`` policy that
+    Reads ``settings.sandbox`` (ADR-035 fail-closed default). A ``required`` policy that
     cannot be enforced raises :class:`SandboxRequiredUnavailableError` —
     that refusal is the security boundary and is never swallowed. Any other
     resolution failure degrades to no sandbox so subprocess execution is
@@ -437,13 +438,9 @@ def _required_policy_active(
     """
     if run_policy_snapshot is not None:
         return run_policy_snapshot.effective_policy == "required"
-    try:
-        from victor.config.settings import get_settings
-        from victor.tools.sandbox import effective_sandbox_policy
+    from victor.tools.sandbox import _effective_policy_from_settings
 
-        return effective_sandbox_policy(getattr(get_settings(), "sandbox", None)) == "required"
-    except Exception:
-        return False
+    return _effective_policy_from_settings(on_error="unknown") == "required"
 
 
 def _apply_sandbox(
@@ -514,7 +511,7 @@ def run_command(
         preexec_fn: Callable invoked in the child process before exec (POSIX only).
         max_output_bytes: Truncate stdout/stderr beyond this many bytes (0 = no limit).
         sandbox: Optional sandbox backend. When None, resolved from settings
-            (off by default). A non-none backend wraps the command argv.
+            (ADR-035: fail-closed by default). A non-none backend wraps the command argv.
 
     Returns:
         CommandResult with execution details.
@@ -873,7 +870,7 @@ async def run_command_async(
         preexec_fn: Callable invoked in the child process before exec (POSIX only).
         max_output_bytes: Truncate stdout/stderr beyond this many bytes (0 = no limit).
         sandbox: Optional sandbox backend. When None, resolved from settings
-            (off by default). A non-none backend wraps the command argv and
+            (ADR-035: fail-closed by default). A non-none backend wraps the command argv and
             runs it via exec instead of the shell.
         run_policy_snapshot: Immutable policy admitted by an enclosing run;
             it takes precedence over mutable global settings.
