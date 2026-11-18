@@ -167,12 +167,18 @@ program adds the intent tier without giving up the structural model.
   (LanceDB code_chunks + intent_file_state in graph sqlite; crash-safety by
   commit ordering; symbol_oid correlation; embedding_ref never written —
   guard test); codebase_intent_indexing_enabled flag. 9 tests.
-- **Phase 3 (#1917, stacked, IN REVIEW)**: intent_sync.py sync_intent_tier
+- **Phase 3 (#1917, MERGED)**: intent_sync.py sync_intent_tier
   (O(1) root shortcut, chunk-precise delete-then-upsert, marker-last crash
   ordering, lazy encoder, profile-change rebuild) + GraphIndexingPipeline
   hook (post-publication, flag-gated) + graph index --intent CLI. 7 work-set
-  tests. **Phase 4 TODO**: seeding intent leg (per-leg normalization) +
-  graph similar --mode intent + graph_semantic_search mode.
+  tests.
+- **Phase 4 (#1919, MERGED)**: seeding intent_provider_for/intent_seed_scores
+  (chunk hits max-aggregated per symbol, rank-normalized) + hybrid_seeds
+  flag-gated intent leg (pairwise RRF; flag-off byte-identical) +
+  graph_query_tool mode="intent" + IntentIndexStore.search.
+- **FEP-0049 COMPLETE on develop (2026-11-18)**: `victor graph index
+  --intent` populates; `graph_semantic_search(mode="intent")` + the hybrid
+  intent leg query. Remaining: ADR-036 graduation battery (field data).
 
 
 ## FOU-S1b evidence (2026-11-18, fou/s1b-posture-flip)
@@ -197,6 +203,33 @@ program adds the intent tier without giving up the structural model.
 - Follow-ups queued: doctor CLI posture line; --dangerously-unsandboxed
   per-invocation CLI flag; macOS live-execution qualification of the
   deny-default Seatbelt profile (CI matrix has no macOS runner).
+## Adoption Increment 2 + inventory fix (2026-11-18)
+
+- **Increment 2 (#1922, IN REVIEW)**: `victor init` quickstart — server
+  detection matrix (Ollama/llama.cpp/InferFlux), Ollama pull path reusing
+  `OllamaProvider.pull_model`, last-resort llama.cpp daemon (official
+  release binary + pinned bartowski Q4_K_M GGUF, detached spawn with
+  PID/log files, idempotent PID+health re-entry, path-traversal-rejecting
+  extraction), ProfileManager activation, SOAK-OK smoke via the
+  OpenAI-compatible transport. Coordinator adversarial pass added
+  `expected_min_bytes` truncation guards on both downloads (a partial
+  4.4 GB GGUF previously landed silently). 47 tests. Model choice:
+  qwen2.5-coder-7b deliberate (stable GGUF, --jinja tool-calling, CPU
+  size, Ollama-path consistency); Qwen4 is preview-only — swap is two
+  constants when production GGUFs land.
+- **Inventory fallback (#1923, IN REVIEW)**: root cause of 249
+  pre-existing test failures — ancestry discovery accepts ANY ancestor
+  `.git` including empty debris (stray /tmp/.git), but git then rejects
+  it and the walk fallback required zero discovery. Git's verdict is now
+  authoritative: not-a-repository -> walk the pinned descriptor dir
+  (same trust position; other git failures still fail closed).
+  1399 passed / 0 failed in the previously-failing suites.
+- **S1b follow-ups ALL CLOSED**: #1918 doctor posture check,
+  #1920 --dangerously-unsandboxed (CLI > env > file precedence,
+  fail-closed on settings failure), #1921 Seatbelt battery MERGED with
+  7/7 PASSED execution evidence on macOS 26.2 arm64 (SSH run on the
+  MacBook). S1b gate: QUALIFIED on Linux AND macOS.
+
 ## Reboot instructions
 
 1. `git fetch origin develop`; check this table for `IN REVIEW`/`GREEN` rows and verify their
