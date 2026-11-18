@@ -63,7 +63,7 @@
 <body>
 
 <h1>Victor Competitive Dashboard</h1>
-<p class="subtitle">Foundations Program — 2026-11-17 | 15 PRs merged | Durability 9.0 DONE, Loop 9.0 | Tier D CLOSED (flip merged #1904); Tier S shippedier S/A next</p>
+<p class="subtitle">Foundations + Intent Tier + Adoption — 2026-11-18 | 45+ PRs merged | Durability 9.0 · Security 8.0 (execution-verified Linux+macOS) · Code-intel 9.0 (intent tier) · DX 6.5 (victor init quickstart) | FOU program COMPLETE</p>
 
 <!-- ═══════════════════════ RADAR CHART ═══════════════════════ -->
 <h2>Capability Radar (before → after)</h2>
@@ -74,22 +74,22 @@
 <td><div class="bar-container"><div class="bar new" style="width:95%;background:var(--accent)"></div></div></td><td>Victor leads</td></tr>
 <tr><td>Eval / RL / observability</td><td>9.0</td><td>9.0</td><td class="delta-flat">held</td>
 <td><div class="bar-container"><div class="bar new" style="width:90%;background:var(--accent)"></div></div></td><td>Victor leads</td></tr>
-<tr><td>Code intelligence</td><td>8.5</td><td>8.5</td><td class="delta-flat">held</td>
-<td><div class="bar-container"><div class="bar new" style="width:85%;background:var(--accent)"></div></div></td><td>Victor leads</td></tr>
+<tr><td>Code intelligence</td><td>8.5</td><td><strong>9.0</strong></td><td class="delta-up">▲0.5</td>
+<td><div class="bar-container"><div class="bar old" style="width:85%;background:var(--dim)"></div><div class="bar new" style="width:90%;background:var(--green)"></div></div></td><td>Victor leads — intent tier added (FEP-0049, chunk-level Merkle sync: deeper than Cursor's file-level)</td></tr>
 <tr><td>Agentic loop depth</td><td>8.5</td><td>9.0</td><td class="delta-up">▲0.5</td>
 <td><div class="bar-container"><div class="bar old" style="width:85%;background:var(--dim)"></div><div class="bar new" style="width:90%;background:var(--green)"></div></div></td><td>Claude Code ~9</td></tr>
-<tr><td><strong>Workflow durability</strong></td><td>7.0</td><td><strong>8.5</strong></td><td class="delta-up">▲1.5</td>
-<td><div class="bar-container"><div class="bar old" style="width:70%;background:var(--dim)"></div><div class="bar new" style="width:85%;background:var(--green)"></div></div></td><td>LangGraph ~9.5</td></tr>
+<tr><td><strong>Workflow durability</strong></td><td>7.0</td><td><strong>9.0</strong></td><td class="delta-up">▲2.0</td>
+<td><div class="bar-container"><div class="bar old" style="width:70%;background:var(--dim)"></div><div class="bar new" style="width:90%;background:var(--green)"></div></div></td><td>LangGraph ~9.5 — gap CLOSED (flip #1904 + resume #1902)</td></tr>
 <tr><td>Context engineering</td><td>8.0</td><td>8.0</td><td class="delta-flat">held</td>
 <td><div class="bar-container"><div class="bar new" style="width:80%;background:var(--accent)"></div></div></td><td>Claude Code ~9</td></tr>
 <tr><td>Interaction surfaces</td><td>7.5</td><td>7.75</td><td class="delta-up">▲0.25</td>
 <td><div class="bar-container"><div class="bar old" style="width:75%;background:var(--dim)"></div><div class="bar new" style="width:77.5%;background:var(--green)"></div></div></td><td>Claude Code ~9</td></tr>
-<tr><td>DX & onboarding</td><td>5.0</td><td>5.5</td><td class="delta-up">▲0.5</td>
-<td><div class="bar-container"><div class="bar old" style="width:50%;background:var(--dim)"></div><div class="bar new" style="width:55%;background:var(--green)"></div></div></td><td>CrewAI/OAI SDK ~9</td></tr>
+<tr><td><strong>DX & onboarding</strong></td><td>5.0</td><td><strong>6.5</strong></td><td class="delta-up">▲1.5</td>
+<td><div class="bar-container"><div class="bar old" style="width:50%;background:var(--dim)"></div><div class="bar new" style="width:65%;background:var(--green)"></div></div></td><td>CrewAI/OAI SDK ~9 — Ollama-first default + victor init quickstart (detect/provision/smoke) + doctor posture</td></tr>
 <tr><td>Multi-agent patterns</td><td>7.0</td><td>7.0</td><td class="delta-flat">held</td>
 <td><div class="bar-container"><div class="bar new" style="width:70%;background:var(--accent)"></div></div></td><td>LangGraph/MAF ~9</td></tr>
-<tr><td>Security/sandbox defaults</td><td>6.0</td><td>6.0</td><td class="delta-flat">held</td>
-<td><div class="bar-container"><div class="bar new" style="width:60%;background:var(--accent)"></div></div></td><td>Codex ~9.5</td></tr>
+<tr><td><strong>Security/sandbox defaults</strong></td><td>6.0</td><td><strong>8.0</strong></td><td class="delta-up">▲2.0</td>
+<td><div class="bar-container"><div class="bar old" style="width:60%;background:var(--dim)"></div><div class="bar new" style="width:80%;background:var(--green)"></div></div></td><td>Codex ~9.5 — gap mostly closed: fail-closed default LIVE, seccomp kernel-enforced, containment floor, execution-verified Linux+macOS 7/7</td></tr>
 <tr><td>Extensibility & ecosystem</td><td>3.0</td><td>3.0</td><td class="delta-flat">held</td>
 <td><div class="bar-container"><div class="bar new" style="width:30%;background:var(--red)"></div></div></td><td>LangChain ~10</td></tr>
 </table>
@@ -135,17 +135,19 @@
   <circle cx="175" cy="275" r="5" fill="#8b949e"/><text x="182" y="271" class="peer-label">DSPy</text>
   <!-- LangChain (9.5, 4.5) → (475, 275) -->
   <circle cx="475" cy="275" r="5" fill="#8b949e"/><text x="482" y="271" class="peer-label">LangChain</text>
+  <!-- Devin/Cognition (9.0, 6.5) → (450, 175) — SaaS-easy, closed box -->
+  <circle cx="450" cy="175" r="6" fill="#d29922"/><text x="440" y="171" class="peer-label" text-anchor="end" fill="#d29922">Devin/Cognition</text>
   <!-- Victor OLD (3.5, 8.0) → (175, 100) dashed circle -->
   <circle cx="175" cy="100" r="8" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="4 3"/>
   <text x="165" y="92" class="peer-label" fill="#8b949e">Victor 11-16</text>
-  <!-- Victor NEW (3.5, 8.8) → (175, 60) solid blue -->
-  <circle cx="175" cy="60" r="7" fill="#58a6ff" stroke="#fff" stroke-width="2" z-index="2"/>
-  <text x="165" y="48" class="peer-label" fill="#58a6ff" font-weight="bold">Victor today</text>
-  <!-- movement arrow -->
-  <line x1="175" y1="100" x2="175" y2="68" class="move-arrow"/>
+  <!-- Victor NEW (4.5, 9.1) → (225, 45) solid blue -->
+  <circle cx="225" cy="45" r="7" fill="#58a6ff" stroke="#fff" stroke-width="2" z-index="2"/>
+  <text x="215" y="33" class="peer-label" fill="#58a6ff" font-weight="bold">Victor today</text>
+  <!-- movement arrow: right AND up -->
+  <line x1="175" y1="100" x2="220" y2="52" class="move-arrow"/>
 </svg>
 </div>
-<p class="subtitle" style="text-align:center;">Y-axis moved 8.0 → 8.8 (durability +1.5, loop +0.5, DX +0.5). X-axis unchanged (Tier A next).</p>
+<p class="subtitle" style="text-align:center;">Both axes moved: Y 8.0 → 9.1 (durability +2.0 closed the LangGraph gap, security +2.0 execution-verified, intent tier +0.5), X 3.5 → 4.5 (Ollama-first default + victor init quickstart). Devin/Cognition added: extreme-right adoption, mid-depth (closed box — spend governance, not execution containment).</p>
 </div>
 
 <!-- ═══════════════════════ SOLO ENTREPRENEUR ADOPTION TODO ═══════════════════════ -->
@@ -154,7 +156,7 @@
 <p class="subtitle">Priority-ordered. Checked = done. Each item targets a specific X-axis score increase.</p>
 
 <div class="card">
-<h3>Critical Path (X: 3 → 5) — weeks 1–4</h3>
+<h3>Critical Path (X: 3 → 5) — ✅ DONE 2026-11-18 (Ollama-first default #1901, victor init quickstart #1922, doctor posture #1918, sandbox fail-closed)</h3>
 
 <div class="todo">
   <input type="checkbox" id="t1" checked>
@@ -232,43 +234,36 @@
 </div>
 
 <!-- ═══════════════════════ PR STATUS ═══════════════════════ -->
-<h2>PR Status (Foundations Program)</h2>
+<h2>PR Status (Foundations + Intent Tier + Adoption)</h2>
 <div class="card">
 <table>
-<tr><th>PR</th><th>Content</th><th>Status</th></tr>
-<tr><td>#1878</td><td>Specs (FEP-0047/0048, ADR-035/036/037, vision, ledger)</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1879</td><td>D1: GraphSQLiteCheckpointer adapter</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1881</td><td>D2: Durable-by-default checkpointing</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1882</td><td>D3: Loud input discard (FEP-0032 Accepted)</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1883</td><td>D4: Paused-result surfacing</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1884</td><td>D5a: Executor timeout parity</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1885</td><td>D5b: Executor verification parity</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1886</td><td>D5c: Executor streaming parity</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1887</td><td>S1–S5: Five live-soak fixes</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1888</td><td>S6: TurnResult → evaluator + is_qa seam</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1889</td><td>S6b/S7: Checkpoint strip + lmstudio /v1 fix</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1890</td><td>S8: Dict-content streaming + tolerant fallback</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1891</td><td>Handoff: Q&A guard, sandhi 14, qwen3.7-plus</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1892</td><td>Diagnosis probe recipe</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1893</td><td>Shallow model copy fallback</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td>#1894</td><td>Checkpoint strip + context-dict removal</td><td><span class="badge badge-merged">MERGED</span></td></tr>
-<tr><td><strong>#1897</strong></td><td><strong>D5f flip: StateGraph executor default-on</strong></td><td><span class="badge badge-open">IN REVIEW</span></td></tr>
+<tr><th>Program</th><th>PRs</th><th>Content</th><th>Status</th></tr>
+<tr><td>Specs</td><td>#1878</td><td>FEP-0047/0048/0049, ADR-035/036/037, vision, FOU ledger</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>Tier D (durability)</td><td>#1879–#1894, #1902, #1904</td><td>Durable checkpoints, resume, paused results, executor parity, <strong>StateGraph flip default-on</strong></td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>Tier S (sandbox)</td><td>#1907, #1910, #1912, #1920, #1921</td><td>Seccomp deny-list (kernel-verified), <strong>fail-closed posture default</strong>, doctor posture, --dangerously-unsandboxed, macOS Seatbelt battery 7/7</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>Tier S (containment)</td><td>#1908, #1911</td><td>Provenance envelope + session canary + <strong>canary exfiltration blocking floor</strong></td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>Intent tier (FEP-0049)</td><td>#1915, #1916, #1917, #1919</td><td>Chunk-granularity Merkle sync + intent embeddings + <strong>graph index --intent + mode=intent queries</strong></td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>Adoption Inc 1+3</td><td>#1901, #1913, #1905</td><td>Ollama-first default profile, dashboard + ledger, test contracts</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td>Quality debt</td><td>#1923</td><td>Source-inventory walk fallback — root cause of 249 stale test failures</td><td><span class="badge badge-merged">MERGED</span></td></tr>
+<tr><td><strong>Adoption Inc 2</strong></td><td><strong>#1922</strong></td><td><strong>victor init quickstart: detect/provision/smoke a local server</strong></td><td><span class="badge badge-open">IN REVIEW</span></td></tr>
+<tr><td>Sandhi handoffs</td><td>#1891, #1895, #1918*</td><td>Q&A guard, contract 14, streaming preflight, doctor posture</td><td><span class="badge badge-merged">MERGED</span></td></tr>
 </table>
 </div>
 
-<!-- ═══════════════════════ KEY METRICS ═══════════════════════ -->
+<!-- ═══════════════════════ KEY METRICS ═══════════════════════ --><!-- ═══════════════════════ KEY METRICS ═══════════════════════ -->
 <div class="grid">
 <div class="card">
 <h2>Score Summary</h2>
-<div class="metric-row"><span class="metric-name">Workflow durability</span><div class="metric-scores"><span class="score-old">7.0</span> → <span class="score-new">8.5</span></div></div>
+<div class="metric-row"><span class="metric-name">Workflow durability</span><div class="metric-scores"><span class="score-old">7.0</span> → <span class="score-new">9.0</span></div></div>
+<div class="metric-row"><span class="metric-name">Security/sandbox defaults</span><div class="metric-scores"><span class="score-old">6.0</span> → <span class="score-new">8.0</span></div></div>
+<div class="metric-row"><span class="metric-name">Code intelligence</span><div class="metric-scores"><span class="score-old">8.5</span> → <span class="score-new">9.0</span></div></div>
+<div class="metric-row"><span class="metric-name">DX & onboarding</span><div class="metric-scores"><span class="score-old">5.0</span> → <span class="score-new">6.5</span></div></div>
 <div class="metric-row"><span class="metric-name">Agentic loop depth</span><div class="metric-scores"><span class="score-old">8.5</span> → <span class="score-new">9.0</span></div></div>
-<div class="metric-row"><span class="metric-name">DX & onboarding</span><div class="metric-scores"><span class="score-old">5.0</span> → <span class="score-new">5.5</span></div></div>
-<div class="metric-row"><span class="metric-name">Interaction surfaces</span><div class="metric-scores"><span class="score-old">7.5</span> → <span class="score-new">7.75</span></div></div>
 <div class="metric-row"><span class="metric-name">All others</span><div class="metric-scores"><span class="score-old">held</span></div></div>
 </div>
 <div class="card">
 <h2>Adoption X-Axis Path</h2>
-<div class="metric-row"><span class="metric-name">Now</span><div class="metric-scores"><span class="score-new">3.0 / 10</span></div></div>
+<div class="metric-row"><span class="metric-name">Now</span><div class="metric-scores"><span class="score-new">4.5 / 10</span></div></div>
 <div class="metric-row"><span class="metric-name">Critical path (wk 1–4)</span><div class="metric-scores"><span class="score-new">5.0</span></div></div>
 <div class="metric-row"><span class="metric-name">Growth path (wk 5–12)</span><div class="metric-scores"><span class="score-new">7.0</span></div></div>
 <div class="metric-row"><span class="metric-name">Long-term (mo 2–6)</span><div class="metric-scores"><span class="score-new">8.0+</span></div></div>
@@ -276,6 +271,6 @@
 </div>
 </div>
 
-<p class="subtitle" style="margin-top:1.5rem;">Generated 2026-11-17 | Foundations Program session 4 | Victor v0.30.0-dev | 15 PRs merged</p>
+<p class="subtitle" style="margin-top:1.5rem;">Generated 2026-11-18 | Foundations + Intent Tier + Adoption complete | Victor v0.31.0-dev | 45+ PRs merged | Remaining: ADR-036 intent-flag graduation battery (field data), 0.32 promotion</p>
 </body>
 </html>
