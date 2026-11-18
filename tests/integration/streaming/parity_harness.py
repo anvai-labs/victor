@@ -228,9 +228,12 @@ def build_streaming_orchestrator(
     # stores; only semantic-model classification is replaced.
     from victor.agent.task_complexity import TaskComplexityService
 
-    from tests.integration.offline_intelligence import (
-        make_offline_task_analyzer,
-    )
+    try:
+        from tests.integration.offline_intelligence import (
+            make_offline_task_analyzer,
+        )
+    except ModuleNotFoundError:  # Windows source qualification invokes a narrower root.
+        from integration.offline_intelligence import make_offline_task_analyzer
 
     deterministic_complexity = TaskComplexityService(use_semantic=False, use_rl=False)
     orch.task_classifier = deterministic_complexity

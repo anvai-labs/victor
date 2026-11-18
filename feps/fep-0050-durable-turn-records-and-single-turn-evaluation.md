@@ -19,7 +19,7 @@ discussion: https://github.com/anvai-labs/victor/discussions/0050
 
 StateGraph execution needs one durable representation for a completed ACT turn and one owner for completed-turn evaluation. This FEP defines `victor.turn.record.v1`, a JSON-safe projection of `TurnResult`, and requires buffered, token-streamed, and StateGraph execution to converge on the same completed-turn evaluation pipeline. It also corrects FEP-0047's storage placement: workflow checkpoints default to the canonical project `.victor/project.db`, not another physical database. A path override is an explicit deployment exception for measured contention, cache lifetime, or portability.
 
-The intended boundary is deliberately conservative. The agentic loop checkpoints completed ACT and interrupt/approval boundaries; PERCEIVE, PLAN, and PROMPT are not durable boundaries. EVALUATE is reconstructed from the latest completed ACT record. This keeps durability meaningful without turning every lightweight graph transition into a synchronous write amplifier.
+The intended boundary is deliberately conservative. The agentic loop checkpoints completed ACT and interrupt/approval boundaries; PERCEIVE, PLAN, and PROMPT are not durable boundaries. EVALUATE is reconstructed from the latest completed ACT record. This keeps durability meaningful without turning every lightweight graph transition into a synchronous write amplifier. It also makes resume evidence comparable across execution modes and keeps the durable backup boundary aligned with the project rather than an unnoticed third database. The change finally gives runtime collaborators a clear injection boundary, so serialization policy no longer depends on discovering futures, streams, or service graphs hidden inside mutable state.
 
 ## Motivation
 
@@ -131,7 +131,7 @@ This phase defines StateGraph streaming parity at completed-turn boundaries. A s
 
 ## Drawbacks and Alternatives
 
-Writing to `project.db` places checkpoint traffic near conversations and code-graph writes. That is the correct default because durability and backup scope are more important than an unmeasured physical split. Deployments with measured contention may use the explicit path override. Selective ACT writes reduce the common-case cost before any split is justified.
+Writing to `project.db` places checkpoint traffic near conversations and code-graph writes. That is the correct default because durability and backup scope are more important than an unmeasured physical split. Deployments with measured contention may use the explicit path override. Selective ACT writes reduce the common-case cost before any split is justified. The same tradeoff also avoids serializing reconstructable perception and planning work while retaining an honest completed-action boundary for recovery, audit, and post-loop settlement.
 
 A separate default checkpoint database was rejected because it created unnoticed state sprawl and complicated backup and project portability. Checkpointing every node was rejected because lightweight graph transitions are often reconstructable and their writes amplify latency without improving resume semantics.
 
@@ -164,6 +164,33 @@ The framework gains an additive compile option. Existing generic StateGraph chec
 - [ ] Buffered, streamed, and StateGraph paths use the same completed-turn evaluation owner.
 - [ ] Terminal policy errors propagate through node, runtime, executor, stream, and loop boundaries.
 - [ ] Documentation claims turn-boundary streaming parity, not token-level parity.
+
+## Benefits
+
+- Buffered, token-streamed, and StateGraph execution share one completed-turn evaluation contract, reducing drift in terminal policy, disposition, progress, and recovery behavior.
+- Durable state is typed, versioned, strict-JSON, and free of provider/runtime objects, making checkpoint failures explicit instead of discovery-by-pickle-error.
+- Workflow checkpoints share the project backup and retention boundary by default; an override remains deliberate and observable.
+- Selective ACT and interrupt writes reduce synchronous database work while preserving recovery at boundaries that cannot be reconstructed safely.
+- Run-local observers support timeout recovery and streaming publication without module-global state or cross-run leakage.
+- Explicit collaborators make resume deterministic: durable values are restored first, then services are rebuilt by the composition root for the resumed execution context.
+
+## Unresolved Questions
+
+- Whether future token-level StateGraph streaming should expose a formal event schema, or remain an executor adapter concern until another consumer requires graph-native token events.
+- Which additional workflow families should adopt typed state models, and whether a shared state-model migration utility is warranted once more than the agentic loop migrates.
+- What measured SQLite contention threshold justifies the explicit separate checkpoint path; the default should not move without that evidence.
+
+## Implementation Plan
+
+| Phase | Scope | Status |
+|-------|-------|--------|
+| 1 | Define `victor.turn.record.v1`, durable projection/reconstruction, and run-local channel | Implemented in this change |
+| 2 | Consolidate completed-turn evaluation across buffered, streaming, and graph paths | Implemented in this change |
+| 3 | Add project `workflow_checkpoint` schema, strict encoding, retention, and factory policy | Implemented in this change |
+| 4 | Restrict agentic ordinary checkpoints to ACT and mandatory interrupt boundaries | Implemented in this change |
+| 5 | Replace state-injected runtime handles with explicit collaborators and lifecycle observation | Implemented in this change |
+| 6 | Token-level StateGraph streaming and additional typed workflow migrations | Separate proposal |
+
 
 ## References
 

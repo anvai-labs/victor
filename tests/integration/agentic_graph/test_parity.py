@@ -23,7 +23,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 from victor.core.feature_flags import FeatureFlag, is_feature_enabled
 from victor.framework.agentic_loop import AgenticLoop
-from tests.integration.offline_intelligence import make_offline_runtime_intelligence
+
+try:
+    from tests.integration.offline_intelligence import make_offline_runtime_intelligence
+except ModuleNotFoundError:  # Windows source qualification invokes a narrower root.
+    from integration.offline_intelligence import make_offline_runtime_intelligence
 
 
 @pytest.fixture(autouse=True)
