@@ -87,7 +87,12 @@ class MCPToolContext:
         return f"MCP tool execution refused: {reason}"
 
 
-def admit_mcp_execution_context(workspace_root: Path, snapshot: Any) -> MCPToolContext:
+def admit_mcp_execution_context(
+    workspace_root: Path,
+    snapshot: Any,
+    *,
+    resolve_required_launch: Any | None = None,
+) -> MCPToolContext:
     """Admit the execution context for an MCP server launch.
 
     Modeled on ``_admit_git_policy``. Dependency-inverted per the layering
@@ -106,7 +111,12 @@ def admit_mcp_execution_context(workspace_root: Path, snapshot: Any) -> MCPToolC
         failures into an ``admission_refusal`` string (fail-closed: no
         context, every call refused).
     """
-    from victor.tools.sandbox import resolve_required_launch
+    if resolve_required_launch is None:
+        # Late import as the declared fallback: this module sits below the
+        # sandbox layer, and tests inject the resolver explicitly.
+        from victor.tools.sandbox import resolve_required_launch as _resolve
+
+        resolve_required_launch = _resolve
 
     backend_decision = resolve_required_launch(snapshot.to_sandbox_settings())
     return MCPToolContext(

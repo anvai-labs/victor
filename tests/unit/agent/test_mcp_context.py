@@ -143,23 +143,37 @@ class TestAdmissionSuccess:
 class TestAdmissionFailure:
     def test_snapshot_is_injected_not_imported(self, tmp_path):
         """Dependency inversion: the caller builds the snapshot (client
-        layer owns the runtime import); admission only resolves the
-        backend decision from it."""
+        layer owns the runtime import) AND injects the resolver; admission
+        only resolves the backend decision from them."""
         snap = FakeSnapshot(policy="required")
-        ctx = admit_mcp_execution_context(tmp_path, snap)
+        calls = []
+
+        def stub_resolver(settings):
+            calls.append(settings)
+            return SimpleNamespace(
+                required_active=True, refuse=False, reason="", backend=object()
+            )
+
+        ctx = admit_mcp_execution_context(
+            tmp_path, snap, resolve_required_launch=stub_resolver
+        )
         assert ctx.run_policy_snapshot is snap
+        # Equality (not identity): to_sandbox_settings() constructs fresh
+        # settings each call; the contract is that the resolver receives
+        # the snapshot's sandbox view.
+        assert calls == [snap.to_sandbox_settings()]
         assert ctx.backend_decision.required_active is True
 
     def test_unenforceable_required_refuses(self, tmp_path, monkeypatch):
         """required policy + no backend -> refusal decision (callers must
         refuse; the server turns this into isError per call)."""
-        monkeypatch.setattr(
-            "victor.tools.sandbox.resolve_required_launch",
-            lambda settings: SimpleNamespace(
+        ctx = admit_mcp_execution_context(
+            tmp_path,
+            FakeSnapshot(policy="required"),
+            resolve_required_launch=lambda settings: SimpleNamespace(
                 required_active=True, refuse=True, reason="no backend", backend=None
             ),
         )
-        ctx = admit_mcp_execution_context(tmp_path, FakeSnapshot(policy="required"))
         assert ctx.backend_decision.refuse is True
         assert "no backend" in ctx.refusal_text()
 
@@ -188,14 +202,14 @@ class TestAdmissionFailure:
         """The injected snapshot wins over a fresh settings read that says
         disabled (test_executor_integration.py:391 property over MCP)."""
         snap = FakeSnapshot(policy="required")
-        monkeypatch.setattr(
-            "victor.tools.sandbox.resolve_required_launch",
-            lambda settings: SimpleNamespace(
+        # Even with settings reading disabled, the ADMITTED snapshot governs.
+        ctx = admit_mcp_execution_context(
+            tmp_path,
+            snap,
+            resolve_required_launch=lambda settings: SimpleNamespace(
                 required_active=True, refuse=False, reason="", backend=object()
             ),
         )
-        # Even with settings reading disabled, the ADMITTED snapshot governs.
-        ctx = admit_mcp_execution_context(tmp_path, snap)
         assert ctx.backend_decision.required_active is True
 
     async def test_settings_mutated_pre_admission_executes(self, monkeypatch, tmp_path):
