@@ -132,6 +132,15 @@ def test_seatbelt_argv_and_profile():
     assert "(deny network*)" in profile
 
 
+def test_seatbelt_profile_allows_devnull_writes():
+    """macOS live-qualification finding: /dev/null is a black hole, not an
+    exfiltration surface, but deny-default blocked it — breaking wrapped
+    tools that open it themselves (curl -o /dev/null failed with rc=56
+    "Failure writing output" under the pre-fix profile)."""
+    profile = SeatbeltSandbox().build_profile(Path("/work"))
+    assert '(allow file-write* (literal "/dev/null"))' in profile
+
+
 def test_sandbox_fails_loudly_when_state_root_cannot_be_created(monkeypatch, tmp_path):
     state_root = tmp_path / "not-a-directory"
     state_root.write_text("blocked", encoding="utf-8")
