@@ -83,11 +83,15 @@ def source_files(descriptor: int, suffixes: set[str]) -> list[str]:
         if len(out) > MAX_INVENTORY_BYTES or len(errors) > 64 * 1024:
             raise ValueError("Source inventory exceeded its artifact budget")
         if code != 0:
-            if (
-                code == 128
-                and errors.startswith(b"fatal: not a git repository")
-                and work_tree is None
-            ):
+            # Git's not-a-repository verdict is authoritative regardless of
+            # what the ancestry discovery found: an ancestor `.git` can be an
+            # EMPTY or broken directory (a stray `mkdir .git`), which the
+            # discovery accepts but git rejects. In that state there is NO
+            # repository context at all, so walking the pinned descriptor
+            # directory is the same trust position as the no-discovery case
+            # (the walk lists exactly the pinned dir; no redirect is
+            # possible). All other git failures still fail this scan closed.
+            if code == 128 and errors.startswith(b"fatal: not a git repository"):
                 return _walk(descriptor, suffixes)
             raise ValueError("Git source inventory failed; coverage is unavailable")
         if out and not out.endswith(b"\0"):

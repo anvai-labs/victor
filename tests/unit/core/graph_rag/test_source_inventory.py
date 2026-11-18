@@ -322,3 +322,55 @@ def test_malformed_or_oversized_gitfile_fails_closed(tmp_path, contents):
     (tmp_path / ".git").write_bytes(contents)
     with pytest.raises(ValueError, match="repository selector"):
         scan(tmp_path, min_nodes=5)
+
+
+class TestEmptyAncestorGitDir:
+    """Regression (FEP-0049 window, 2026-11-18): an ancestor `.git` that is
+    an EMPTY directory (stray `mkdir .git` debris) passed ancestry discovery
+    but git rejects it as not-a-repository — and the walk fallback required
+    `work_tree is None`, so every inventory under such an ancestor failed
+    closed. 249 tests across graph_rag + the UI CLI suites rode on this."""
+
+    def test_empty_ancestor_git_dir_walks(self, tmp_path):
+        """An empty `.git` in a parent directory must not break inventory:
+        git's not-a-repository verdict is authoritative; the fallback walks
+        the pinned directory."""
+        import os
+
+        stray = tmp_path / "stray-repo"
+        stray.mkdir()
+        (stray / ".git").mkdir()  # empty .git — not a repository
+        target = stray / "pkg"
+        target.mkdir()
+        (target / "a.py").write_text("def f(x):\n    return x\n")
+        fd = os.open(str(target), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            from victor.core.graph_rag.source_inventory import source_files
+
+            assert source_files(fd, {".py"}) == ["a.py"]
+        finally:
+            os.close(fd)
+
+    def test_valid_ancestor_repo_still_uses_git(self, tmp_path):
+        """A real ancestor repository keeps the git inventory path (index
+        prefixes and ignore rules retained)."""
+        import os
+        import subprocess
+
+        repo = tmp_path / "real-repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / ".gitignore").write_text("ignored.py\n")
+        target = repo / "pkg"
+        target.mkdir()
+        (target / "a.py").write_text("def f(x):\n    return x\n")
+        (repo / "ignored.py").write_text("x = 1\n")
+        fd = os.open(str(target), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            from victor.core.graph_rag.source_inventory import source_files
+
+            files = source_files(fd, {".py"})
+            assert "a.py" in files
+            assert "ignored.py" not in files  # ignore rules retained
+        finally:
+            os.close(fd)
