@@ -428,6 +428,76 @@ class DoctorChecks:
         except Exception:  # pack absent or its API changed: nothing to report
             pass
 
+    def check_sandbox_posture(self) -> None:
+        """Report the effective sandbox posture (ADR-035).
+
+        FEP follow-up from the S1b adversarial review: an operator must be
+        able to SEE which containment posture a session runs under — and
+        when the posture is ``required`` but no enforcing backend exists,
+        that is the single most actionable fact on the machine (every shell
+        command will refuse until the escape hatch is set). Also verifies
+        the seccomp-carrying backend binary when isolation is requested.
+        """
+        from victor.tools.sandbox import current_sandbox_posture
+
+        posture = current_sandbox_posture()
+        if posture == "disabled":
+            self.add_check(
+                name="Sandbox Posture",
+                severity=Severity.WARNING,
+                message=("Sandbox posture: disabled (explicit opt-out) - tools " "run UNSANDBOXED"),
+                suggestion=(
+                    "Restore isolation: remove the VICTOR_SANDBOX_POLICY "
+                    "override or set sandbox_policy to 'required' in settings"
+                ),
+            )
+            return
+        if posture == "unknown":
+            self.add_check(
+                name="Sandbox Posture",
+                severity=Severity.ERROR,
+                message=(
+                    "Sandbox posture: unknown - settings could not be read; "
+                    "governed shell execution is refusing"
+                ),
+                suggestion="Fix the malformed settings file breaking the read",
+            )
+            return
+        # required or preferred: report enforcement availability.
+        try:
+            import shutil
+            import platform as _platform
+
+            system = _platform.system()
+            binary = (
+                "bwrap" if system == "Linux" else ("sandbox-exec" if system == "Darwin" else None)
+            )
+            available = binary is not None and shutil.which(binary) is not None
+        except Exception:
+            available = False
+        if available:
+            self.add_check(
+                name="Sandbox Posture",
+                severity=Severity.SUCCESS,
+                message=(
+                    f"Sandbox posture: {posture} - enforcing backend " f"available on {system}"
+                ),
+            )
+        else:
+            self.add_check(
+                name="Sandbox Posture",
+                severity=Severity.ERROR,
+                message=(
+                    f"Sandbox posture: {posture} but NO enforcing backend on "
+                    f"{system} - shell commands will be REFUSED"
+                ),
+                suggestion=(
+                    "Install bubblewrap (Linux) / use macOS sandbox-exec, or "
+                    "opt out: VICTOR_SANDBOX_POLICY=disabled (env) or "
+                    "sandbox_policy: 'disabled' (settings)"
+                ),
+            )
+
     def check_api_keys(self) -> None:
         """Check for API keys in environment."""
         api_keys = {
@@ -783,6 +853,7 @@ class DoctorChecks:
         self.check_dependencies()
         self.check_native_extensions()
         self.check_graph_indexing()
+        self.check_sandbox_posture()
         self.check_api_keys()
         self.check_local_providers()
         self.check_inferflux()
@@ -854,7 +925,6 @@ class DoctorChecks:
         Returns:
             Exit code (0 for success, 1 for errors found)
         """
-        from rich.console import Console
         from rich.table import Table
 
         console = get_console()
@@ -929,7 +999,6 @@ def run_doctor(verbose: bool = False, fix: bool = False) -> int:
     Returns:
         Exit code (0 for success, 1 for errors)
     """
-    from rich.console import Console
 
     console = get_console()
 
