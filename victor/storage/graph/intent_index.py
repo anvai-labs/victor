@@ -60,6 +60,26 @@ class _VectorProvider(Protocol):
 
     async def clear_index(self) -> None: ...
 
+    async def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Chunk-level intent search: provider self-embeds the query.
+
+        Returns raw provider hits (score + metadata incl. ``symbol_id`` /
+        ``symbol_oid`` / ``chunk_id``) for the caller to aggregate per
+        symbol. Empty when the provider/table has no vectors.
+        """
+        hits = await self._provider.search_similar(query, limit=limit)
+        results = []
+        for hit in hits:
+            results.append(
+                {
+                    "score": float(getattr(hit, "score", 0.0)),
+                    "chunk_id": str(getattr(hit, "id", "")),
+                    "content": str(getattr(hit, "content", "")),
+                    "metadata": dict(getattr(hit, "metadata", {}) or {}),
+                }
+            )
+        return results
+
     async def close(self) -> None: ...
 
 
