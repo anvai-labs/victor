@@ -33,7 +33,7 @@ from typing import (
 logger = logging.getLogger(__name__)
 
 from victor.core.circuit_breaker import CircuitBreakerError
-from victor.providers.circuit_breaker import (
+from victor.core.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerRegistry,
 )

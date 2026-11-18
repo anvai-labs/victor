@@ -19,7 +19,7 @@ the framework layer. It re-exports existing implementations from core modules
 without duplicating code, following the Facade Pattern.
 
 Delegated modules:
-- victor.providers.circuit_breaker: Standalone circuit breaker with decorator support
+- victor.core.circuit_breaker: Canonical circuit breaker with decorator support
 - victor.providers.resilience: ResilientProvider with circuit breaker + retry + fallback
 - victor.core.circuit_breaker: Shared circuit state/config/error types
 - victor.core.retry: Unified retry strategies (exponential, linear, fixed)
@@ -81,9 +81,9 @@ from victor.core.circuit_breaker import (
 
 # =============================================================================
 # Circuit Breaker (Standalone)
-# From: victor/providers/circuit_breaker.py
+# From: victor/core/circuit_breaker.py (canonical implementation)
 # =============================================================================
-from victor.providers.circuit_breaker import (
+from victor.core.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerRegistry,
 )
