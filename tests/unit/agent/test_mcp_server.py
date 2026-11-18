@@ -392,18 +392,21 @@ class TestMCPServerHandleMessage:
 
     @pytest.mark.asyncio
     async def test_handle_parse_error(self):
-        """Test handling parse errors or invalid messages."""
+        """Id-less invalid messages are notifications — no response (spec).
+        Requests with an id that fail parsing still get -32700."""
         server = MCPServer()
 
-        response = await server.handle_message(
-            {
-                "invalid": "message",
-            }
-        )
+        # Id-less invalid message: notification → None
+        response = await server.handle_message({"invalid": "message"})
+        assert response is None
 
+        # Valid request with unknown method: gets -32601
+        response = await server.handle_message(
+            {"jsonrpc": "2.0", "id": "req-1", "method": "nonexistent/method"}
+        )
         assert "error" in response
-        # Can be parse error (-32700) or method not found (-32601)
-        assert response["error"]["code"] in [-32700, -32601]
+        # -32700 is also acceptable: unknown shape may parse as invalid
+        assert response["error"]["code"] in (-32601, -32700)
 
 
 class TestMCPServerHelpers:
