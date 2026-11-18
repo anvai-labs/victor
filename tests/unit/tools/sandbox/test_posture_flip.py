@@ -182,3 +182,62 @@ class TestReviewFixes:
         messages = [r.message for r in caplog.records if "UNSANDBOXED" in r.message]
         assert len(messages) == 2
         monkeypatch.setattr(sb, "_warned_categories", set())
+
+
+class TestDangerouslyUnsandboxedFlag:
+    """ADR-035 decision 2: the per-invocation CLI escape hatch."""
+
+    def _apply(self, monkeypatch, settings):
+        import victor.tools.sandbox.backends as backends_mod
+
+        monkeypatch.setattr(backends_mod, "_warned_categories", set())
+        monkeypatch.setattr("victor.config.settings.get_settings", lambda: settings)
+        from victor.tools.sandbox import force_unsandboxed_for_session
+
+        return force_unsandboxed_for_session()
+
+    def test_overrides_required_settings_policy(self, monkeypatch):
+        """An explicit CLI request beats the settings file (strongest
+        signal) - even a 'required' file policy is overridden."""
+        settings = SimpleNamespace(sandbox=SimpleNamespace(sandbox_policy="required"))
+        monkeypatch.delenv("VICTOR_SANDBOX_POLICY", raising=False)
+        applied, message = self._apply(monkeypatch, settings)
+        assert applied is True
+        assert settings.sandbox.sandbox_policy == "disabled"
+        assert "UNSANDBOXED" in message
+
+    def test_none_sandbox_gains_disabled_settings(self, monkeypatch):
+        from victor.config.sandbox_settings import SandboxSettings
+
+        settings = SimpleNamespace(sandbox=None)
+        applied, _ = self._apply(monkeypatch, settings)
+        assert applied is True
+        assert isinstance(settings.sandbox, SandboxSettings)
+        assert settings.sandbox.sandbox_policy == "disabled"
+
+    def test_settings_failure_stays_fail_closed(self, monkeypatch):
+        def _boom():
+            raise RuntimeError("malformed profiles.yaml")
+
+        monkeypatch.setattr("victor.config.settings.get_settings", _boom)
+        from victor.tools.sandbox import force_unsandboxed_for_session
+
+        applied, message = force_unsandboxed_for_session()
+        assert applied is False
+        assert "fail-closed posture stays in effect" in message
+
+    def test_effective_policy_reads_disabled_after_apply(self, monkeypatch):
+        settings = SimpleNamespace(sandbox=SimpleNamespace(sandbox_policy="required"))
+        applied, _ = self._apply(monkeypatch, settings)
+        assert applied
+        assert effective_sandbox_policy(settings.sandbox) == "disabled"
+
+    def test_cli_option_registered(self):
+        """The flag exists on the root callback with the ADR-035 name
+        (typer derives --dangerously-unsandboxed from the parameter)."""
+        import inspect
+
+        from victor.ui.cli import app
+
+        params = inspect.signature(app.registered_callback.callback).parameters
+        assert "dangerously_unsandboxed" in params
