@@ -124,6 +124,22 @@ TIGHTENINGS: Tuple[Dict[str, str], ...] = (
         "change": "added (tell|give|show|share|print|output|reveal) + 'the/all' form",
         "benign_counterpart": "no FP on corpus; closes inj-028/inj-032/inj-033 FNs",
     },
+    {
+        "family": "(all) — S3d follow-up",
+        "change": "homoglyph pre-pass: patterns match a per-char NFKC + "
+        "Cyrillic/Greek look-alike-normalized COPY (content handed onward is "
+        "byte-identical; spans mapped back via a per-char index map)",
+        "benign_counterpart": "no FP on corpus; closes inj-035 homoglyph FN",
+    },
+    {
+        "family": "(all) — S3d follow-up",
+        "change": "quoted-mention abuse carve-out: a quoted run whose directive "
+        "continues after its closing quote (imperative verb in the tail) flags; "
+        "imperative/direction lookaheads accept a closing quote so the candidate "
+        "is found across the quote boundary",
+        "benign_counterpart": "py-020/docs-004/review-001/review-003 quoted "
+        "discussions stay guarded; closes inj-034 quote-guard-abuse FN",
+    },
 )
 
 
