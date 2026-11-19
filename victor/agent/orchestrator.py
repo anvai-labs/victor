@@ -520,6 +520,22 @@ class AgentOrchestrator(
                 task_analyzer=get_task_analyzer(),
                 optimization_injector=self._optimization_injector,
             )
+            # FEP-0048 A2c (FOU-A2c) production wiring — the FEP-0041 dormancy
+            # corrective. This orchestrator is the chat composition root: every
+            # real session surface (CLI chat buffered + streaming, TUI, and the
+            # HTTP/ChatService path via AgentFactory) reads THIS
+            # _runtime_intelligence, and the AgenticLoop PERCEIVE stage reaches
+            # injection through runtime_intelligence.analyze_turn →
+            # perception_integration.perceive. bind_production_memory_injector
+            # skips entirely when memory_enabled/VICTOR_MEMORY_ENABLED is off
+            # (zero cost opt-out) and degrades to no-injection on store failure
+            # — memory must never break session start.
+            from victor.agent.memory_injection import bind_production_memory_injector
+
+            bind_production_memory_injector(
+                self._runtime_intelligence.perception_integration,
+                settings=settings,
+            )
             # Fetch optional services for prompt pipeline
             from victor.agent.tool_pipeline import ToolPipeline
             from victor.framework.rl.credit_tracking_service import (
