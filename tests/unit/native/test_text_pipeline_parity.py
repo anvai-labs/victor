@@ -1,0 +1,374 @@
+# Copyright 2026 Vijaykumar Singh <vijaykumar@anvaiops.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Text-pipeline differential parity: dedup, classifier, JSON repair (FOU-C3).
+
+Every test here runs the same input through BOTH dispatch paths of the
+``victor.processing.native`` wrappers — the native path (normal dispatch,
+requires the Rust extension) and the forced pure-Python fallback (each
+wrapper module binds ``_NATIVE_AVAILABLE`` by value at import, so forcing
+means patching the flag ON THE CONSUMER MODULE — the same pattern
+test_secrets_scanner.py uses for the scanner).
+
+Documented divergences are pinned, not hidden:
+
+- **Hash-valued dedup/signature ops** — Rust uses xxHash3, the Python
+  fallback MD5. The digests can never agree; the parity contract is the
+  STRUCTURE (identical normalization bytes, identical block splits, identical
+  duplicate-flag sequences and duplicate indices, deterministic and
+  key-order-independent signatures). Pinned in ``TestHashFunctionDivergence``.
+- **``repair_json`` string-content bug** — the Python fallback replaces
+  ``True``/``False``/``None`` byte-wise BEFORE quote tracking, corrupting
+  string values (``{'msg': 'True facts about None'}`` becomes
+  ``"true facts about null"``); the Rust state machine is string-aware and
+  preserves them. Pinned in ``TestRepairJsonStringContentDivergence`` — the
+  Rust behavior is the intended contract; fixing the Python fallback belongs
+  to the json_repair owners.
+- **``coerce_string_type`` install-shape split** — with the wheel installed,
+  the scalar hot path maps ``yes``/``on``/``1``/``0`` to string/int; without
+  it, the pure-Python fallback maps them to bool. Pinned in
+  ``TestCoerceStringTypeDivergence``.
+
+Selected by the native-parity CI job (``pytest -m native_parity``).
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from victor.processing.native import classifier as classifier_mod
+from victor.processing.native import deduplication as dedup_mod
+from victor.processing.native import json_repair as json_repair_mod
+from victor.processing.native._base import _NATIVE_AVAILABLE, _native
+
+pytestmark = pytest.mark.native_parity
+
+_TEXT_OPS = (
+    "normalize_block",
+    "rolling_hash_blocks",
+    "find_duplicate_blocks",
+    "compute_signature",
+    "signature_similarity",
+)
+_JSON_OPS = ("repair_json", "extract_json_objects", "coerce_string_type")
+_CLASSIFIER_OPS = (
+    "has_action_keywords",
+    "has_analysis_keywords",
+    "has_generation_keywords",
+    "has_negation",
+    "find_all_keywords",
+)
+
+_requires_native = pytest.mark.skipif(
+    not (
+        _NATIVE_AVAILABLE
+        and all(hasattr(_native, op) for op in _TEXT_OPS + _JSON_OPS + _CLASSIFIER_OPS)
+    ),
+    reason="native wheel missing text-pipeline ops — rebuild with maturin",
+)
+
+
+def _forced_python(mod, fn_name, *args):
+    """Call the wrapper's pure-Python fallback by disabling ITS flag."""
+    saved = mod._NATIVE_AVAILABLE
+    mod._NATIVE_AVAILABLE = False
+    try:
+        return getattr(mod, fn_name)(*args)
+    finally:
+        mod._NATIVE_AVAILABLE = saved
+
+
+# =============================================================================
+# Deduplication
+# =============================================================================
+
+_LONG_PARA = (
+    "This is a sufficiently long paragraph block that exceeds the minimum "
+    "block length threshold easily."
+)
+DEDUP_CONTENT = "\n\n".join([_LONG_PARA, "x" * 70, _LONG_PARA, "y" * 80, _LONG_PARA, "tiny"])
+
+NORMALIZE_CORPUS = [
+    "  Hello   World  ",
+    "Test.",
+    "Test,",
+    "Test:",
+    "Line1\n\nLine2\ttab  end.",
+    "",
+    "   ",
+    "MixedCASE Words HERE",
+]
+
+
+class TestNormalizeBlockParity:
+    @_requires_native
+    @pytest.mark.parametrize("block", NORMALIZE_CORPUS)
+    def test_normalize_block_byte_identical(self, block):
+        assert dedup_mod.normalize_block(block) == _forced_python(
+            dedup_mod, "normalize_block", block
+        )
+
+
+class TestBlockSplitParity:
+    """The block segmentation and duplicate DETECTION must agree exactly;
+    only the hash digests differ (see TestHashFunctionDivergence)."""
+
+    @_requires_native
+    def test_block_texts_identical(self):
+        native = dedup_mod.rolling_hash_blocks(DEDUP_CONTENT)
+        fallback = _forced_python(dedup_mod, "rolling_hash_blocks", DEDUP_CONTENT)
+        assert [b for _, b, _ in native] == [b for _, b, _ in fallback]
+
+    @_requires_native
+    def test_duplicate_flags_identical(self):
+        native = dedup_mod.rolling_hash_blocks(DEDUP_CONTENT)
+        fallback = _forced_python(dedup_mod, "rolling_hash_blocks", DEDUP_CONTENT)
+        assert [f for _, _, f in native] == [f for _, _, f in fallback]
+
+    @_requires_native
+    def test_below_min_length_blocks_unhashed_both_paths(self):
+        native = dedup_mod.rolling_hash_blocks("tiny block", 50)
+        fallback = _forced_python(dedup_mod, "rolling_hash_blocks", "tiny block")
+        assert native == fallback == [("", "tiny block", False)]
+
+    @_requires_native
+    def test_duplicate_indices_identical(self):
+        native = dedup_mod.find_duplicate_blocks(DEDUP_CONTENT)
+        fallback = _forced_python(dedup_mod, "find_duplicate_blocks", DEDUP_CONTENT)
+        assert [idx for idx, _ in native] == [idx for idx, _ in fallback]
+        assert len(native) == 2  # the repeated paragraph, seen twice after first
+
+    @_requires_native
+    def test_empty_content_matches(self):
+        assert dedup_mod.rolling_hash_blocks("") == _forced_python(
+            dedup_mod, "rolling_hash_blocks", ""
+        )
+
+
+class TestSignatureParity:
+    @_requires_native
+    def test_signature_deterministic_and_length_bound(self):
+        args = {"path": "/tmp/x", "line": 5, "flag": True, "none": None}
+        for fn in (
+            dedup_mod.compute_signature,
+            lambda *a: _forced_python(dedup_mod, "compute_signature", *a),
+        ):
+            first = fn("read", args)
+            second = fn("read", args)
+            assert first == second
+            assert len(first) == 16
+            int(first, 16)  # hex
+
+    @_requires_native
+    def test_signature_key_order_independent_both_paths(self):
+        args_a = {"path": "/tmp/x", "line": 5}
+        args_b = {"line": 5, "path": "/tmp/x"}
+        assert dedup_mod.compute_signature("read", args_a) == dedup_mod.compute_signature(
+            "read", args_b
+        )
+        fallback = _forced_python(dedup_mod, "compute_signature", "read", args_a)
+        assert fallback == _forced_python(dedup_mod, "compute_signature", "read", args_b)
+
+    @_requires_native
+    def test_batch_matches_single_both_paths(self):
+        calls = [("read", {"path": "a"}), ("write", {"path": "b", "content": "x"})]
+        native = dedup_mod.compute_batch_signatures(calls)
+        fallback = _forced_python(dedup_mod, "compute_batch_signatures", calls)
+        assert len(native) == len(fallback) == 2
+        assert native[0] == dedup_mod.compute_signature(*calls[0])
+        assert fallback[0] == _forced_python(dedup_mod, "compute_signature", *calls[0])
+
+    @_requires_native
+    def test_signature_similarity_extremes_both_paths(self):
+        sig = "a" * 16
+        for fn in (
+            dedup_mod.signature_similarity,
+            lambda *a: _forced_python(dedup_mod, "signature_similarity", *a),
+        ):
+            assert fn(sig, sig) == 1.0
+            assert fn(sig, "b" * 8) == 0.0  # different length -> 0.0
+
+
+class TestHashFunctionDivergence:
+    """PINNED: the digest VALUES can never match — xxHash3 (Rust) vs MD5
+    (Python fallback). The parity contract is the structure above; this pin
+    documents the value divergence so it is visible, not discovered."""
+
+    @_requires_native
+    def test_block_hash_digests_differ_by_design(self):
+        native = dedup_mod.rolling_hash_blocks(DEDUP_CONTENT)
+        fallback = _forced_python(dedup_mod, "rolling_hash_blocks", DEDUP_CONTENT)
+        native_hashes = [h for h, _, f in native if f or h]
+        fallback_hashes = [h for h, _, f in fallback if f or h]
+        assert len(native_hashes) == len(fallback_hashes)
+        assert native_hashes != fallback_hashes
+
+    @_requires_native
+    def test_signature_digests_differ_by_design(self):
+        args = {"path": "/tmp/x"}
+        assert dedup_mod.compute_signature("read", args) != _forced_python(
+            dedup_mod, "compute_signature", "read", args
+        )
+
+
+# =============================================================================
+# Classifier keyword detection
+# =============================================================================
+
+CLASSIFIER_CORPUS = [
+    "please run the tests",
+    "analyze this code and explain",
+    "create a new file",
+    "do not deploy yet, avoid breaking prod",
+    "don't touch the pipeline without review",
+    "RESTART the service and COMMIT",
+    "find where is the config located",
+    "refactor and rename the module",
+    "hello world",
+    "",
+]
+
+
+class TestClassifierKeywordParity:
+    @_requires_native
+    @pytest.mark.parametrize("text", CLASSIFIER_CORPUS)
+    @pytest.mark.parametrize(
+        "fn_name",
+        ["has_action_keywords", "has_analysis_keywords", "has_generation_keywords", "has_negation"],
+    )
+    def test_keyword_predicates_agree(self, text, fn_name):
+        assert getattr(classifier_mod, fn_name)(text) == _forced_python(
+            classifier_mod, fn_name, text
+        )
+
+    @_requires_native
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "run and analyze then create, fix the search",
+            "no keywords here at all",
+            "UPDATE and modify, then look for where is",
+            "implement write deploy",
+        ],
+    )
+    def test_find_all_keywords_agree(self, text):
+        native = sorted(classifier_mod.find_all_keywords(text))
+        fallback = sorted(_forced_python(classifier_mod, "find_all_keywords", text))
+        assert native == fallback
+
+
+# =============================================================================
+# JSON repair
+# =============================================================================
+
+REPAIR_CORPUS = [
+    '{"key": "value"}',  # already valid
+    "{'key': 'value'}",  # single quotes
+    "{'a': True, 'b': False, 'c': None}",  # Python literals
+    "{'nested': {'x': [1, 2, 3]}}",  # nesting
+    '{"a": "it has an apostrophe: it\'s fine"}',  # apostrophe inside string
+    '{"a": "quote\\" inside", \'b\': 2}',  # escaped quote + mixed quotes
+    "[1, 2, 3]",
+    "  {'spaced': 'key'}  ",
+]
+
+EXTRACT_CORPUS = [
+    ('prefix {"a": 1} suffix', None),
+    ("blah {'x': True} and [1,2] end", None),
+    ('{"a": 1}{"b": 2}', None),
+    ('text with {braces} not json {"ok": 1}', None),
+    ("no json here", None),
+]
+
+
+class TestRepairJsonParity:
+    @_requires_native
+    @pytest.mark.parametrize("text", REPAIR_CORPUS)
+    def test_repair_json_identical(self, text):
+        assert json_repair_mod.repair_json(text) == _forced_python(
+            json_repair_mod, "repair_json", text
+        )
+
+
+class TestExtractJsonObjectsParity:
+    @_requires_native
+    @pytest.mark.parametrize("text,_", EXTRACT_CORPUS, ids=lambda v: str(v)[:30])
+    def test_extract_identical(self, text, _):
+        native = json_repair_mod.extract_json_objects(text)
+        fallback = _forced_python(json_repair_mod, "extract_json_objects", text)
+        assert native == fallback
+
+    @_requires_native
+    def test_positions_are_exact_spans_both_paths(self):
+        text = 'before {"a": 1} after'
+        for result in (
+            json_repair_mod.extract_json_objects(text),
+            _forced_python(json_repair_mod, "extract_json_objects", text),
+        ):
+            start, end, extracted = result[0]
+            assert text[start:end] == extracted
+
+
+class TestRepairJsonStringContentDivergence:
+    """PINNED parity MISMATCH: the Python fallback corrupts string contents.
+
+    The Rust state machine only rewrites ``True``/``False``/``None`` OUTSIDE
+    string literals; the Python fallback does a blind ``str.replace`` BEFORE
+    its quote tracking, so string VALUES containing those words are silently
+    altered. Rust is the intended contract (it parses to the right data);
+    changing the fallback belongs to the json_repair owners. Breaking this
+    pin means one side changed — re-judge, then update.
+    """
+
+    @_requires_native
+    def test_rust_preserves_and_python_corrupts(self):
+        text = "{'msg': 'True facts about None'}"
+        native = json_repair_mod.repair_json(text)
+        fallback = _forced_python(json_repair_mod, "repair_json", text)
+
+        assert json_repair_mod.json_loads(native) == {"msg": "True facts about None"}
+        assert native != fallback
+        # Pin the exact corrupted fallback output so the divergence is precise.
+        assert fallback == '{"msg": "true facts about null"}'
+
+
+class TestCoerceStringTypeDivergence:
+    """PINNED install-shape split: with the wheel, the scalar hot path runs
+    (matching NATIVE semantics); without it, the pure-Python fallback runs
+    with DIFFERENT truthiness mappings (``yes``/``on``/``1``/``0`` -> bool)
+    and no structured-type detection. Same input, different result depending
+    on whether the native extension is installed. Both behaviors are pinned
+    so any change on either side is a loud event."""
+
+    @pytest.mark.parametrize(
+        "value,native_result,fallback_result",
+        [
+            ("5", ("int", "5", None), ("int", "5", None)),
+            ("3.14", ("float", "3.14", None), ("float", "3.14", None)),
+            ("true", ("bool", "true", None), ("bool", "true", None)),
+            ("none", ("null", "null", None), ("null", "null", None)),
+            ("hello", ("string", "hello", None), ("string", "hello", None)),
+            # The divergent family:
+            ("yes", ("string", "yes", None), ("bool", "true", None)),
+            ("on", ("string", "on", None), ("bool", "true", None)),
+            ("1", ("int", "1", None), ("bool", "true", None)),
+            ("0", ("int", "0", None), ("bool", "false", None)),
+            ('{"a":1}', ("dict", '{"a":1}', None), ("string", '{"a":1}', None)),
+        ],
+    )
+    def test_both_install_shapes_pinned(self, value, native_result, fallback_result):
+        if not _NATIVE_AVAILABLE:
+            pytest.skip("native wheel not installed — dispatch equals the fallback")
+        assert json_repair_mod.coerce_string_type(value) == native_result
+        assert json_repair_mod._coerce_string_type_python_fallback(value) == fallback_result
