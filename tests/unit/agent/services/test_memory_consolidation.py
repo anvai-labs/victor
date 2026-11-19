@@ -208,7 +208,6 @@ def test_commit_is_fail_closed_per_item(store: PreferenceEpisodicStore):
     consolidator = MemoryConsolidator(store)
     good = consolidator.propose([{"role": "user", "content": "good fact"}])[0]
 
-
     from victor.storage.memory.preference_episodic import Episode
 
     smuggled = Episode(
