@@ -402,7 +402,12 @@ def print_query_plans() -> None:
     for name, sql in plans:
         print(f"--- {name}")
         # EXPLAIN executes no statement: NULL binds and constraints don't matter.
-        for row in conn.execute("EXPLAIN QUERY PLAN " + sql, tuple([None] * sql.count("?"))):
+        # nosemgrep: the SQL strings are assembled from internal Tables-enum constants
+        # (no untrusted input anywhere in this offline benchmark) and EXPLAIN executes
+        # nothing — the concatenation only prefixes the plan-printing keyword.
+        for row in conn.execute(
+            "EXPLAIN QUERY PLAN " + sql, tuple([None] * sql.count("?"))
+        ):  # nosemgrep
             print(f"    {row[3]}")
     conn.close()
 
