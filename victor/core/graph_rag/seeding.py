@@ -170,28 +170,83 @@ def _join_notes(*notes: Optional[str]) -> Optional[str]:
     return joined or None
 
 
-def intent_provider_for(graph_store: Any) -> Any:
-    """Intent-tier chunk-index provider (FEP-0049), or None when unavailable.
+def chunk_encoder_factory() -> Any:
+    """Factory for the lazily-constructed intent-tier query encoder.
 
-    Mirrors the pipeline's construction: the graph store's embedding config
-    with the dedicated ``code_chunks`` table, wrapped in the store facade.
-    Read-safe: a missing/unopenable provider yields None (the leg degrades
-    with a note rather than creating stray directories).
+    Returned closure, not instance: a model load must only happen on the
+    first actual search/upsert (flag-gated tiers never pay it).
+    """
+
+    def _factory() -> Any:
+        from victor_codegraph.embeddings import CHUNK_SOURCE_PROFILE, SentenceTransformerEncoder
+
+        return SentenceTransformerEncoder(CHUNK_SOURCE_PROFILE)
+
+    return _factory
+
+
+def chunk_profile_id() -> Optional[str]:
+    """The intent-tier embedding profile identity, or None without the package."""
+
+    try:
+        from victor_codegraph import CHUNK_SOURCE_PROFILE
+
+        return CHUNK_SOURCE_PROFILE.identity
+    except Exception:
+        return None
+
+
+def build_intent_index(graph_store: Any) -> Any:
+    """Single construction authority for the intent-tier chunk index.
+
+    SQLite-backed graph stores get co-located chunk vectors in project.db
+    (:class:`SqliteIntentChunkStore`) — no lancedb/pyarrow dependency. Any
+    other store falls back to the embedding-registry ``code_chunks``
+    provider (legacy path, kept for duckdb/proxima test fakes). Returns
+    None when unavailable: callers degrade the leg with a note.
+
+    The sqlite discriminator is ``_connect`` AND ``record_intent_synced``:
+    ``record_intent_synced`` is the codebase's established intent-state
+    capability marker (the gate in ``intent_sync.sync_intent_tier``), and
+    requiring both matters because ``DuckDBGraphStore`` also defines
+    ``_connect`` — a duckdb store routed here would fail at write time on
+    a missing ``intent_chunks`` table.
     """
     try:
-        from victor.storage.graph.intent_index import INTENT_TABLE, IntentIndexStore
-        from victor.storage.vector_stores.registry import EmbeddingRegistry
+        from victor.storage.graph.intent_index import IntentIndexStore
 
-        build = getattr(graph_store, "_build_embedding_config", None)
-        if build is None:
-            return None
-        config = build()
-        config.extra_config = {**(config.extra_config or {}), "table_name": INTENT_TABLE}
-        provider = EmbeddingRegistry.create(config)
+        is_sqlite_backed = (
+            getattr(graph_store, "_connect", None) is not None
+            and getattr(graph_store, "record_intent_synced", None) is not None
+        )
+        if is_sqlite_backed:
+            from victor.storage.graph.intent_sqlite_store import SqliteIntentChunkStore
+
+            provider = SqliteIntentChunkStore(graph_store)
+            provider.set_encoder_factory(chunk_encoder_factory())
+        else:
+            from victor.storage.graph.intent_index import INTENT_TABLE
+            from victor.storage.vector_stores.registry import EmbeddingRegistry
+
+            build = getattr(graph_store, "_build_embedding_config", None)
+            if build is None:
+                return None
+            config = build()
+            config.extra_config = {**(config.extra_config or {}), "table_name": INTENT_TABLE}
+            provider = EmbeddingRegistry.create(config)
         return IntentIndexStore(provider, graph_store)
     except Exception as e:
         logger.debug(f"Intent-tier provider unavailable: {e}")
         return None
+
+
+def intent_provider_for(graph_store: Any) -> Any:
+    """Intent-tier chunk-index provider (FEP-0049), or None when unavailable.
+
+    Read-safe: a missing/unopenable provider yields None (the leg degrades
+    with a note rather than creating stray directories).
+    """
+    return build_intent_index(graph_store)
 
 
 async def intent_seed_scores(

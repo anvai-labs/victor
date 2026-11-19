@@ -2258,3 +2258,151 @@ def test_count_budget_validation_holds_through_legacy_and_compile():
     graph.set_entry_point("a")
     with pytest.raises(ValueError):
         graph.compile(max_fanout_branches=1.5)
+
+
+# ---------------------------------------------------------------------------
+# TD-03 byte budgets: fan-out input bytes (pre-effect rejection) + result
+# retention threshold (observability only — merge semantics never change)
+# ---------------------------------------------------------------------------
+
+
+def _make_sized_fanout(branch_count: int, payload_bytes: int):
+    """Fan-out whose branches each carry a payload of ~payload_bytes."""
+    graph = StateGraph(SimpleState)
+    graph.add_node("split", lambda s: s)
+    graph.add_node(
+        "branch",
+        # The payload rides through the branch so RESULT retention is
+        # comparable to INPUT size (the result-threshold test relies on it).
+        lambda s: {
+            "branch_value": 10,
+            "history": [f"b{s.get('index')}"],
+            "blob": s.get("blob", ""),
+        },
+    )
+    graph.add_node("merge", lambda s: s)
+    graph.add_edge("branch", "merge")
+    graph.set_entry_point("split")
+
+    def fan_out(state):
+        return [
+            Send(
+                "branch",
+                {"index": i, "history": [], "blob": "x" * payload_bytes},
+                join_at="merge",
+            )
+            for i in range(branch_count)
+        ]
+
+    graph.add_conditional_edge("split", fan_out, {"branch": "branch"})
+
+    def merge_states(base, branches):
+        return {"value": sum(b.get("branch_value", 0) for b in branches), "history": []}
+
+    graph.add_state_merger(merge_states)
+    graph.add_edge("merge", END)
+    return graph
+
+
+async def test_fanout_input_byte_budget_rejects_before_effects():
+    """Oversized aggregate branch inputs are rejected BEFORE any branch
+    effect, with a typed error naming the byte budget."""
+    graph = _make_sized_fanout(branch_count=4, payload_bytes=4096)
+    app = graph.compile(max_fanout_input_bytes=1024)
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-td03-input")
+    assert not result.success
+    assert "max_fanout_input_bytes" in (result.error or "")
+    # The measured aggregate (pickle framing over 4×4096 raw), not just the budget.
+    assert "16588" in (result.error or "")
+
+
+async def test_fanout_input_byte_budget_allows_within_budget():
+    """The same fan-out under a generous budget executes normally and
+    merges identically — the budget measures, it does not distort."""
+    graph = _make_sized_fanout(branch_count=4, payload_bytes=4096)
+    app = graph.compile(max_fanout_input_bytes=1 << 20)
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-td03-ok")
+    assert result.success
+    assert result.state["value"] == 40
+
+
+async def test_fanout_input_byte_budget_rejects_unmeasurable_payload():
+    """Under an opt-in byte budget an unpicklable branch input cannot be
+    measured — rejected with a message that says so (fail-closed), not
+    silently admitted."""
+    graph = StateGraph(SimpleState)
+    graph.add_node("split", lambda s: s)
+    graph.add_node("branch", lambda s: {"branch_value": 1, "history": []})
+    graph.add_node("merge", lambda s: s)
+    graph.add_edge("branch", "merge")
+    graph.set_entry_point("split")
+
+    opaque = lambda: None  # unpicklable (function), deepcopy-safe  # noqa: E731
+
+    def fan_out(state):
+        return [
+            Send("branch", {"index": i, "history": [], "opaque": opaque}, join_at="merge")
+            for i in range(2)
+        ]
+
+    graph.add_conditional_edge("split", fan_out, {"branch": "branch"})
+    graph.add_state_merger(lambda base, branches: {"value": 0, "history": []})
+    graph.add_edge("merge", END)
+
+    app = graph.compile(max_fanout_input_bytes=65536)
+    result = await app.invoke({"value": 0, "history": []}, thread_id="t-td03-unpicklable")
+    assert not result.success
+    assert "unpicklable" in (result.error or "")
+    assert "max_fanout_input_bytes" in (result.error or "")
+
+
+async def test_fanout_result_byte_threshold_warns_without_changing_merge(caplog):
+    """The result-retention threshold is observability only: over-threshold
+    retention logs a WARNING naming the field and the measured bytes, and
+    the merged result is byte-identical to the unbounded run."""
+    import logging
+
+    graph = _make_sized_fanout(branch_count=4, payload_bytes=4096)
+    bounded = graph.compile(max_fanout_result_bytes=1024)
+    with caplog.at_level(logging.WARNING, logger="victor.framework.graph"):
+        result = await bounded.invoke({"value": 0, "history": []}, thread_id="t-td03-warn")
+    assert result.success
+    assert result.state["value"] == 40
+    assert any("max_fanout_result_bytes" in r.message for r in caplog.records)
+
+    unbounded = graph.compile()
+    baseline = await unbounded.invoke({"value": 0, "history": []}, thread_id="t-td03-base")
+    assert baseline.state == result.state
+
+
+def test_execution_config_byte_budget_validation():
+    """Byte budgets are positive finite integers or None (bool/float/NaN
+    would defeat the byte comparison)."""
+    from math import inf, nan
+
+    from victor.framework.config import ExecutionConfig
+
+    for bad in (True, False, 1.5, 2.0, nan, inf, -inf):
+        with pytest.raises(ValueError):
+            ExecutionConfig(max_fanout_input_bytes=bad)
+        with pytest.raises(ValueError):
+            ExecutionConfig(max_fanout_result_bytes=bad)
+    assert ExecutionConfig().max_fanout_input_bytes is None
+    assert ExecutionConfig().max_fanout_result_bytes is None
+    assert ExecutionConfig(max_fanout_input_bytes=8).max_fanout_input_bytes == 8
+
+
+def test_byte_budget_validation_holds_through_legacy_and_compile():
+    """The byte-budget boundary holds through from_legacy and compile too."""
+    from victor.framework.config import GraphConfig
+
+    with pytest.raises(ValueError):
+        GraphConfig.from_legacy(max_fanout_input_bytes=True)
+    with pytest.raises(ValueError):
+        GraphConfig.from_legacy(max_fanout_result_bytes=0)
+    graph = StateGraph(SimpleState)
+    graph.add_node("a", lambda s: s)
+    graph.set_entry_point("a")
+    assert graph.compile(max_fanout_input_bytes=1024) is not None
+    with pytest.raises(ValueError):
+        graph.compile(max_fanout_result_bytes=1.5)

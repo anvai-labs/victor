@@ -2,7 +2,7 @@
 fep: "0049"
 title: "Intent-Tier Code Embeddings with Merkle Incremental Sync"
 type: Standards Track
-status: Draft
+status: Implemented
 created: 2026-11-18
 modified: 2026-11-18
 authors:
@@ -16,6 +16,41 @@ discussion: https://github.com/anvai-labs/victor/discussions/0049
 # FEP-0049: Intent-Tier Code Embeddings with Merkle Incremental Sync
 
 
+
+## Outcome (2026-11-18 — implementation record, supersedes motivational claims)
+
+All four phases merged to develop. Corrections to this document's premises,
+recorded so the record matches what the code actually does:
+
+1. **Victor had embeddings before this FEP** — the symbol-summary tier
+   (`symbol-summary-v1`, #771, 2026-08) existed; what was missing was the
+   chunk-source tier, its persisted index, and incremental re-embedding. The
+   framing "no intent retrieval" overstated the gap; the honest gap was
+   body-level retrieval + freshness.
+2. **Merkle is a derived projection, not a storage engine** — the flat
+   `path -> sha256` manifest (mtime + content-hash discipline that long
+   predated this FEP via `graph_file_mtime`) remains the single source of
+   truth; `victor_codegraph.merkle` derives an O(1)-skip root over it and the
+   flat diff stays the authoritative work set. Directory/file/chunk leaf
+   granularity mostly buys nothing beyond the root shortcut at current scale;
+   it is retained because it is cheap and chunk-precise work sets ride it.
+3. **Storage consolidated SQLite-only (#1943)** — the LanceDB `code_chunks`
+   table this FEP proposed was replaced by the co-located `intent_chunks`
+   table in the graph project.db (`SqliteIntentChunkStore`, float32-LE BLOB
+   vectors, numpy brute-force cosine measured sufficient at our scale:
+   0.1 ms @ 14K rows, 3.4 ms @ 100K). lancedb/pyarrow remain optional
+   extras for the symbol-summary tier and conversation embeddings.
+4. **Significance measured, not assumed** — intent tier on the victor corpus
+   (13,973 chunks, GPU-encoded): P@3 +13%, MRR +0.165 over keyword-only,
+   wins 8/15, near-disjoint miss sets; genmedia (559 chunks): miss rank 8x
+   closer. Graduation evidence battery skeleton: #1937; field data pending
+   a release.
+
+Phases: #1915/#1916 (merkle + store), #1917 (sync + pipeline hook + CLI),
+#1919 (hybrid query leg + mode="intent"), #1943 (SQLite-only consolidation
++ read-path fix). The read path shipped incomplete in #1919 —
+`IntentIndexStore.search` was missing until #1943 (every mode="intent"
+query degraded); the placement-not-existence trap, recorded for FEP review.
 
 ## Summary
 

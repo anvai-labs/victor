@@ -321,10 +321,42 @@ def format_and_prune_tool_output(
     # ADR-037 containment: the model-bound output is untrusted data — wrap it
     # in the canonical provenance envelope (source class, origin, session
     # canary). The user preview is NOT enveloped (the user is trusted).
+    # FOU-S3c: the injection-family screen runs first; flagged spans are
+    # highlighted inside the envelope (advisory only — never blocks).
+    # SEPARATE try blocks: a classifier failure must not take down the
+    # envelope (the canary floor depends on the envelope being present).
     try:
         from victor.config.tool_settings import get_tool_settings as _get_tool_settings
 
-        if _get_tool_settings().untrusted_content_envelopes and llm_output:
+        _tool_settings = _get_tool_settings()
+    except Exception:
+        _tool_settings = None
+    if (
+        _tool_settings is not None
+        # Highlighting is annotation FOR the envelope: without the
+        # containment framing, bare [victor-flagged] markers would just be
+        # more unattributed content in model context — skip both together.
+        and _tool_settings.untrusted_content_envelopes
+        and _tool_settings.untrusted_content_screen
+        and llm_output
+    ):
+        try:
+            from victor.security.injection_screen import (
+                record_flagged_families,
+                screen_and_highlight,
+            )
+
+            llm_output, _verdict = screen_and_highlight(llm_output)
+            # FOU-S3d: remember the flagged families for this session so the
+            # flag-gated argument hard-fail (untrusted_content_hard_fail) can
+            # detect the model echoing injected instructions. Recording is
+            # inert — nothing blocks unless that flag is on.
+            if _verdict.flagged:
+                record_flagged_families(_verdict.families)
+        except Exception:  # advisory channel only — never break delivery
+            logger.debug("Injection screen failed; delivering unhighlighted", exc_info=True)
+    try:
+        if (_tool_settings is None or _tool_settings.untrusted_content_envelopes) and llm_output:
             from victor.security.containment import UntrustedSourceClass, wrap_untrusted
 
             llm_output = wrap_untrusted(

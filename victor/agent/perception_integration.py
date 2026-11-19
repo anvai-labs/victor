@@ -62,6 +62,12 @@ from victor.agent.request_scope_heuristics import (
     conversation_history_has_explicit_target,
     has_ambiguous_target_reference,
 )
+from victor.agent.memory_injection import (
+    MemoryBlockBuilder,
+    MemoryInjectionBlock,
+    memory_prompt_suffix,
+    memory_scopes_from_context,
+)
 from victor.core.runtime_evaluation_policy import RuntimeEvaluationPolicy
 from victor.core.task.protocols import TaskComplexity
 
@@ -120,6 +126,12 @@ class Perception:
     # New features
     requirements: List[Requirement] = field(default_factory=list)
     similar_experiences: List[SimilarExperience] = field(default_factory=list)
+
+    # FEP-0048 A2c: bounded long-term memory block assembled at PERCEIVE.
+    # None when memory is disabled, the store is empty (off-when-empty), or
+    # the budget allowance refused the block — in every None case the prompt
+    # is byte-identical to the pre-memory prompt.
+    memory_block: Optional[MemoryInjectionBlock] = None
 
     # Metadata
     confidence: float = 0.5
@@ -182,6 +194,7 @@ class Perception:
                 for r in self.requirements
             ],
             "similar_experiences_count": len(self.similar_experiences),
+            "memory_block": self.memory_block.to_dict() if self.memory_block else None,
             "confidence": self.confidence,
             "metadata": self.metadata,
             "needs_clarification": self.needs_clarification,
@@ -210,6 +223,7 @@ class PerceptionIntegration:
         enable_similarity_search: bool = True,
         config: Optional[Dict[str, Any]] = None,
         task_analyzer: Optional[TaskAnalyzer] = None,
+        memory_injector: Optional[MemoryBlockBuilder] = None,
     ):
         """Initialize perception integration.
 
@@ -220,6 +234,9 @@ class PerceptionIntegration:
             config: Additional configuration
             task_analyzer: Shared task analyzer. When omitted, perception creates
                 a local analyzer for standalone use.
+            memory_injector: FEP-0048 A2c collaborator that assembles the
+                bounded PERCEIVE memory block. When omitted, no memory block
+                is built (the hook parameter is additive and optional).
         """
         self.memory_coordinator = memory_coordinator
         self.enable_requirement_extraction = enable_requirement_extraction
@@ -227,12 +244,18 @@ class PerceptionIntegration:
         self.config = config or {}
         self._evaluation_policy = RuntimeEvaluationPolicy.from_config(self.config)
         self.task_analyzer = task_analyzer or TaskAnalyzer()
+        self.memory_injector = memory_injector
 
         logger.info(
             f"PerceptionIntegration initialized "
             f"(requirements={enable_requirement_extraction}, "
-            f"similarity={enable_similarity_search})"
+            f"similarity={enable_similarity_search}, "
+            f"memory_injection={memory_injector is not None})"
         )
+
+    def set_memory_injector(self, injector: Optional[MemoryBlockBuilder]) -> None:
+        """Bind (or unbind) the memory-injection collaborator for late wiring."""
+        self.memory_injector = injector
 
     async def perceive(
         self,
@@ -291,6 +314,14 @@ class PerceptionIntegration:
         if self.enable_similarity_search and self.memory_coordinator:
             similar_experiences = await self._retrieve_similar_experiences(query, intent, context)
 
+        # NEW (FEP-0048 A2c): bounded long-term memory block. The builder
+        # internally resolves memory_enabled + VICTOR_MEMORY_ENABLED at every
+        # read and returns None on an empty store (off-when-empty), so a None
+        # block leaves the prompt byte-identical to the pre-memory prompt.
+        memory_block: Optional[MemoryInjectionBlock] = None
+        if self.memory_injector is not None:
+            memory_block = await self._build_memory_block(query, context)
+
         # Calculate calibrated confidence
         confidence = self._calculate_confidence(
             intent,
@@ -307,17 +338,25 @@ class PerceptionIntegration:
             conversation_history=conversation_history,
         )
 
+        perception_metadata: Dict[str, Any] = {
+            "query_length": len(query),
+            "has_context": context is not None,
+        }
+        if memory_block is not None:
+            # Only added when a block exists: with memory off/empty the
+            # metadata (and the prompt suffix) stay byte-identical.
+            perception_metadata["memory_block_tokens"] = memory_block.token_estimate
+            perception_metadata["memory_prompt"] = memory_prompt_suffix(memory_block)
+
         perception = Perception(
             intent=intent,
             complexity=complexity,
             task_analysis=task_analysis,
             requirements=requirements,
             similar_experiences=similar_experiences,
+            memory_block=memory_block,
             confidence=confidence,
-            metadata={
-                "query_length": len(query),
-                "has_context": context is not None,
-            },
+            metadata=perception_metadata,
             needs_clarification=clarification["needs_clarification"],
             clarification_reason=clarification["clarification_reason"],
             clarification_prompt=clarification["clarification_prompt"],
@@ -578,6 +617,28 @@ class PerceptionIntegration:
         except Exception as e:
             logger.warning(f"Failed to retrieve similar experiences: {e}")
             return []
+
+    async def _build_memory_block(
+        self,
+        query: str,
+        context: Optional[Dict[str, Any]],
+    ) -> Optional[MemoryInjectionBlock]:
+        """Assemble the bounded long-term memory block (FEP-0048 A2c).
+
+        Scopes come from the session context (``memory_scopes``/``memory_scope``;
+        default both, each gated by its own opt-out). All suppression — flag,
+        env override, empty store, budget refusal — resolves to None here so
+        PERCEIVE callers only ever see "block or nothing".
+        """
+        assert self.memory_injector is not None
+        try:
+            return await self.memory_injector.build(
+                query,
+                memory_scopes_from_context(context),
+            )
+        except Exception as e:  # noqa: BLE001 — memory must never break PERCEIVE
+            logger.warning(f"Memory injection failed: {e}")
+            return None
 
     def _calculate_confidence(
         self,

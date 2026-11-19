@@ -243,6 +243,19 @@ class ExecutionConfig:
         max_fanout_branches: Hard cap on the number of Send branches one
             fan-out may expand to (default: None = unlimited). Oversized
             expansion is rejected before any branch effect.
+        max_fanout_input_bytes: Hard cap on the aggregate serialized size of
+            one fan-out's branch input payloads (default: None = unmeasured,
+            zero overhead). Exceeded budgets are rejected BEFORE any branch
+            effect (TD-03: reject impossible admission pre-effect). Payloads
+            are measured via pickle; an unpicklable payload is rejected as
+            unmeasurable when this budget is set (opt-in contract: graphs
+            with exotic states simply leave it unset).
+        max_fanout_result_bytes: Observability threshold on the aggregate
+            serialized size of RETAINED fan-out branch results (default:
+            None = unmeasured). Over-threshold runs log a WARNING with the
+            measured bytes — merge semantics are never altered by this
+            field (results may not be dropped post-effect; spill/rejection
+            is a future reviewed-contract change).
 
     Example:
         config = ExecutionConfig(max_iterations=50, timeout=300.0)
@@ -253,6 +266,8 @@ class ExecutionConfig:
     recursion_limit: int = 500
     max_parallel_branches: int = 16
     max_fanout_branches: Optional[int] = None
+    max_fanout_input_bytes: Optional[int] = None
+    max_fanout_result_bytes: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Validate execution configuration limits."""
@@ -264,6 +279,8 @@ class ExecutionConfig:
             raise ValueError(f"recursion_limit must be >= 1, got {self.recursion_limit}")
         _validate_count("max_parallel_branches", self.max_parallel_branches)
         _validate_count("max_fanout_branches", self.max_fanout_branches, allow_none=True)
+        _validate_count("max_fanout_input_bytes", self.max_fanout_input_bytes, allow_none=True)
+        _validate_count("max_fanout_result_bytes", self.max_fanout_result_bytes, allow_none=True)
 
 
 @dataclass
@@ -474,6 +491,8 @@ class GraphConfig:
                 recursion_limit=kwargs.get("recursion_limit", 500),
                 max_parallel_branches=kwargs.get("max_parallel_branches", 16),
                 max_fanout_branches=kwargs.get("max_fanout_branches"),
+                max_fanout_input_bytes=kwargs.get("max_fanout_input_bytes"),
+                max_fanout_result_bytes=kwargs.get("max_fanout_result_bytes"),
             ),
             checkpoint=CheckpointConfig(
                 checkpointer=kwargs.get("checkpointer"),

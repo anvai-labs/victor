@@ -56,8 +56,8 @@ graduate (or stall) based on individual judgment rather than shared criteria.
 
 | Flag | Default today | Target | Prerequisite | Status |
 |------|--------------|--------|--------------|--------|
-| `effect_gated_completion` | off | on | graduation battery GRADUATE + negative test | queued (FOU-S4) |
-| `per_turn_auditor` | off | on | graduation battery GRADUATE + negative test | queued (FOU-S4) |
+| `effect_gated_completion` | off | on | graduation battery GRADUATE + negative test | LOCKED OUT — the 2026-08-03 negative A/B (on 0.847 vs off 0.864, overlapping CIs; #884) do-not-graduate ruling stands; do not re-run without new evidence |
+| `per_turn_auditor` | off | on | graduation battery GRADUATE + negative test | deterministic battery run (FOU-S4, `victor/evaluation/auditor_ab.py`): wiring verified + cost bounded (max 1 edge call per COMPLETE turn), verdict `ESCALATE_LIVE_AB_REQUIRED` — quality needs the live `flag_ab` A/B (`--corpus effect-gate`) before any flip; default stays off |
 | `USE_STATEGRAPH_AGENTIC_LOOP` | off | on | executor parity (FOU I-D5a/b/c) + parity suite both modes + durable ACT-boundary semantics + project-scoped checkpoints + selective writes + terminal policy propagation + sandbox graduation evidence + soak | blocked on I-D5 |
 | `use_semantic_response_cache` | off | undecided | battery on cache-hit quality + staleness semantics | parked |
 | `USE_DURABLE_GRAPH_CHECKPOINTS` (FEP-0047) | n/a | on-at-birth | ships default-on with opt-out from first merge | covered by FEP-0047 |

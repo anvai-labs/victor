@@ -129,6 +129,7 @@ from victor.framework.graph_primitives import (
     Node,
     NodeFunctionProtocol,
     FanoutBudgetExceeded,
+    FanoutInputBudgetExceeded,
     ParallelBranchExecutionError,
     Send,
     StateProtocol,
@@ -167,6 +168,23 @@ START = "__start__"
 # - PerformanceConfig: performance optimizations
 # - ObservabilityConfig: observability and eventing
 # GraphConfig remains as a facade composing these focused configs
+
+
+def _pickle_size(payload: Any) -> Optional[int]:
+    """Serialized byte size of a fan-out payload, or None if unmeasurable.
+
+    Pickle is the measurement proxy (fast, C-implemented); ``None`` means
+    the payload cannot be measured, which the byte-budget contracts treat
+    explicitly (inputs: reject under an opt-in budget; results: counted
+    as 0 for the retention threshold, with the warning floor serving as
+    the backstop).
+    """
+    try:
+        import pickle
+
+        return len(pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
+    except Exception:
+        return None
 
 
 class CompiledGraph(Generic[StateType]):
@@ -544,6 +562,28 @@ class CompiledGraph(Generic[StateType]):
                 f"max_fanout_branches budget of {max_fanout}; rejected "
                 "before any branch effect."
             )
+        # TD-03 input-byte budget: a semaphore bounds concurrency, not the
+        # memory a fan-out commits to — the aggregate branch-input payload
+        # size is checked BEFORE any admission (opt-in; None = unmeasured).
+        input_budget = self._config.execution.max_fanout_input_bytes
+        if input_budget is not None:
+            total_input_bytes = 0
+            for index, send in enumerate(sends):
+                payload_bytes = _pickle_size(send.state)
+                if payload_bytes is None:
+                    raise FanoutInputBudgetExceeded(
+                        f"Fan-out branch {index} (node '{send.node}') carries an "
+                        "unpicklable input payload, which cannot be measured "
+                        "under the max_fanout_input_bytes budget of "
+                        f"{input_budget}; rejected before any branch effect."
+                    )
+                total_input_bytes += payload_bytes
+            if total_input_bytes > input_budget:
+                raise FanoutInputBudgetExceeded(
+                    f"Fan-out branch inputs total {total_input_bytes} serialized "
+                    f"bytes, exceeding the max_fanout_input_bytes budget of "
+                    f"{input_budget}; rejected before any branch effect."
+                )
         parallel_bound = max(1, min(self._config.execution.max_parallel_branches, len(sends)))
         results: List[Any] = [None] * len(sends)
         branch_iter = iter(range(len(sends)))
@@ -595,10 +635,30 @@ class CompiledGraph(Generic[StateType]):
             raise ParallelBranchExecutionError("Parallel branch failure(s): " + "; ".join(failures))
 
         base = base_state if isinstance(base_state, dict) else dict(base_state)
-        return self._state_merger(
+        merged = self._state_merger(
             base,
             [state_dict for _node, _success, _error, state_dict in branch_results],
         )
+        # TD-03 result-retention observability: measure retained results when
+        # a threshold is configured and SAY SO when exceeded — merge semantics
+        # are never altered (results cannot be dropped post-effect; spill or
+        # rejection is a future reviewed-contract change).
+        result_budget = self._config.execution.max_fanout_result_bytes
+        if result_budget is not None:
+            retained = sum(
+                _pickle_size(state_dict) or 0
+                for _node, _success, _error, state_dict in branch_results
+            )
+            if retained > result_budget:
+                logger.warning(
+                    "Fan-out retained %d serialized result bytes across %d branches, "
+                    "over the max_fanout_result_bytes threshold of %d "
+                    "(observability only — merge semantics unchanged).",
+                    retained,
+                    len(branch_results),
+                    result_budget,
+                )
+        return merged
 
     async def stream(
         self,
@@ -1423,6 +1483,7 @@ __all__ = [
     "SubgraphNode",
     # Fan-out / parallel execution
     "FanoutBudgetExceeded",
+    "FanoutInputBudgetExceeded",
     "Send",
     "default_state_merger",
     "strict_state_merger",

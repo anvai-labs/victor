@@ -35,6 +35,21 @@ def mcp(
         "--stdio/--no-stdio",
         help="Run in stdio mode (for MCP clients)",
     ),
+    http: bool = typer.Option(
+        False,
+        "--http",
+        help="Run as a streamable-HTTP server (requires --api-key or VICTOR_API_KEY)",
+    ),
+    http_port: int = typer.Option(
+        8808,
+        "--http-port",
+        help="Port for --http mode",
+    ),
+    api_key: Optional[str] = typer.Option(
+        None,
+        "--api-key",
+        help="Bearer API key for --http mode (falls back to VICTOR_API_KEY)",
+    ),
     log_level: Optional[str] = typer.Option(
         None,
         "--log-level",
@@ -49,10 +64,32 @@ def mcp(
 ):
     """Run Victor as an MCP server."""
     if ctx.invoked_subcommand is None:
-        _mcp(stdio, log_level, no_graph_tools)
+        # typer>=0.27 vendors its own click and no longer depends on the
+        # click package at all, so the enum must come from typer's copy
+        # (click.core.ParameterSource is a DIFFERENT enum and never matches).
+        from typer._click.core import ParameterSource
+
+        if http and ctx.get_parameter_source("stdio") == ParameterSource.COMMANDLINE:
+            console.print("[red]--http and --stdio are mutually exclusive[/]")
+            raise typer.Exit(1)
+        _mcp(
+            stdio,
+            log_level,
+            no_graph_tools,
+            http=http,
+            http_port=http_port,
+            api_key=api_key,
+        )
 
 
-def _mcp(stdio: bool, log_level: Optional[str], no_graph_tools: bool = False):
+def _mcp(
+    stdio: bool,
+    log_level: Optional[str],
+    no_graph_tools: bool = False,
+    http: bool = False,
+    http_port: int = 8808,
+    api_key: Optional[str] = None,
+):
     # Configure logging to stderr (stdout is for MCP protocol)
     # Validate and normalize log level
     if log_level is not None:
@@ -63,48 +100,44 @@ def _mcp(stdio: bool, log_level: Optional[str], no_graph_tools: bool = False):
     # Use centralized logging config (MCP has specific settings in logging_config.yaml)
     setup_logging(command="mcp", cli_log_level=log_level, stream=sys.stderr)
 
+    if http:
+        # Fail-closed auth: MCP tools execute code, so the HTTP endpoint
+        # must never start without a Bearer key. No anonymous escape.
+        from victor.integrations.mcp.server import run_mcp_server_http
+
+        resolved_key = api_key or os.environ.get("VICTOR_API_KEY")
+        if not resolved_key:
+            console.print(
+                "[red]--http requires --api-key or the VICTOR_API_KEY environment "
+                "variable (MCP tools execute code; unauthenticated HTTP MCP is "
+                "refused fail-closed)[/]"
+            )
+            raise typer.Exit(1)
+        run_sync(
+            run_mcp_server_http(no_graph_tools=no_graph_tools, port=http_port, api_key=resolved_key)
+        )
+        return
+
     if stdio:
         # Preserve the callee's default: only an explicit CLI opt-out is a
         # meaningful bridge argument.
         coroutine = _run_mcp_server(no_graph_tools=True) if no_graph_tools else _run_mcp_server()
         run_sync(coroutine)
     else:
-        console.print("[red]Only stdio mode is currently supported[/]")
+        console.print(
+            "[red]--no-stdio alone is not a mode; use --http (with --api-key or "
+            "VICTOR_API_KEY) for the streamable-HTTP server, or --stdio[/]"
+        )
         raise typer.Exit(1)
 
 
 async def _run_mcp_server(no_graph_tools: bool = False) -> None:
     """Run MCP server with all registered tools."""
-    # Graph tools are enabled for the explicit-MCP-launch process (B3);
-    # --no-graph-tools opts out. Runtime override > env precedence.
-    apply_graph_tool_flag(no_graph_tools)
-
-    # Unified tool discovery (single source of truth, FEP-0049-followup B1)
-    registry = ToolRegistry()
-    registered_tools_count = register_discovered_tools(registry)
-
-    # Launch-time sandbox admission (B2): on failure the server still starts
-    # but every tools/call is refused (fail-closed).
-    from victor.integrations.mcp.server import _admit_or_refuse
+    from victor.integrations.mcp.assembly import create_mcp_server
 
     workspace_root = Path(os.getcwd())
-    exec_context, admission_refusal = _admit_or_refuse(workspace_root)
-
-    server = MCPServer(
-        name="Victor MCP Server",
-        version="1.0.0",
-        tool_registry=registry,
-        exec_context=exec_context,
-        admission_refusal=admission_refusal,
-    )
-    register_graph_index_resource(server, workspace_root)
-
-    posture = "sandboxed (admitted policy)" if exec_context else "ADMISSION REFUSAL (fail-closed)"
-    print(
-        f"Victor MCP Server starting with {registered_tools_count} tools; " f"posture: {posture}",
-        file=sys.stderr,
-    )
-    await server.start_stdio_server()
+    assembly = create_mcp_server(workspace_root, no_graph_tools=no_graph_tools)
+    await assembly.server.start_stdio_server()
 
 
 @mcp_app.command("list-tools")

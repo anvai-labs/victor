@@ -128,8 +128,18 @@ SLACK_TOKEN_PATTERN = r"xox[baprs]-[0-9]{10,13}-[0-9a-zA-Z]{24}"
 STRIPE_KEY_PATTERN = r"(?:sk|pk)_(?:live|test)_[0-9a-zA-Z]{24,}"
 
 # Generic Secrets
-GENERIC_PASSWORD_PATTERN = r"(?i)(?:password|passwd|pwd)\s*[=:]\s*['\"][^'\"]{8,}['\"]"
-GENERIC_SECRET_PATTERN = r"(?i)(?:secret|token|api[_-]?key)\s*[=:]\s*['\"][^'\"]{8,}['\"]"
+# Value-bearing shape only: an explicit ``=``/``:`` delimiter between the
+# keyword and the value (quoted values may contain spaces; bare values are a
+# single token). Bare-whitespace separators are NOT delimiters, so prose like
+# "the password policies are documented elsewhere" is not a credential match
+# (FOU-A2b follow-up: the shared scanner false-positived on the word
+# "password"/"secret" in benign prose).
+GENERIC_PASSWORD_PATTERN = (
+    r"(?i)(?:password|passwd|pwd)\s*[=:]\s*(\"[^\"]{8,}\"|'[^']{8,}'|[^\s'\"]{8,})"
+)
+GENERIC_SECRET_PATTERN = (
+    r"(?i)(?:secret|token|api[_-]?key)\s*[=:]\s*(\"[^\"]{8,}\"|'[^']{8,}'|[^\s'\"]{8,})"
+)
 GENERIC_BEARER_PATTERN = r"(?i)bearer\s+[a-zA-Z0-9\-_\.]{20,}"
 
 # Private Keys

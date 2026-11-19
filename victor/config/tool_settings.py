@@ -160,6 +160,34 @@ class ToolSettings(BaseModel):
             "token from a provenance envelope (ADR-037 exfiltration floor)."
         ),
     )
+    # Injection screen (ADR-037 decision 2, FOU-S3c): pattern classifiers
+    # over model-bound tool output; flagged spans are highlighted INSIDE
+    # the envelope. Annotation-only delivery by the ADR graduation decision
+    # — this screen itself never blocks; the hard-fail escalation lives in
+    # untrusted_content_hard_fail below.
+    untrusted_content_screen: bool = Field(
+        default=True,
+        description=(
+            "Run the ADR-037 injection-family screen over model-bound tool "
+            "output and highlight flagged spans inside the envelope "
+            "(advisory only — never blocks delivery)."
+        ),
+    )
+    # FOU-S3d hard-fail wiring (ADR-037 decision 2 + ADR-036 graduation):
+    # when ON, a tool call whose arguments echo content matching an
+    # injection family the screen flagged earlier in this session hard-fails
+    # through the same containment gate as canary blocking. Default OFF —
+    # the battery verdict (GRADUATE_HARD_FAIL_CANDIDATE) ships the MECHANISM
+    # dormant; the flip is a field-data decision per ADR-036.
+    untrusted_content_hard_fail: bool = Field(
+        default=False,
+        description=(
+            "Block tool calls whose arguments echo injection-family content "
+            "flagged earlier in the session by the ADR-037 screen. Default "
+            "off: mechanism ships dormant; flipping is gated on field data "
+            "per the ADR-036 graduation policy."
+        ),
+    )
 
     # Tool output preview configuration (user display only, does NOT affect LLM)
     tool_output_preview_enabled: bool = Field(

@@ -2,7 +2,7 @@
 
 **Status:** Adopted engineering guidance; implementation investigations remain incremental
 
-**Last verified:** 2026-11-02 (CCG identity, graph semantics and wheel matrix)
+**Last verified:** 2026-11-19 (FOU-C3 parity inventory; CCG identity, graph semantics and wheel matrix)
 
 Victor should keep Python as the orchestration, integration, and I/O language and use the existing
 Rust/PyO3 workspace as its default compiled acceleration path. Adding Cython, Numba, or a direct
@@ -15,8 +15,10 @@ tool is an exception that requires measurements showing the existing choices can
   already covers tokenization, context fitting, similarity, embeddings, graph algorithms, parsing,
   filtering, indexing, and security scans.
 - Python adapters under `victor/processing/native/` retain reference or fallback behavior. The
-  required `native-parity` CI job builds a release wheel and checks native/fallback agreement for
-  the tokenizer and context fitter; equivalent differential coverage is not yet universal.
+  required `native-parity` CI job builds a release wheel and checks native/fallback agreement —
+  originally for the tokenizer and context fitter, broadened by FOU-C3 to embeddings, secrets,
+  graph algorithms, trace scanning, dedup/hashing, classifier keywords, and JSON repair (see the
+  inventory below; the remaining gaps are listed there as future increments).
 - Rust release builds use optimization level 3, fat LTO, one codegen unit, and panic unwinding so a
   Rust panic does not abort the Python process.
 - Release automation reuses the affected-change native qualification matrix: Linux x86-64 and
@@ -95,8 +97,11 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    attachment, and call volume in representative agent sessions.
 2. Audit CPU-heavy bindings outside `similarity.rs` for safe `Python::detach` regions. Start with
    tokenizer batches, embedding transforms, graph algorithms, and trace scanning.
+   **Audited and landed 2026-11-18 — see the `Python::detach` audit subsection below.**
 3. Prototype contiguous-buffer inputs and persistent native indexes for embedding/similarity paths;
    compare them with current nested-vector conversion and the existing NumPy fallback.
+   **Parity half landed 2026-11-19 (FOU-C3)** — see the parity/benchmark inventory subsection
+   below; the contiguous-buffer/persistent-index prototype remains open.
 4. Make the wheel support table explicit and tested. Track the declared Python minimum alongside
    the wheel matrix, then evaluate an `abi3` proof build before expanding per-version artifacts.
 5. Add advisory performance reports first. Ratchet only stable production-size benchmarks with
@@ -309,6 +314,158 @@ platform support, and deployment dependencies conflict with predictable CLI and 
      single `_IndexingStreamPipeline._commit_batch` of ~20 realistic files and attribute
      the batch wall time to those components; only then choose the fix (batched JSON
      serialization, hoisted lookups, or precomputed ordering).
+
+   **Write-path attribution COMPLETE (2026-11-18, `scripts/benchmark_persist_batch.py`):
+   no rewrite is justified — the residual time is SQLite doing the write volume.**
+   The prescribed profiling step ran: a deterministic benchmark builds realistic
+   flush batches (shapes measured from this repo's live project.db: ~311 nodes/file at
+   94% statements, ~767 edges/file in the observed type mix, absolute file hints on
+   100% of edge metadata) and times one `_IndexingStreamPipeline._flush`-shaped
+   `write_batch` with perf_counter brackets per statement group (cProfile only as
+   supporting evidence, per the tiny-call-count lesson).
+
+   Attribution, cold 200-file flush (3,431 symbol + 57,752 statement nodes,
+   2,541 symbol + 150,982 CCG edges), total wall 4,325 ms on the WSL bench host:
+
+   | component                                   | wall ms | share |
+   |---------------------------------------------|--------:|------:|
+   | SQLite `executemany` — node/edge ON CONFLICT upserts | 3,004 | 69% |
+   | Python row prep on the loop (per-row `json.dumps`, canonical-path, tuple build) | ~700 | 16% |
+   | dangling-guard SELECTs + parent ordering     |     213 |   5% |
+   | `BEGIN`/`COMMIT` (WAL auto-checkpoint backfill) | 254  |   6% |
+   | per-file mtime upserts (20 executor hops + hash) | ~43 |   1% |
+
+   Findings that close the question:
+
+   - **The executemany statements ARE the cost** (~11.5 µs/edge row, ~19.7 µs/node
+     row, fresh inserts; ~1.5x on the ON CONFLICT UPDATE re-index path). The SQL is
+     already `executemany`-batched, every plan is a PK/secondary-index search
+     (`EXPLAIN QUERY PLAN` printed by `--explain` — no missing index), and the
+     COALESCE subqueries short-circuit because 100% of real edge rows carry a file.
+     There is no Python-side orchestration defect left to fix; the earlier "~550s in
+     row preparation" hypothesis was an artifact of pre-memoization measurements
+     (the canonical-path cache already landed).
+   - **`json.dumps` is the only real Python item** (0.38 s cProfile cumtime per
+     214,706 dumps ≈ 13 s per full index) — an order of magnitude below the rewrite
+     bar, and already irreducible without changing row shapes.
+   - **Commit cost GROWS with database size** (245 ms → 3.3 s per flush as the bench
+     DB accumulates) because one flush writes far more WAL than the 2000-page (8 MB)
+     auto-checkpoint threshold, so every commit backfills the whole WAL. This is
+     inherent total work, not a defect: with `wal_autocheckpoint=0` the commit falls
+     to 58–117 ms but the WAL grows 109 → 691 MB across four flushes. `synchronous`
+     is already NORMAL (the project DB manager's `_configure_connection`), so there
+     is no fsync knob left either. On the real 3 GB index this backfill is plausibly
+     the single largest persist component — the only lever would be checkpoint
+     scheduling/threshold tuning, a durability-adjacent policy decision for the
+     project-DB owners, not a store-local fix.
+   - **Guards, ordering, and mtime are all ≤5%** — the previously suspected
+     `_select_known_node_ids`/`_drop_dangling_edge_rows` chunked SELECTs (~7 ms per
+     20-file flush) and `_order_rows_parents_first` (~1.3 ms) are innocent.
+
+   Per the gate in this document: attribution first, and the attribution says STOP —
+   remaining persist cost is proportional to actual bytes written into SQLite plus
+   WAL backfill. No `benchmark_persist_batch.py`-motivated production change was
+   made in this step.
+
+### `Python::detach` audit — tokenizer, embeddings, graph_algo, trace_scanner (2026-11-18, landed)
+
+Backlog item 2 executed against the four remaining CPU-bound modules in
+`rust/crates/python-bindings`. House rules applied: release the interpreter only for
+pure-Rust spans plausibly multi-millisecond on realistic inputs; keep all Python-object
+access (argument extraction, `PyDict`/`&str`/`PyRef` borrows, result conversion) outside
+the detached region; `PyErr` is `!Ungil`, so fallible batch paths use the crate's
+wrapper/`*_impl` idiom with errors crossing the detach as `String`s (same as
+`similarity.rs`/`ccg_extract.rs`); no side effect can be replayed after an FFI failure
+(the one I/O-bearing module, trace_scanner, opens files inside the detach and returns
+partial results — identical to its previous semantics).
+
+| Module | Function | Profile | Duration class | Action |
+|---|---|---|---|---|
+| tokenizer | `BpeTokenizer::new` | Pure Rust (owned ranks table → `AHashMap`) | Multi-ms with real ranks (cl100k ≈ 100k entries) | **Detached** (owned inputs; `parking_lot` cache write is a short Rust lock) |
+| tokenizer | `BpeTokenizer.count_tokens` | Pure Rust (BPE encode) | µs–sub-ms per single chat/chunk text | No detach (trivial-span rule) |
+| tokenizer | `BpeTokenizer.count_tokens_batch` | Pure Rust + rayon | Plausibly multi-ms (batch hot path) | **Detached** (owned `Vec<String>`, `Arc` ranks) |
+| tokenizer | `BpeTokenizer.encode` | Pure Rust | µs–sub-ms single text | No detach |
+| tokenizer | `count_tokens_fast` | Pure Rust (linear heuristic) | µs | No detach |
+| tokenizer | `count_tokens_fast_batch` | Pure Rust + rayon | Plausibly multi-ms (batch) | **Detached** |
+| embeddings | `quantize_embedding` | Pure Rust O(d) | µs | No detach |
+| embeddings | `dequantize_embedding` | Pure Rust O(d) | µs | No detach |
+| embeddings | `quantized_cosine_similarity` | Pure Rust O(d) | µs | No detach |
+| embeddings | `batch_quantize_embeddings` | Pure Rust + rayon (>100) | Plausibly multi-ms | **Detached** |
+| embeddings | `batch_quantized_cosine_similarity` | Pure Rust O(n·d), rayon >100 | Plausibly multi-ms | **Detached** (query int8 data cloned out of the `PyRef` borrow) |
+| embeddings | `matmul_vector` | Pure Rust O(rows·d) | Sub-ms realistic dims | No detach |
+| embeddings | `batch_matmul_vector` | Pure Rust O(n·rows·d), rayon >10 | Plausibly multi-ms | **Detached**; `FlatMatrix::from_nested` retyped to `Result<_, String>` so no `PyErr` crosses |
+| embeddings | `random_projection` | Pure Rust O(n·target·d) + LCG projection build | Multi-ms on realistic RAG shapes (500×1536→256 ≈ 200M FLOP) | **Detached** (wrapper/`random_projection_impl` split) |
+| embeddings | `pairwise_distances` | Pure Rust O(n²·d), serial | Multi-ms for n≳100 | **Detached** (wrapper/`_impl` split) |
+| embeddings | `knn_graph` | Pure Rust O(n²·d) + rayon | Plausibly multi-ms | **Detached** (wrapper/`_impl` split) |
+| graph_algo | `pagerank` | GIL-bound dict extraction + pure-Rust power iteration O(iter·E) | Compute plausibly multi-ms | **Split**: extraction attached, iteration **detached** (`pagerank_compute`) |
+| graph_algo | `weighted_pagerank` | Extraction + O(iter·E) fixed sweeps | Compute plausibly multi-ms (100 sweeps) | **Split**, compute **detached** |
+| graph_algo | `betweenness_centrality` | Extraction + Brandes O(V·E) | Firmly multi-ms (most expensive here) | **Split**, Brandes sweep **detached** |
+| graph_algo | `connected_components` | Extraction-dominated; single O(V+E·α) union-find pass | Sub-ms realistic module graphs | No detach (trivial compute; restructure not warranted) |
+| graph_algo | `detect_cycles` | Extraction-dominated; single O(V+E) DFS | Sub-ms realistic module graphs | No detach |
+| trace_scanner | `scan_usage_file` | Rust-only I/O + per-line serde_json parse | Firmly multi-ms on real usage logs (multi-MB) | **Detached** (owned path `String`; file I/O inside detach is safe — no Python API, no replayable side effect) |
+| trace_scanner | `scan_usage_files` | Multi-file I/O + parse | Multi-ms | **Detached** (one FFI crossing per batch; scoring/sort tail unified into `finalize_session_stats`) |
+
+Parity evidence: full `cargo test` workspace green (victor_native 198/198, zero warnings;
+interpreter-dependent tokenizer tests now call `Python::initialize()` first, matching the
+`thinking.rs` pattern); `pytest tests/unit/native/ -q` green **345 passed, 11 skipped —
+identical counts with the pre-change installed extension (0.30.0) and the rebuilt
+extension (0.31.1)**, including `test_tokenizer_parity.py` and
+`test_context_fitter_parity.py`. `tests/unit/native/test_graph_algo.py` exercises the
+split graph functions against the rebuilt `.so`. Known non-ownership cost that remains:
+nested-`Vec` conversion at FFI extraction stays attached — that is backlog item 3
+(contiguous-buffer inputs), out of scope for this audit.
+
+### Parity/benchmark inventory (FOU-C3, 2026-11-19, landed)
+
+Backlog item 3's parity half: every exported operation of `victor_native`
+(`rust/crates/python-bindings/src/lib.rs`: 104 functions + 26 classes) mapped to its Python
+reference/fallback and its differential-parity coverage. The `native-parity` CI job runs
+`pytest tests/unit/native -m native_parity` after building the wheel, so every suite marked
+`native_parity` below is a merge gate on a freshly built extension; the same suites run (and
+self-skip when the wheel is absent) in ordinary unit runs.
+
+Coverage categories: **differential** = the same inputs asserted through both dispatch paths;
+**dual-backend** = protocol/backend-parametrized tests that run the same assertions against the
+Python and Rust implementations; **wrapper** = property tests against whichever path dispatch
+selects (no cross-path comparison).
+
+| Rust module | Exported operations | Python reference / fallback | Parity coverage |
+|---|---|---|---|
+| protocol (FEP-0010) | `PyRole`, `PyToolCall`, `PyUsage`, `PyMessage`, `PyStreamChunk`, `echo_message`, `echo_stream_chunk` | `victor_protocol` shared crate shapes | Differential at the FFI: `test_protocol_ffi.py`, `test_native_protocols.py` |
+| tokenizer | `BpeTokenizer`, `count_tokens_fast`, `count_tokens_fast_batch` | tiktoken encoder (+ word estimate fallback) | Differential: `test_tokenizer_parity.py` (±1 documented divergence pinned) |
+| context_fitter | `fit_context`, `truncate_message`, `batch_score_messages`, `MessageSlot`, `FitResult` | `processing/native/context_fitter.py` | Differential: `test_context_fitter_parity.py` (`batch_score_messages`: wrapper tests only) |
+| ccg_extract | `extract_statements_batch`, `build_ccg_batch`, `StatementRecord`, `EdgeRecord`, `CcgFileResult` | `core/indexing/ccg_builder.py` walk (oracle) | Differential over repo/golden fixtures: `test_ccg_extract.py` + control-dependence suites (native-parity job, second command) |
+| plugin_ccg | `extract_plugin_statements_batch`, `PluginStatementRecord` | victor-coding builder tables (goldens) | Differential (golden corpus, python + typescript): per the Option-B record above |
+| secrets | `scan_secrets`, `has_secrets`, `get_secret_types`, `mask_secrets`, `list_secret_patterns`, `scan_secrets_summary`, `SecretMatch` | `security/safety/secrets.py` `SecretScanner` | **NEW (FOU-C3)** `test_secrets_parity.py`: full agreement corpus + benign corpus through both paths, `has_secrets`/mask-leak properties, registry-divergence ledger pinned; plus the FOU-A2b scanner suite. Mask STYLE differs by design (Rust partial-masks, Python `[REDACTED]`) — the contract is leak-freedom |
+| graph_algo | `pagerank`, `weighted_pagerank`, `betweenness_centrality`, `connected_components`, `detect_cycles` | `victor/native/python/graph_algo.py` | **NEW (FOU-C3)** `test_graph_algo_parity.py`: deterministic graphs through both sides; PageRank within 1e-6 (never bit-exact — ahash iteration order varies per-process), Brandes within 1e-9, structural results exact |
+| trace_scanner | `scan_usage_file`, `scan_usage_files`, `SessionStats` | `_scan_usage_file_python` | **NEW (FOU-C3)** `test_trace_scanner_parity.py`: plain/gzip/malformed/filtering corpora both paths; same-session-across-files divergence pinned (native aggregates, Python concatenates) |
+| embeddings | `quantize_embedding`, `batch_quantize_embeddings`, `dequantize_embedding`, `quantized_cosine_similarity`, `batch_quantized_cosine_similarity`, `matmul_vector`, `batch_matmul_vector`, `random_projection`, `pairwise_distances`, `knn_graph`, `QuantizedEmbedding` | none in-repo (native-only surface) — spec reference implemented in NumPy f32 in the test | **NEW (FOU-C3)** `test_embeddings_parity.py`: quantization bit-parity (incl. half-away-from-zero rounding), integer-space cosine, LCG projection reproduced bit-exactly (matmul tolerance ~1e-4), pairwise/KNN vs NumPy reference |
+| dedup | `normalize_block`, `rolling_hash_blocks`, `find_duplicate_blocks` | `processing/native/deduplication.py` | **NEW (FOU-C3)** `test_text_pipeline_parity.py`: normalization bytes, block splits, duplicate flags/indices identical; digest VALUES pinned as divergent by design (xxHash3 vs MD5) |
+| hashing | `compute_signature`, `compute_batch_signatures`, `signature_similarity` | `processing/native/deduplication.py` | **NEW (FOU-C3)** same file: determinism, key-order independence, length/format, similarity extremes; digests divergent by design (as above) |
+| classifier | `classify_task`, `has_action_keywords`, `has_analysis_keywords`, `has_generation_keywords`, `has_negation`, `find_all_keywords`, `TaskClassifier`, `ClassificationResult`, `TaskType` | keyword fallbacks in `processing/native/classifier.py`; `classify_task` falls back to `victor.agent.unified_classifier` | **NEW (FOU-C3)** keyword predicates + `find_all_keywords` differential. `classify_task` deliberately has NO parity contract: the fallback is a different weighted-pattern algorithm by design — a future decision item, not a test target |
+| json_repair | `repair_json`, `extract_json_objects`, `coerce_string_type` | `processing/native/json_repair.py` | **NEW (FOU-C3)** `test_text_pipeline_parity.py`: repair/extract corpora identical; both formerly-pinned divergences FIXED in #1960/#1962 — `repair_json`'s Python fallback now ports the Rust quote/escape-aware state machine (byte-parity proven), and `coerce_string_type` runs one shared coercion pipeline so dispatch never changes semantics |
+| similarity | `cosine_similarity`, `batch_cosine_similarity`, `similarity_matrix`, `top_k_similar`, `batch_normalize_vectors`, `batch_cosine_similarity_normalized`, `top_k_similar_normalized`, `EmbeddingIndex` | `processing/native/similarity.py` (NumPy) + `victor/native/python/similarity.py` | Dual-backend protocol tests: `test_native.py`, `test_python_fallbacks.py`. `EmbeddingIndex` (native-only class): uncovered |
+| ast_indexer | `is_stdlib_module`, `batch_is_stdlib_modules`, `filter_stdlib_imports`, `extract_identifiers`, `extract_identifiers_with_positions` | `victor/native/python/ast_indexer.py` | Dual-backend: `test_ast_indexer.py`, `test_python_fallbacks.py` |
+| arg_normalizer | `coerce_string_type`, `batch_coerce_string_types`, `normalize_json_string`, `batch_normalize_json_strings`, `repair_quotes`, `is_valid_json`, `get_json_type` | `victor/native/python/arg_normalizer.py` | Dual-backend: `test_python_fallbacks.py`; scalar `coerce_string_type` parity asserted in `test_text_pipeline_parity.py` (divergence fixed #1962) |
+| chunking | `chunk_by_sentences`, `chunk_by_chars`, `chunk_by_paragraphs`, `detect_doc_type`, `count_tokens_approx`, `count_lines`, `find_line_boundaries`, `line_at_offset`, `chunk_with_overlap`, `ChunkInfoRust` | `processing/native/chunking.py` + `victor/native/python/chunker.py` | Dual-backend protocol tests + wrapper property tests + `test_chunking_security.py`; no per-op differential corpus |
+| streaming_filter | `strip_thinking_tokens`, `contains_thinking_tokens`, `find_thinking_tokens`, `extract_thinking_content`, `StreamingFilter`, `StreamingChunkResult` | `processing/native/streaming.py` | Wrapper tests: `test_processing_native_streaming.py`; no differential corpus |
+| thinking | `ThinkingDetector`, `PatternAnalysis`, `detect_circular_phrases`, `count_circular_patterns`, `find_circular_patterns` | `victor/agent/thinking_detector.py` | Wrapper tests only; no differential corpus |
+| pattern_match | `contains_any_pattern`, `find_all_patterns`, `count_pattern_matches`, `get_matched_pattern_indices`, `batch_contains_any`, `weighted_pattern_score`, `PatternMatcher`, `PatternMatch` | consumer-side Python implementations (classification, enrichment) | Wrapper/consumer tests only; no differential corpus |
+| extractor | `extract_file_path`, `extract_code_blocks`, `extract_shell_commands`, `extract_tool_call`, `batch_extract_file_paths` | `processing/native/tool_extraction.py` | Wrapper + consumer tests; no differential corpus |
+| sanitizer | `sanitize_response`, `is_garbage_content`, `detect_leakage_patterns`, `strip_markup`, `validate_tool_name` | `victor/agent/response_sanitizer.py` | Wrapper tests: `test_response_sanitizer.py`; no differential corpus |
+| yaml_loader | `parse_yaml`, `parse_yaml_with_env`, `parse_yaml_file`, `parse_yaml_file_with_env`, `validate_yaml`, `extract_workflow_names` | `processing/native/accelerator.py` (PyYAML) | Wrapper tests only; no differential corpus |
+
+Count: **~110 exported operations; 41 newly under differential parity (FOU-C3)**, 23 already
+differential (protocol/ccg/tokenizer/context-fitter/secret-scanner), ~20 dual-backend, the rest
+wrapper-level. **Remaining uncovered differentials for a future increment:** `EmbeddingIndex`,
+`batch_score_messages` (dedicated corpus), streaming_filter, thinking, pattern_match, extractor,
+sanitizer, yaml_loader, and the remaining chunking/arg_normalizer batch ops. **Findings recorded
+by the FOU-C3 suites** (pinned, not hidden): Python `repair_json` string-content corruption;
+`coerce_string_type` install-shape split; xxHash3-vs-MD5 digest divergence (structure-level
+contract); `scan_usage_files` same-session aggregation vs concatenation; secret-registry
+divergences on both sides (Rust-only vendor families: anthropic/openai/twilio/sendgrid/slack-
+webhook/heroku/discord; Python-only: bearer, PGP header, bare-40-char AWS secret, refresh-token
+and real-shape Slack gaps).
 
 ### Harvest environment constraint (2026-10-25, landed)
 

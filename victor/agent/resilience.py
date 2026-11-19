@@ -60,6 +60,8 @@ from typing import Any, Callable, Dict, Optional, TypeVar, TYPE_CHECKING
 
 # Import shared circuit-breaker types from core to avoid cross-layer coupling
 from victor.core.circuit_breaker import (
+    CircuitBreaker as _CoreCircuitBreaker,
+    CircuitBreakerError,
     CircuitState as _CircuitState,
 )
 
@@ -128,12 +130,19 @@ CircuitBreakerConfig = MultiCircuitBreakerConfig
 class MultiCircuitBreaker:
     """Circuit breaker managing multiple named circuits.
 
-    Renamed from CircuitBreaker to be semantically distinct:
-    - CircuitBreaker (victor.providers.circuit_breaker): Standalone with decorator/context manager
-    - MultiCircuitBreaker (here): Manages multiple named circuits (Dict[str, CircuitStats])
-    - ProviderCircuitBreaker (victor.providers.resilience): ResilientProvider workflow
+    FOU-C1: this is a thin multi-circuit facade over the canonical
+    ``CircuitBreaker`` from ``victor.core.circuit_breaker`` — one canonical
+    breaker instance per circuit name. All state-machine semantics (failure
+    threshold, recovery timeout, half-open call slots, success threshold)
+    live in the canonical implementation; this class only keeps per-circuit
+    counters (``CircuitStats``) and exposes the named-circuit API.
 
-    Thread-safe implementation using asyncio locks.
+    Distinct from:
+    - CircuitBreaker (victor.core.circuit_breaker): the canonical single
+      state machine, with decorator/context-manager support
+    - ProviderCircuitBreaker (victor.providers.resilience): ResilientProvider
+      adapter over the canonical breaker
+
     Supports multiple named circuits for different providers.
     """
 
@@ -145,8 +154,35 @@ class MultiCircuitBreaker:
         """
         self.config = config or CircuitBreakerConfig()
         self._circuits: Dict[str, CircuitStats] = defaultdict(CircuitStats)
-        self._locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-        self._half_open_calls: Dict[str, int] = defaultdict(int)
+        self._breakers: Dict[str, _CoreCircuitBreaker] = {}
+
+    def _breaker_for(self, name: str) -> _CoreCircuitBreaker:
+        """Get (lazily creating) the canonical breaker backing a circuit."""
+        breaker = self._breakers.get(name)
+        if breaker is None:
+            breaker = _CoreCircuitBreaker(
+                name=name,
+                failure_threshold=self.config.failure_threshold,
+                recovery_timeout=self.config.recovery_timeout,
+                half_open_max_calls=self.config.half_open_max_calls,
+                success_threshold=self.config.success_threshold,
+            )
+            self._breakers[name] = breaker
+        return breaker
+
+    def _sync_state(self, name: str) -> None:
+        """Mirror canonical-breaker state transitions into CircuitStats."""
+        breaker = self._breakers[name]
+        stats = self._circuits[name]
+        state = breaker.state
+        if state != stats.state:
+            stats.state = state
+            stats.last_state_change = time.time()
+            if state == _CircuitState.HALF_OPEN:
+                logger.info(f"Circuit '{name}' transitioning to HALF_OPEN for testing")
+            elif state == _CircuitState.CLOSED:
+                stats.successes = 0
+                logger.info(f"Circuit '{name}' CLOSED - service recovered")
 
     def get_state(self, name: str) -> CircuitState:
         """Get current state of a circuit.
@@ -157,21 +193,16 @@ class MultiCircuitBreaker:
         Returns:
             Current circuit state
         """
-        stats = self._circuits[name]
-
-        # Check for automatic state transitions
-        if stats.state == _CircuitState.OPEN:
-            if time.time() - stats.last_failure_time >= self.config.recovery_timeout:
-                # Transition to half-open for testing
-                stats.state = _CircuitState.HALF_OPEN
-                stats.last_state_change = time.time()
-                self._half_open_calls[name] = 0
-                logger.info(f"Circuit '{name}' transitioning to HALF_OPEN for testing")
-
-        return stats.state
+        self._breaker_for(name)
+        self._sync_state(name)
+        return self._circuits[name].state
 
     def is_allowed(self, name: str) -> bool:
         """Check if a call is allowed through the circuit.
+
+        In HALF_OPEN state a successful check consumes one of the limited
+        half-open test slots (delegated to the canonical breaker's
+        ``try_acquire``).
 
         Args:
             name: Circuit name
@@ -179,20 +210,9 @@ class MultiCircuitBreaker:
         Returns:
             True if call is allowed
         """
-        state = self.get_state(name)
-
-        if state == _CircuitState.CLOSED:
-            return True
-
-        if state == _CircuitState.HALF_OPEN:
-            # Allow limited calls for testing
-            if self._half_open_calls[name] < self.config.half_open_max_calls:
-                self._half_open_calls[name] += 1
-                return True
-            return False
-
-        # OPEN state - reject
-        return False
+        allowed = self._breaker_for(name).try_acquire()
+        self._sync_state(name)
+        return allowed
 
     def record_success(self, name: str) -> None:
         """Record a successful call.
@@ -205,13 +225,8 @@ class MultiCircuitBreaker:
         stats.total_successes += 1
         stats.failures = 0  # Reset consecutive failures
 
-        if stats.state == _CircuitState.HALF_OPEN:
-            if stats.successes >= self.config.success_threshold:
-                # Service recovered, close circuit
-                stats.state = _CircuitState.CLOSED
-                stats.last_state_change = time.time()
-                stats.successes = 0
-                logger.info(f"Circuit '{name}' CLOSED - service recovered")
+        self._breaker_for(name).record_success()
+        self._sync_state(name)
 
     def record_failure(self, name: str, error: Optional[Exception] = None) -> None:
         """Record a failed call.
@@ -231,21 +246,19 @@ class MultiCircuitBreaker:
         stats.last_failure_time = time.time()
         stats.successes = 0  # Reset consecutive successes
 
-        if stats.state == _CircuitState.CLOSED:
-            if stats.failures >= self.config.failure_threshold:
-                # Too many failures, open circuit
-                stats.state = _CircuitState.OPEN
-                stats.last_state_change = time.time()
+        breaker = self._breaker_for(name)
+        prev_state = breaker.state
+        breaker.record_failure(error)
+        self._sync_state(name)
+
+        if breaker.state == _CircuitState.OPEN and prev_state != _CircuitState.OPEN:
+            if prev_state == _CircuitState.HALF_OPEN:
+                logger.warning(f"Circuit '{name}' reopened - test call failed")
+            else:
                 logger.warning(
                     f"Circuit '{name}' OPEN - {stats.failures} failures "
                     f"(threshold: {self.config.failure_threshold})"
                 )
-
-        elif stats.state == _CircuitState.HALF_OPEN:
-            # Failure during testing, reopen circuit
-            stats.state = _CircuitState.OPEN
-            stats.last_state_change = time.time()
-            logger.warning(f"Circuit '{name}' reopened - test call failed")
 
     def reset(self, name: str) -> None:
         """Reset a circuit to closed state.
@@ -253,8 +266,8 @@ class MultiCircuitBreaker:
         Args:
             name: Circuit name
         """
+        self._breaker_for(name).reset()
         self._circuits[name] = CircuitStats()
-        self._half_open_calls[name] = 0
         logger.info(f"Circuit '{name}' reset to CLOSED")
 
     def get_stats(self, name: str) -> Dict[str, Any]:
@@ -689,7 +702,14 @@ class ResilientExecutor:
         }
 
 
-class CircuitOpenError(Exception):
-    """Raised when circuit is open and no fallback available."""
+class CircuitOpenError(CircuitBreakerError):
+    """Raised when circuit is open and no fallback available.
 
-    pass
+    FOU-C1: subclasses the canonical
+    :class:`victor.core.circuit_breaker.CircuitBreakerError` so every circuit
+    rejection in Victor shares one exception hierarchy (mirroring
+    ``victor.providers.resilience.CircuitOpenError``).
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, state=_CircuitState.OPEN, retry_after=0.0)

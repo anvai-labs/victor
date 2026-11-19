@@ -23,11 +23,9 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
-from victor.config.settings import VICTOR_CONTEXT_FILE, VICTOR_DIR_NAME
 from victor.ui.rendering.utils import (
     format_access_mode_badge,
     format_cost_tier_indicator,
-    format_execution_category_hint,
     get_tool_metadata_for_display,
 )
 from victor.ui.slash.protocol import BaseSlashCommand, CommandContext, CommandMetadata
@@ -125,7 +123,7 @@ class ContextCommand(BaseSlashCommand):
             name="context",
             description="Show loaded project context (.victor/init.md)",
             usage="/context",
-            aliases=["ctx", "memory"],
+            aliases=["ctx"],
             category="tools",
         )
 

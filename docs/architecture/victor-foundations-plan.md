@@ -2,7 +2,7 @@
 
 Status: Active — canonical work ledger for the [Victor Foundations Program](victor-foundations-program.md)
 Created: 2026-11-16
-Last updated: 2026-11-16
+Last updated: 2026-11-19
 
 This ledger owns FOU task IDs, dependencies, status, TDD/smoke gates, evidence, and reboot
 instructions. It follows the VAS tracker conventions (`victor-agent-service-plan.md`):
@@ -21,33 +21,31 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 |----|------|------|------|-----------|--------|----------|
 | FOU-DOC1 | Program vision doc + this tracker + FEP-0047/FEP-0048 + ADR-035/036/037 | — | — | — | MERGED | #1878 |
 | FOU-D1 | `GraphSQLiteCheckpointer` adapter (opt-in) + WAL/busy_timeout | D | FEP-0047 | FOU-DOC1 | MERGED | #1879 (RED ModuleNotFoundError → GREEN 7/7 + backend mirror suite; layering ratchet green; 94+17 affected) |
-| FOU-D2 | Durable-by-default injection + retention/TTL + opt-out | D | FEP-0047 | FOU-D1 | IN REVIEW | this PR (factory `get_default_graph_checkpointer`; executor seam; settings `workflow_checkpoint_*` + env aliases; per-thread retention + `wf::`-scoped TTL sweep; smoke: cross-process resume zero re-execution + opt-out None) |
-| FOU-D3 | FEP-0032 phase 2: loud input discard; FEP-0032 → Accepted | D | FEP-0032 | FOU-D2 | IN REVIEW | this PR (RED 3 tests → GREEN 23/23; Optional invoke/stream signatures + None short-circuit + guard in load_initial_state; resume convention `invoke(None, ...)` migrated across the suite; override = start_node + input) |
-| FOU-D4 | Paused result surfacing (executor thread-id → LoopResult.paused → TaskResult status → wire envelope → /chat 202; `CompiledGraph.resume()`) | D | FEP-0032 | FOU-D3 | IN REVIEW | this PR (375 tests across 7 suites; StreamChunk passthrough rides response metadata today — chat_stream surface deferred to the FEP-0031 seam) |
-| FOU-D5a | Executor parity: `total_timeout` via LoopGuards wrap | D | — | FOU-D2 | IN REVIEW | this PR (RED 3 → GREEN; same LoopGuards cooperative deadline outside the graph path; LoopSpinError re-raised past the generic graph-error handler; FAIL contract `terminated_by='loop_spin_guard'` matches legacy; verifier refusal retained for FOU-D5b) |
-| FOU-D5b | Executor parity: verifier gate on the graph path | D | — | FOU-D2 | IN REVIEW | this PR (RED 3 → GREEN; post-run `_run_verification` on non-paused successful graph runs, same verification dict shape as legacy, bounded re-entry with `_inject_verify_feedback` in context, budget-exhaustion reason surfaced; per-run retry reset; refusal removed) |
+| FOU-D2 | Durable-by-default injection + retention/TTL + opt-out | D | FEP-0047 | FOU-D1 | MERGED | #1881 (factory `get_default_graph_checkpointer`; executor seam; settings `workflow_checkpoint_*` + env aliases; per-thread retention + `wf::`-scoped TTL sweep; smoke: cross-process resume zero re-execution + opt-out None) |
+| FOU-D3 | FEP-0032 phase 2: loud input discard; FEP-0032 → Accepted | D | FEP-0032 | FOU-D2 | MERGED | #1882 (RED 3 tests → GREEN 23/23; Optional invoke/stream signatures + None short-circuit + guard in load_initial_state; resume convention `invoke(None, ...)` migrated across the suite; override = start_node + input) |
+| FOU-D4 | Paused result surfacing (executor thread-id → LoopResult.paused → TaskResult status → wire envelope → /chat 202; `CompiledGraph.resume()`) | D | FEP-0032 | FOU-D3 | MERGED | #1883 (375 tests across 7 suites; StreamChunk passthrough rides response metadata today — chat_stream surface deferred to the FEP-0031 seam) |
+| FOU-D5a | Executor parity: `total_timeout` via LoopGuards wrap | D | — | FOU-D2 | MERGED | #1884 (RED 3 → GREEN; same LoopGuards cooperative deadline outside the graph path; LoopSpinError re-raised past the generic graph-error handler; FAIL contract `terminated_by='loop_spin_guard'` matches legacy) |
+| FOU-D5b | Executor parity: verifier gate on the graph path | D | — | FOU-D2 | MERGED | #1885 (post-run `_run_verification` on non-paused successful graph runs, same verification dict shape as legacy, bounded re-entry with `_inject_verify_feedback` in context, budget-exhaustion reason surfaced; per-run retry reset) |
 | FOU-D5c | Executor parity: streaming on `run_streaming` | D | — | FOU-D2 | MERGED | #1886 (turn-granularity chunks; terminal verdict contract identical; LoopGuards between events; D5b verification parity on the streamed path) |
-| FOU-D5a | Executor parity: `total_timeout` via LoopGuards wrap | D | — | FOU-D2 | MERGED | #1884 (RED 3 → GREEN; LoopSpinError re-raised past the generic graph-error handler; legacy spin-guard FAIL contract) |
-| FOU-D5b | Executor parity: verifier gate on the graph path | D | — | FOU-D2 | MERGED | #1885 (post-run `_run_verification`, same dict shape, bounded re-entry with feedback, budget-exhaustion reason; per-run retry reset) |
-| FOU-D5f | `USE_STATEGRAPH_AGENTIC_LOOP` default flip | D | ADR-036 | FOU-D5a/b/c + parity + soak | BLOCKED → NEARLY UNBLOCKED (2026-11-17) | completion gap CLOSED live: with S6 (#1888) + a direct-LM-Studio profile (`soak-lmstudio`, added to profiles.yaml — bypasses the default profile's Sandhi routing that 404'd lmstudio), a real chat run COMPLETED (`EvaluateNode decision=COMPLETE score=0.9 reason=Q&A shortcut fired in production; success=True; clean termination`). Two remaining issues before the flip, both found in the 2026-11-17 soak: (a) final response text is empty at the surface ("stream_response returned empty content") — the Q&A answer doesn't reach the TUI (graph→surface content plumbing); (b) the CLI path still hits the inject_execution_context None-guard (services unavailable — S2's run_unified threading covers the ChatService surface, not the CLI direct path). Flip PR = flag default + these two fixes + opt-out negative test. |
-| FOU-D5f-S1 | Soak fix: chat wrapper's pre-loop StateGraph refusal removed | D | — | FOU-D5c | this PR | wrapper-level test (mocked loop) + real CLI repro |
-| FOU-D5f-S2 | Soak fix: `execution_context` handoff to the streaming loop's graph executor | D | — | FOU-D4 | this PR | constructor field + run_unified threading + inject None-guard; wrapper test asserts handoff |
-| FOU-D5f-S3 | Soak fix: ACT node stores response text; evaluation coerces objects | D | — | — | this PR | 3 tests (node shape, default-eval complete, object-defense) |
-| FOU-D5f-S4 | Soak fix: evaluate node uses the real `check_fulfillment` API | D | — | — | this PR | real-API + contained-failure tests; phantom-pinning test migrated |
-| FOU-D5f-S5 | Soak fix: stale governance/verifier admission refusals removed (`require_supported_loop_executor`) | D | — | FOU-D5b/D5c | this PR | streaming-parity stategraph+gate tests (were the RED evidence) + admission seam test; documented boundary: governance enforced at the chat surface, direct graph-API runs ungated by design |
-| FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | GREEN (7622060af + enforcement fix 6027d4aaa) | #1907, #1910 |
-| FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a (qualification green on CI matrix) | IN REVIEW | fou/s1b-posture-flip (#1912) |
+| FOU-D5f | `USE_STATEGRAPH_AGENTIC_LOOP` default flip | D | ADR-036 | FOU-D5a/b/c + parity + soak | MERGED | #1904 (flip + opt-out negative test; superseded #1897/#1898; soak fixes S1–S5 rode the #1887→#1890/#1897 arc; live-soak completion + content delivery proven 2026-11-17; Tier D closed — #1878–#1904 banked, 0.31.0 promoted) |
+| MERGED | #1887 arc (wrapper-level test + real CLI repro) |
+| MERGED | #1887 arc (constructor field + run_unified threading + inject None-guard; wrapper test asserts handoff) |
+| MERGED | #1887 arc (3 tests: node shape, default-eval complete, object-defense) |
+| MERGED | #1887 arc (real-API + contained-failure tests; phantom-pinning test migrated) |
+| MERGED | #1890/#1897 arc (streaming-parity stategraph+gate tests + admission seam test; documented boundary: governance enforced at the chat surface, direct graph-API runs ungated by design) |
+| FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | MERGED | #1907, #1910 (kernel-truth cBPF fix; live probes EPERM, fork=OK) |
+| FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a | MERGED | #1912 (8 adversarial findings fixed pre-merge; suite opt-out via tests/conftest.py). macOS Seatbelt live qualification COMPLETE 2026-11-18: 13/13 probe checks on macOS 26.2/arm64 — one real profile gap found+fixed (`/dev/null` write allow, #1944); probe pattern in tests/unit/tools/sandbox/test_seatbelt_qualification.py |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | TODO | — |
-| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c-d TODO | #1908, #1911 |
-| FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | TODO | — |
+| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c GREEN (injection screen: annotation-only, in-envelope highlighting, corpus-pinned false-positive discipline); S3d MERGED (#1959) + S3d FOLLOW-UP MERGED (fix/injection-homoglyph-normalize): homoglyph pre-pass + quote-guard abuse carve-out closed both designed FN classes → battery re-run verdict = GRADUATE_HARD_FAIL_CANDIDATE (0 FP / 155 benign, 35 TP / 0 FN / 35 adversarial); **hard-fail WIRING SHIPPED flag-gated default-OFF (`ToolSettings.untrusted_content_hard_fail`, False): a tool call whose arguments echo content from a family flagged earlier in the session hard-fails through the same containment gate as canary blocking — flip = field data per ADR-036** | #1908, #1911 |
+| FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | PART-BLOCKED | `effect_gated_completion` graduation LOCKED OUT by the 2026-08-03 negative A/B (on 0.847 vs off 0.864, overlapping CIs — do NOT graduate, codified #884). `per_turn_auditor` deterministic battery SHIPPED (`victor/evaluation/auditor_ab.py` + 13-test suite): verdict **ESCALATE_LIVE_AB_REQUIRED** — wiring verified (flag resolves + edge-model judge injected on BOTH execution paths; a buffered-path wiring gap — `turn_execution_runtime` resolved the effect gate but never the auditor — found and fixed in the same change; OFF arm strict no-op pinned by negative test; placement audit guards the dormant-flag class) and cost known (max 1 edge-model call per COMPLETE turn, ≤1780-char bounded prompt, 128-token output cap, 0 main-loop token overhead; the deterministic heuristic alarm skips the judge; `max_alarms` bounds downgrades then annotate-and-allow). Judge QUALITY (premature-completion catch vs false-downgrade) is undecidable offline → default stays OFF; graduation requires the documented live A/B: `python -m victor.evaluation.flag_ab --flag per_turn_auditor --base-url <ollama> --model qwen3-coder-tools:30b --corpus effect-gate --variants 2` then `assess_graduation()` (EVR-5 oracle) + catch/false-downgrade rates. No default flipped |
 | FOU-A1 | Subagent-spawn tool (Task-tool pattern) | A | ledger §A1 design | FOU-D2 | TODO | — |
-| FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | TODO | — |
-| FOU-A3 | SCIP precise tier auto-on + impact-analysis benchmark publication | A | ADR-032 | — | TODO | — |
+| FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | A2a MERGED (`PreferenceEpisodicStore` + `MemoryType.PREFERENCE/EPISODE` + two-database schema (memory_preference/memory_episode) + adapter lanes; 33-test suite: round-trip, scope isolation (negative), secret/oversize refusal, forget-by-id/content, thread queries, coordinator interop, db placement). A2b MERGED (#1952: `memory_set`/`memory_forget` tools, workspace-write gated + `DEFAULT_TOOL_PERMISSIONS`; `MemoryConsolidator` propose/commit/discard hook in Session service, confirm-by-default with `memory_auto_capture` default off; secret-scanner word-boundary fix — generic keyword patterns now require a `[=:]` value-bearing delimiter, benign prose no longer refused, dual-path (native+Python) parity tests). A2c MERGED (#1954: `MemoryBlockBuilder` PERCEIVE injection via PerceptionIntegration `memory_injector` collaborator — scoped coordinator queries, 500-token hard cap by rank exclusion, off-when-empty byte-identical negative, flag + `VICTOR_MEMORY_ENABLED` env re-resolved at every read; BudgetManager additive context-block registration so memory competes by priority (evict weaker-only, refit, starve); `victor/evaluation/memory_ab.py` deterministic A/B battery (flag_ab.py documented as too LLM-heavy for the wiring gate) over seeded fixtures → snapshots + ADR-036 verdict `KEEP_DEFAULT_ON` (usefulness 1.0, max 20 tokens, 0 false surfaces, baseline 0 injections); 48-test suite; production container wiring deferred per the FEP's additive-optional hook parameter). A2d MERGED (#1956: `/memory` slash command — list preferences with scope/source/confidence + recent episodes + staged proposals, set with user-scope default/`--project`, forget by id/content, confirm/discard; API routes GET/POST/DELETE `/memory` + `/memory/proposals` list/confirm/discard with sibling management-route auth posture and structured 4xx refusals that never echo the matched secret; shared consolidator handle on `MemoryConsolidator` reached from the client layer via the new `victor.framework.memory` seam, bootstrap SessionService now binds it (confirm-by-default, auto-capture only from `settings.memory.memory_auto_capture`) so end_session stages onto the handle the surfaces confirm; `PreferenceEpisodicStore.recent_episodes` public listing read; 45-test suite; docs in quickstart + http-api) | #1951; A2b MERGED #1952; A2c MERGED #1954; A2d MERGED #1956 |
+| FOU-A3 | SCIP precise tier auto-on + impact-analysis benchmark publication | A | ADR-032 | — | FUNCTIONAL + OPT-IN (ADR-032 rev 1.8/1.9) | Tier-3 SCIP harvesting works end-to-end and stays opt-in by the ADR-032 decision (`--precise`/`--no-precise`/`--precise-timeout` on `victor index graph index`; polyglot providers shipped — scip-python + scip-typescript + rust-analyzer, rev 1.6 corpus: 146,211 compiler refs @ 76.9%/67.4%/89.2% join rates; CLI drivability fixed rev 1.8 — settings resolve through `Settings.from_sources()` so config files can enable tier 3, per-provider harvest outcomes visible in index summary/`graph stats`/watch manifest; rev 1.9 hardening). REMAINING = two owner decisions, not code: auto-on flip of `enable_precise_index` and impact-analysis benchmark publication | — |
 | FOU-A4 | RBAC/SSO wired into FastAPI middleware; per-user attribution | A | FEP-0020 (unblocks) | — | TODO | — |
 | FOU-A5 | Research stack: search API adapters + page-read + browser tool; example cleanup | A | — | — | TODO | — |
-| FOU-C1 | Single circuit breaker (merge `circuit_breaker.py` + `resilience.py` breaker) | C | — | — | TODO | — |
+| FOU-C1 | Single circuit breaker (merge `circuit_breaker.py` + `resilience.py` breaker) | C | — | — | IN REVIEW | canonical `CircuitBreaker`+`CircuitBreakerRegistry` moved to `victor.core.circuit_breaker` (importable by all layers); `providers/circuit_breaker.py` = re-export shim; `MultiCircuitBreaker` (agent) rewritten as delegation facade over the core breaker (+ `try_acquire` slot reservation); agent `CircuitOpenError` subclassed onto canonical `CircuitBreakerError`; distinct-semantics `ModelCircuitBreaker` (per-model, decrement-on-success) and stateless `RecoveryService.get_circuit_state` left as classified; shim identity + delegation + half-open-slot tests; layering ratchet green; 178 breaker tests + 204 architecture + 550 agent-selective pass | #1947 |
 | FOU-C2 | Services-layer module map + Stage C continuation (items 24/27/29/31/32) | C | — | — | TODO | — |
-| FOU-C3 | Native-parity CI broadened beyond tokenizer/context-fitter | C | — | — | TODO | — |
+| FOU-C3 | Native-parity CI broadened beyond tokenizer/context-fitter | C | — | — | IN REVIEW | parity/benchmark inventory of all 130 exported victor_native ops written into native-acceleration-strategy.md (backlog item 3 parity half); 5 new `native_parity` suites in tests/unit/native — embeddings (NumPy-f32 spec reference: quantize bit-parity, integer cosine, LCG projection reproduced bit-exactly, pairwise/KNN), secrets (full agreement + benign corpora through both dispatch paths + pinned registry-divergence ledger), graph_algo (1e-6 pagerank tolerance per the ahash finding, exact structural parity), trace_scanner (plain/gzip/malformed/filtering corpora), dedup/hashing/classifier-keywords/json_repair (structure-level; xxHash3-vs-MD5 digests pinned divergent by design); CI needs NO change (the native-parity job selects `-m native_parity` across tests/unit/native); findings pinned, not hidden: Python repair_json string-content corruption, coerce_string_type install-shape split, scan_usage_files same-session aggregation vs concatenation, secret-registry gaps both sides; remaining uncovered differentials (EmbeddingIndex, batch_score_messages, streaming, thinking, pattern_match, extractor, sanitizer, yaml_loader, chunking/arg_normalizer batch ops) recorded in the inventory for a future increment | #1957 |
 | FOU-C4 | Governance: FEP-0036 reviewer panels activated; committer rails | C | FEP-0036 | — | TODO | — |
 
 ## Per-task gates (expanded)
@@ -148,17 +146,115 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
   (executor.assert_not_awaited); clean args + no-session-canary +
   disabled-knob negative tests.
 - Selector targets + tool-pipeline ripple suites green (997 passed).
+
+## FOU-S3d evidence (2026-11-19, fou/s3d-fp-battery, #1959)
+
+- **RED**: `tests/unit/security/test_injection_fp_battery.py` failed
+  collection on the S3c branch (battery + corpus modules absent).
+- **Battery**: `victor/evaluation/injection_fp_battery.py` +
+  `injection_fp_corpus.py` — mirrors memory_ab conventions (two JSON
+  snapshots `injection_fp_{benign,injection}.json`, verdict dict, CLI,
+  deterministic offline). Corpus: **155 realistic benign samples across 8
+  categories** (python/ts/rust source mentioning prompt/token vocabulary;
+  MCP docs quoting `<tool_call>` syntax; logs/config dumps with
+  password-policy prose; shell transcripts; review comments DISCUSSING
+  injection; policy text) + **35 adversarial injection samples** (S3c base
+  + split/padded/paraphrased/encoded variants).
+- **Verdict: CONDITIONAL** — annotation-level FP rate **0/155** (each
+  tightening keeps its benign counterpart pinned in
+  test_injection_screen.py `S3D_TIGHTENING_BENIGN` + the corpus);
+  adversarial **33/35** TP with 2 DESIGNED FNs (inj-034 quote-guard abuse,
+  inj-035 homoglyph U+0406 — reported, NOT chased by pattern expansion).
+  Per-family: impersonation 12 TP/2 FN, forgery 10/0, exfil 11/0.
+- **9 tightenings applied to injection_screen.py** (probe: initial corpus
+  run had 29 FPs → 0): quoted-mention guard (odd-quote-parity per line;
+  documented trade-off = the quote-abuse FN), imperative-continuation
+  lookaheads, model-directed-verb requirement on "New instructions:",
+  constraint-removal cue on "You are now a X", imperative cue on line-start
+  override headers, suspicious-body requirement on `<tool_call>{`,
+  letter-start on `<function_results>`, dotted-method routing tokens,
+  HIGH-RISK payload (pipe-to-shell/metadata IP/credential files) on
+  "executed the command". Plus one exfil pattern ADDED
+  (tell/give/show...+the/all forms — closed 3 adversarial FNs at no FP
+  cost).
+- **Hard-fail stays GATED**: battery REPORTS only (`hard_fail_wired: False`
+  pinned by test); no production flag flipped. CONDITIONAL verdict means a
+  follow-up may close the 2 FN classes (NFKC homoglyph pre-pass; quote-guard
+  policy) before re-running for a GRADUATE_HARD_FAIL_CANDIDATE.
+- Gates: black 26.10.1 + ruff clean; tests/unit/security/ +
+  tests/unit/evaluation/ = 1592 passed, 7 skipped (known env-noise warning
+  only); `pytest tests/ --collect-only -q` clean (41434 tests).
+
+## FOU-S3d follow-up evidence (2026-11-19, fix/injection-homoglyph-normalize)
+
+Closes the two DESIGNED FN classes from the S3d battery; **battery re-run
+verdict: GRADUATE_HARD_FAIL_CANDIDATE** (0 FP / 155 benign, 35 TP / 0 FN /
+35 adversarial; `hard_fail_wired: False` still pinned — the battery
+REPORTS, it never flips).
+
+- **Homoglyph pre-pass** (`normalize_for_matching` in
+  `victor/security/injection_screen.py`): patterns run over a NORMALIZED
+  COPY — per-character NFKC (folds fullwidth/mathematical-alphanumeric
+  forms) plus a curated Cyrillic/Greek look-alike→Latin map (а е о р с х у
+  і ѕ ј һ ԁ … + uppercase + Greek ο ι κ ρ τ υ ν α ε …). The screened
+  content handed onward is BYTE-IDENTICAL (detection-only normalization).
+  Span handling: normalization builds a per-character index map and
+  `_map_span` maps matches back to ORIGINAL-text coordinates exactly —
+  no whole-line approximation, no misaligned highlight offsets (positive
+  test pins the span cut from the original text with the homoglyph
+  intact). ASCII input short-circuits to the identity map.
+- **Quote-guard abuse carve-out**: the odd-quote-parity guard (already
+  PER-LINE, never cumulative) still skips discussion OF a payload; a
+  quoted run whose DIRECTIVE continues after its closing quote (imperative
+  verb — do/dump/delete/send/… — in the 160-char tail window past the
+  close) now flags. `_IMPERATIVE_CONTINUATION` and the exfil direction
+  lookahead accept a closing quote so the candidate match is found across
+  the quote boundary; the guard + carve-out then decide discussion vs.
+  directive. Quoted discussions (py-020/docs-004/review-001/review-003)
+  stay guarded — pinned as new benign counterparts alongside real
+  Cyrillic/Greek prose (normalization must not create FPs).
+- **Positive tests added** (`test_injection_screen.py`
+  `TestS3dFollowUpAdversarialClasses`): inj-034/inj-035 verbatim +
+  variants (Cyrillic о/е/а, Greek omicron, fullwidth via NFKC; quote
+  abuse on impersonation and exfil phrasing), content-immutability,
+  span-mapping, and discussion-vs-abuse discrimination. Battery suite:
+  `EXPECTED_FNS = set()`, verdict assertions flipped to
+  GRADUATE_HARD_FAIL_CANDIDATE.
+- **Hard-fail wiring is the now-unblocked next increment** (consumed via
+  ADR-036): evidence complete, no production flag touched here.
+- Gates: black 26.10.1 + ruff clean; tests/unit/security/ +
+  tests/unit/evaluation/ = 1610 passed, 7 skipped;
+  `pytest tests/ --collect-only -q` clean (41745 tests).
+
 ## FOU-A0 evidence: codegraph intent tier (2026-11-18, FEP-0049)
 
-Parallel track to the FOU ladder (adoption/X-axis capability). Cursor-comparison
-concluded complement split: Victor holds structure, Cursor holds intent; this
-program adds the intent tier without giving up the structural model.
+Parallel track to the FOU ladder (adoption/X-axis capability). The original
+Cursor-comparison framing ("Victor holds structure, Cursor holds intent") was
+stale on arrival and is corrected here: Victor already had semantic search —
+the symbol-summary embedding tier (name + signature + docstring, #771, 2026-08)
+— it just lacked (a) BODY-level chunk embeddings, (b) a persisted vector index
+for them, and (c) incremental re-embedding. What Cursor's architecture actually
+contributed was the incremental-sync DISCIPLINE (Merkle-tree-of-hashes), not
+intent itself. This program shipped all three missing pieces, then simplified:
+the Merkle projection is a derived view over the pre-existing flat
+path -> sha256 manifest (mtime+hash discipline retained, root shortcut = O(1)
+skip; the flat diff stays the authoritative work set), and the vector store
+consolidated SQLite-only (#1943) — chunk vectors co-located in project.db,
+lancedb/pyarrow off the required path (numpy brute-force measured sufficient:
+0.1 ms @ 14K, 3.4 ms @ 100K). Significance was MEASURED, not assumed: on the
+victor corpus (13,973 chunks) intent adds P@3 +13% / MRR +0.165 over keyword,
+wins 8/15 queries, with near-disjoint miss sets (complementary legs); on
+genmedia (559 chunks) miss rank is 8x closer (26 vs 198). Victor now holds
+structure AND intent; the honest remaining gap vs Cursor is indexing UX
+(automatic shadow indexing on clone/edit, apply-model polish), not retrieval
+capability.
 
 - **FEP-0049** (feps/fep-0049-intent-tier-merkle-sync.md): two-tier embedding
-  model (symbol-summary shipped; chunk-source new), Merkle discipline derived
-  from the flat manifest, LanceDB code_chunks table + intent_file_state in
-  graph sqlite, ADR-036 graduation plan.
-- **Phase 1 (#1915, victor-codegraph 0.15.0, IN REVIEW)**: merkle.py
+  model (symbol-summary shipped since #771; chunk-source new), Merkle
+  discipline derived from the flat manifest, vectors in the graph sqlite
+  (`intent_chunks`, #1943 — the FEP's original LanceDB code_chunks table was
+  consolidated away), intent_file_state journal, ADR-036 graduation plan.
+- **Phase 1 (#1915, victor-codegraph 0.15.0, MERGED)**: merkle.py
   (directory->file->CHUNK leaf granularity; minimal frontier diff; O(1) root
   shortcut; chunk-precise changed_chunks work set) + CHUNK_SOURCE_PROFILE +
   embed_chunks with the SymbolEmbedding staleness discipline. 290 package
@@ -179,6 +275,18 @@ program adds the intent tier without giving up the structural model.
 - **FEP-0049 COMPLETE on develop (2026-11-18)**: `victor graph index
   --intent` populates; `graph_semantic_search(mode="intent")` + the hybrid
   intent leg query. Remaining: ADR-036 graduation battery (field data).
+- **SQLite-only intent tier (#1943, MERGED 2026-11-18)**: chunk vectors
+  co-located in project.db (`intent_chunks` table, float32-LE BLOB) via
+  `SqliteIntentChunkStore` — lancedb/pyarrow off the intent tier's
+  required path (numpy brute-force: 0.1ms @ 14K, 3.4ms @ 100K rows).
+  `IntentIndexStore.search` read-path fixed (was AttributeError on every
+  mode="intent" query). `build_intent_index` (seeding.py) is the single
+  construction authority for read+write. `intent_file_state` journal kept
+  (zero-chunk-file tombstones; marker-last crash contract). LanceDB stays
+  for the symbol-summary tier (separate migration).
+- **Fan-out byte budgets (#1945, MERGED 2026-11-18)**: see FOU-C1-adjacent
+  TD-03 follow-up — `max_fanout_input_bytes` (pre-effect typed rejection)
+  + `max_fanout_result_bytes` (observability only).
 
 
 ## FOU-S1b evidence (2026-11-18, fou/s1b-posture-flip)
@@ -200,12 +308,13 @@ program adds the intent tier without giving up the structural model.
 - Wide sweep: 1,931 passed / 0 failed across sandbox/runtime/workflows/
   core/api/integrations/agent-tools; live executor smoke on this host
   (required posture, bwrap + seccomp enforcing): shell runs wrapped, rc=0.
-- Follow-ups queued: doctor CLI posture line; --dangerously-unsandboxed
-  per-invocation CLI flag; macOS live-execution qualification of the
-  deny-default Seatbelt profile (CI matrix has no macOS runner).
+- Follow-ups ALL CLOSED (2026-11-18): #1918 doctor posture check;
+  #1920 --dangerously-unsandboxed; #1921 + #1944 macOS live qualification
+  (deny-default profile 13/13 on macOS 26.2 arm64; /dev/null write allow
+  was the one real gap found).
 ## Adoption Increment 2 + inventory fix (2026-11-18)
 
-- **Increment 2 (#1922, IN REVIEW)**: `victor init` quickstart — server
+- **Increment 2 (#1922, MERGED 2026-11-18)**: `victor init` quickstart — server
   detection matrix (Ollama/llama.cpp/InferFlux), Ollama pull path reusing
   `OllamaProvider.pull_model`, last-resort llama.cpp daemon (official
   release binary + pinned bartowski Q4_K_M GGUF, detached spawn with
@@ -217,7 +326,7 @@ program adds the intent tier without giving up the structural model.
   qwen2.5-coder-7b deliberate (stable GGUF, --jinja tool-calling, CPU
   size, Ollama-path consistency); Qwen4 is preview-only — swap is two
   constants when production GGUFs land.
-- **Inventory fallback (#1923, IN REVIEW)**: root cause of 249
+- **Inventory fallback (#1923, MERGED 2026-11-18)**: root cause of 249
   pre-existing test failures — ancestry discovery accepts ANY ancestor
   `.git` including empty debris (stray /tmp/.git), but git then rejects
   it and the walk fallback required zero discovery. Git's verdict is now
@@ -310,3 +419,72 @@ soak-lmstudio "Reply with exactly: SOAK-OK"`. Candidate sites: any
 unguarded `copy.copy`/`pickle` in the streaming run plumbing;
 `post_loop_recovery.py:117` deep-copies tool-call arguments. The flip
 stays BLOCKED until a run completes with delivered content.
+
+## FOU-S3d hard-fail wiring evidence (2026-11-19, feat/release-chain-0.32)
+
+The GRADUATE_HARD_FAIL_CANDIDATE battery verdict unblocked the MECHANISM;
+it ships BEHAVIOR-GATED — `ToolSettings.untrusted_content_hard_fail` =
+False (DEFAULT OFF; zero behavior change pinned by negative tests). The
+flip is a field-data decision per ADR-036 and is NOT taken here.
+
+- **Mechanism**: the S3c screen's tool-output verdicts record their
+  families into session-scoped state
+  (`victor/security/injection_screen.py`: `record_flagged_families` /
+  `current_flagged_families` — same ContextVar session pattern as the
+  canary binding). The recording point is `format_and_prune_tool_output`
+  in `tool_service.py`, right where the screen highlights spans (recording
+  is inert on its own). The enforcement point is the tool-call pipeline
+  (`tool_pipeline.py`, immediately after the FOU-S3b canary floor): when
+  the flag is ON and the session has flagged families, a tool call whose
+  ARGUMENTS echo content matching one of THOSE flagged families
+  (`find_flagged_content_in_value` — pattern match AND family
+  intersection, so arguments matching an unflagged family pass) hard-fails
+  through the same `_build_skip_result` containment gate: `outcome_kind =
+  "flagged_content_echo"`, `block_source = "containment"`, `retryable =
+  False`, model-visible refusal naming the envelope-as-data rule — the
+  same conventions as the canary-blocking result. Contract per ADR-037
+  §decision 2-3: canary hits (exact token) remain the deterministic floor;
+  the screen adds the probabilistic escalation layer (model obeying the
+  injected instruction) on top.
+- **Tests** (`tests/unit/security/test_injection_hard_fail.py`, RED-first —
+  collection ImportError before the mechanism existed): session-state
+  accumulate/reset/default-empty; `find_flagged_content_in_value` top-level
+  + nested + family-intersection-required + clean-args + scalar-ignoring;
+  screen-records-families through `format_and_prune_tool_output` (+ clean
+  output records nothing); pipeline-level ON-blocks-echo (positive), OFF
+  default never blocks (negative), ON + no recorded families executes,
+  ON + family mismatch executes, canary floor unaffected by hard-fail
+  state in BOTH directions (ON and OFF), benign args execute with flag ON.
+  Full adjacent suites green: tests/unit/security/ + tests/unit/evaluation/
+  + tests/unit/tools/ = 5389 passed, 120 skipped, 1 xfailed, 3 xpassed.
+- Gates: black 26.10.1 + ruff clean on changed files.
+
+## 0.32 release train (2026-11-19)
+
+Wave PRs merged to develop since 0.31.1, forming the 0.32 promotion
+candidate (this ledger's rows above carry the detail):
+
+- **MCP code-intel product**: #1924–#1929 (unified inventory + one-liners).
+- **Provider/transport**: #1940 (HTTP transport), C1 breaker consolidation
+  #1947 (canonical `victor.core.circuit_breaker`; IN REVIEW → merged on
+  this branch's base).
+- **Memory (FEP-0048)**: #1951 (A2a `PreferenceEpisodicStore`),
+  #1952 (A2b `memory_set`/`memory_forget` + confirm-by-default
+  consolidation hook), #1954 (A2c PERCEIVE injection + budget competition
+  + A/B battery), #1955 (wiring), #1956 (A2d `/memory` + API routes,
+  IN REVIEW at train-open).
+- **Intent tier / durability**: #1943 (SQLite intent tier), #1945 (byte
+  budgets).
+- **Security (ADR-037)**: #1948 (S3c screen), #1957/#1959 (C3 parity
+  inventory + S3d battery), #1960/#1963 (parity fix + homoglyph/quote-abuse
+  follow-up) — S3d verdict **GRADUATE_HARD_FAIL_CANDIDATE** (0 FP / 155
+  benign, 35/35 TP / 0 FN); S4 verdict **ESCALATE_LIVE_AB_REQUIRED**
+  (`effect_gated_completion` stays locked out per the 2026-08-03 negative
+  A/B; `per_turn_auditor` battery remains the executable remainder).
+- **Attribution + native**: #1949–#1950 (attribution + `Python::detach`
+  audit), #1964 (maturin floor 1.16).
+- **Fix wave**: #1960–#1964.
+- **This PR**: S3d hard-fail wiring shipped flag-gated default-OFF (above);
+  FOU-S3a–d row updated accordingly; FOU-A3 row corrected to
+  FUNCTIONAL + OPT-IN (ADR-032 rev 1.8/1.9) with the two owner-decision
+  remainders (auto-on flip + impact-analysis benchmark publication).

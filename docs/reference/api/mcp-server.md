@@ -12,9 +12,11 @@ victor mcp --help
 victor mcp
 ```
 
-`victor mcp` defaults to stdio. Its current options are `--stdio/--no-stdio` and
-`--log-level` (`-l`). Selecting `--no-stdio` reports that only stdio is supported.
-There are no `--port`, `--tools`, or `--sandbox` options on this command.
+`victor mcp` defaults to stdio. Since 0.32 it also ships a **streamable-HTTP
+transport**: `victor mcp --http --port 8765 --api-key <key>` (or `VICTOR_API_KEY`).
+HTTP mode is fail-closed — it refuses to start without a non-empty API key
+(unauthenticated MCP is a remote-code-execution surface); stdio mode requires no
+key. `--log-level` (`-l`) applies to both.
 
 ## Integration with MCP clients
 
@@ -83,7 +85,9 @@ victor mcp --log-level DEBUG 2>victor-mcp.log
 
 Protocol traffic uses stdout and logs use stderr. If the client cannot start Victor,
 check the executable path and its environment. If tools are missing, inspect stderr
-for module import failures. Do not point an HTTP client at this stdio command.
+for module import failures. Stdio is for local clients (Claude Code, Cursor);
+for HTTP clients use `victor mcp --http --api-key <key>` (see above) — do not
+point an HTTP client at the stdio command.
 
 ## Advanced Usage
 

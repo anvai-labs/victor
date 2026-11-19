@@ -70,6 +70,7 @@ class SessionService:
         checkpoint_manager: Optional[Any] = None,
         cost_tracker: Optional[Any] = None,
         session_timeout_seconds: int = 3600,
+        memory_consolidator: Optional[Any] = None,
     ):
         """Initialize the session service.
 
@@ -80,6 +81,11 @@ class SessionService:
             checkpoint_manager: Optional manager for checkpoint save/restore
             cost_tracker: Optional tracker for session costs
             session_timeout_seconds: Default session timeout
+            memory_consolidator: Optional FOU-A2b end-of-session memory
+                consolidator (``MemoryConsolidator``). When bound,
+                ``end_session`` runs the consolidation hook; with the
+                default ``memory_auto_capture=False`` it stages proposals
+                and stores nothing until the confirm path runs.
 
         Note:
             lifecycle_manager is optional because it's created by component_assembler
@@ -92,9 +98,11 @@ class SessionService:
         self._checkpoint_manager = checkpoint_manager
         self._cost_tracker = cost_tracker
         self._session_timeout = session_timeout_seconds
+        self._memory_consolidator = memory_consolidator
 
         self._current_session: Optional[SessionInfoImpl] = None
         self._memory_session_id: Optional[str] = None
+        self._session_ledger: Optional[List[Any]] = None
         self._logger = logging.getLogger(f"{__name__}.{id(self)}")
 
     def set_lifecycle_manager(self, lifecycle_manager: Any) -> None:
@@ -112,6 +120,7 @@ class SessionService:
         checkpoint_manager: Optional[Any] = _UNSET,
         cost_tracker: Optional[Any] = _UNSET,
         memory_session_id: Optional[str] = _UNSET,
+        memory_consolidator: Optional[Any] = _UNSET,
     ) -> None:
         """Bind live runtime collaborators after bootstrap."""
         if lifecycle_manager is not _UNSET:
@@ -124,6 +133,8 @@ class SessionService:
             self._cost_tracker = cost_tracker
         if memory_session_id is not _UNSET:
             self._memory_session_id = memory_session_id
+        if memory_consolidator is not _UNSET:
+            self._memory_consolidator = memory_consolidator
 
     async def create_session(
         self,
@@ -350,7 +361,8 @@ class SessionService:
         """End the current session.
 
         Cleans up session resources, saves checkpoints if available,
-        and clears the current session state.
+        runs the FOU-A2b end-of-session memory consolidation hook (only
+        when a consolidator is bound), and clears the current session state.
 
         Example:
             await service.end_session()
@@ -368,11 +380,97 @@ class SessionService:
             except Exception as e:
                 self._logger.warning(f"Failed to save checkpoint on end: {e}")
 
+        # End-of-session memory consolidation (FEP-0048 A2b). Runs only when
+        # a consolidator is bound. With the default
+        # memory_auto_capture=False it stages proposals and stores nothing;
+        # the confirm path (commit_memory_proposals /
+        # discard_memory_proposals) decides what survives.
+        if self._memory_consolidator is not None:
+            try:
+                await self.consolidate_memory()
+            except Exception as e:
+                self._logger.warning(f"Memory consolidation failed: {e}")
+
         # Clear session
         self._current_session = None
         self._memory_session_id = None
 
         self._logger.info(f"Ended session: {session_id}")
+
+    # ==========================================================================
+    # Memory consolidation (FEP-0048, FOU-A2b)
+    # ==========================================================================
+
+    def register_session_ledger(self, session_ledger: Optional[List[Any]]) -> None:
+        """Register the session ledger the consolidation hook proposes from.
+
+        The chat loop owns the message history, so it hands the ledger to
+        the session service here (a shallow reference; entries are read at
+        consolidation time). With no ledger registered, consolidation is a
+        no-op that stores nothing.
+        """
+        self._session_ledger = session_ledger
+
+    async def consolidate_memory(self) -> Dict[str, Any]:
+        """Run the end-of-session consolidation hook.
+
+        Confirm-by-default: with ``memory_auto_capture`` off (the default)
+        the proposals are staged on the consolidator and NOTHING is stored;
+        ``commit_memory_proposals``/``discard_memory_proposals`` decide what
+        survives. With auto-capture opted in, the proposals are committed
+        immediately.
+
+        Returns:
+            Report dict: ``enabled``, ``proposed``, ``stored``, ``staged``.
+        """
+        report: Dict[str, Any] = {
+            "enabled": False,
+            "proposed": 0,
+            "stored": 0,
+            "staged": 0,
+        }
+        consolidator = self._memory_consolidator
+        if consolidator is None:
+            return report
+
+        ledger = self._session_ledger or []
+        result = consolidator.run(ledger)
+        report["enabled"] = True
+        report["proposed"] = len(result.proposed)
+        report["stored"] = len(result.stored)
+        report["staged"] = len(result.staged)
+
+        if result.stored:
+            self._logger.info(
+                f"Memory auto-capture stored {len(result.stored)} episodes "
+                f"({len(result.proposed)} proposed)"
+            )
+        elif result.staged:
+            self._logger.info(
+                f"Memory consolidation staged {len(result.staged)} proposals "
+                "for confirmation (memory_auto_capture is off)"
+            )
+        return report
+
+    def pending_memory_proposals(self) -> List[Any]:
+        """Proposals staged by the last confirm-by-default run."""
+        if self._memory_consolidator is None:
+            return []
+        return self._memory_consolidator.staged_proposals()
+
+    def commit_memory_proposals(self) -> List[Any]:
+        """Confirm path: store the staged proposals as episodes."""
+        if self._memory_consolidator is None:
+            return []
+        stored = self._memory_consolidator.commit_staged()
+        self._logger.info(f"Memory confirm path stored {len(stored)} episodes")
+        return stored
+
+    def discard_memory_proposals(self) -> int:
+        """Discard path: drop the staged proposals without writing."""
+        if self._memory_consolidator is None:
+            return 0
+        return self._memory_consolidator.discard_staged()
 
     async def reset_session(self) -> None:
         """Reset the current session state.

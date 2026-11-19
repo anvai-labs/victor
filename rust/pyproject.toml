@@ -13,12 +13,12 @@
 # limitations under the License.
 
 [build-system]
-requires = ["maturin>=1.4,<2.0"]
+requires = ["maturin>=1.16,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "victor_native"
-version = "0.31.1"
+version = "0.32.0"
 description = "High-performance native extensions for Victor AI coding assistant"
 readme = "README.md"
 license = {text = "Apache-2.0"}

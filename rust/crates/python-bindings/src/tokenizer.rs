@@ -204,23 +204,33 @@ impl BpeTokenizer {
     /// * `name` — Human-readable name (e.g. "cl100k_base").
     /// * `ranks_data` — List of (byte_sequence, rank) pairs.
     /// * `special_tokens` — List of (token_string, id) pairs.
+    /// Detach audit (native-acceleration-strategy): constructor receives a full
+    /// merge-ranks table (cl100k_base is ~100k entries), so the owned-Vec ->
+    /// AHashMap conversion is multi-millisecond pure-Rust work. All inputs are
+    /// owned values (no Python API inside `detach`); the cache write is a
+    /// short-held `parking_lot` lock, never a Python lock.
     #[new]
     pub fn new(
+        py: Python<'_>,
         name: String,
         ranks_data: Vec<(Vec<u8>, u32)>,
         special_tokens: Vec<(String, u32)>,
     ) -> Self {
-        let ranks: AHashMap<Vec<u8>, u32> = ranks_data.into_iter().collect();
-        let st: AHashMap<String, u32> = special_tokens.into_iter().collect();
+        let inner = py.detach(move || {
+            let ranks: AHashMap<Vec<u8>, u32> = ranks_data.into_iter().collect();
+            let st: AHashMap<String, u32> = special_tokens.into_iter().collect();
 
-        let inner = Arc::new(BpeTokenizerInner {
-            ranks,
-            special_tokens: st,
-            name: name.clone(),
+            let inner = Arc::new(BpeTokenizerInner {
+                ranks,
+                special_tokens: st,
+                name: name.clone(),
+            });
+
+            // Cache for later retrieval.
+            TOKENIZER_CACHE.write().insert(name, Arc::clone(&inner));
+
+            inner
         });
-
-        // Cache for later retrieval.
-        TOKENIZER_CACHE.write().insert(name, Arc::clone(&inner));
 
         BpeTokenizer { inner }
     }
@@ -232,19 +242,34 @@ impl BpeTokenizer {
     }
 
     /// Count tokens in `text` using the full BPE algorithm.
+    ///
+    /// Detach audit: single-text BPE encode on chat/chunk-sized inputs is
+    /// microsecond-to-sub-millisecond work — no `Python::detach` (the strategy
+    /// doc forbids releasing the GIL for trivial spans); batch callers should
+    /// use `count_tokens_batch`, which detaches.
     pub fn count_tokens(&self, text: &str) -> usize {
         self.inner.count_tokens(text)
     }
 
     /// Count tokens for a batch of texts in parallel using rayon.
-    pub fn count_tokens_batch(&self, texts: Vec<String>) -> Vec<usize> {
-        texts
-            .par_iter()
-            .map(|t| self.inner.count_tokens(t))
-            .collect()
+    ///
+    /// Detach audit: the batch hot path (rayon-parallel BPE over many texts)
+    /// is plausibly multi-millisecond; all inputs are owned `String`s and the
+    /// shared ranks table is `Arc`-held, so the whole loop runs detached.
+    pub fn count_tokens_batch(&self, py: Python<'_>, texts: Vec<String>) -> Vec<usize> {
+        let inner = Arc::clone(&self.inner);
+        py.detach(move || {
+            texts
+                .par_iter()
+                .map(|t| inner.count_tokens(t))
+                .collect::<Vec<usize>>()
+        })
     }
 
     /// Encode `text` into a vector of token ids.
+    ///
+    /// Detach audit: single-text encode is microsecond-to-sub-millisecond on
+    /// realistic chunk-sized inputs — no `Python::detach` (see `count_tokens`).
     pub fn encode(&self, text: &str) -> Vec<u32> {
         self.inner.encode(text)
     }
@@ -259,6 +284,9 @@ impl BpeTokenizer {
 /// Uses heuristics based on whitespace, punctuation, and typical subword
 /// splitting ratios. Useful for quick budget estimation when loading a full
 /// BPE model is too expensive.
+///
+/// Detach audit: pure-Rust but microsecond-scale on any realistic text (a
+/// linear heuristic scan); `Python::detach` is not worth the span here.
 #[pyfunction]
 pub fn count_tokens_fast(text: &str) -> usize {
     count_tokens_fast_impl(text)
@@ -270,12 +298,18 @@ pub fn count_tokens_fast(text: &str) -> usize {
 /// amortizing the per-call PyO3 boundary overhead — unlike looping
 /// `count_tokens_fast` from Python, which crosses the FFI once per text.
 /// Results are identical to calling `count_tokens_fast` on each element.
+///
+/// Detach audit: large batch corpora (the reason this batch entry point
+/// exists) are plausibly multi-millisecond; inputs are owned `String`s so the
+/// whole rayon loop runs detached.
 #[pyfunction]
-pub fn count_tokens_fast_batch(texts: Vec<String>) -> Vec<usize> {
-    texts
-        .par_iter()
-        .map(|t| count_tokens_fast_impl(t))
-        .collect()
+pub fn count_tokens_fast_batch(py: Python<'_>, texts: Vec<String>) -> Vec<usize> {
+    py.detach(move || {
+        texts
+            .par_iter()
+            .map(|t| count_tokens_fast_impl(t))
+            .collect::<Vec<usize>>()
+    })
 }
 
 /// Shared heuristic body used by both the single and batch `#[pyfunction]`
@@ -377,7 +411,10 @@ mod tests {
             ("<|startoftext|>".to_string(), 50257),
         ];
 
-        BpeTokenizer::new("test_tokenizer".to_string(), ranks, special_tokens)
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            BpeTokenizer::new(py, "test_tokenizer".to_string(), ranks, special_tokens)
+        })
     }
 
     #[test]
@@ -427,7 +464,8 @@ mod tests {
             "world".to_string(),
             "hello world".to_string(),
         ];
-        let batch_counts = tok.count_tokens_batch(texts.clone());
+        pyo3::Python::initialize();
+        let batch_counts = pyo3::Python::attach(|py| tok.count_tokens_batch(py, texts.clone()));
         for (i, t) in texts.iter().enumerate() {
             assert_eq!(
                 batch_counts[i],
@@ -441,7 +479,8 @@ mod tests {
     #[test]
     fn test_batch_empty_list() {
         let tok = make_test_tokenizer();
-        let counts = tok.count_tokens_batch(vec![]);
+        pyo3::Python::initialize();
+        let counts = pyo3::Python::attach(|py| tok.count_tokens_batch(py, vec![]));
         assert!(counts.is_empty());
     }
 
@@ -529,7 +568,11 @@ mod tests {
 
     #[test]
     fn test_batch_empty() {
-        assert_eq!(count_tokens_fast_batch(vec![]), Vec::<usize>::new());
+        pyo3::Python::initialize();
+        assert_eq!(
+            pyo3::Python::attach(|py| count_tokens_fast_batch(py, vec![])),
+            Vec::<usize>::new()
+        );
     }
 
     #[test]
@@ -544,7 +587,8 @@ mod tests {
             "\u{4f60}\u{597d}".to_string(),
             "internationalization!".to_string(),
         ];
-        let batched = count_tokens_fast_batch(texts.clone());
+        pyo3::Python::initialize();
+        let batched = pyo3::Python::attach(|py| count_tokens_fast_batch(py, texts.clone()));
         let elementwise: Vec<usize> = texts.iter().map(|t| count_tokens_fast(t)).collect();
         assert_eq!(batched, elementwise);
     }
@@ -552,7 +596,8 @@ mod tests {
     #[test]
     fn test_batch_preserves_order_and_length() {
         let texts = vec!["a".to_string(), "bb".to_string(), "ccc".to_string()];
-        let batched = count_tokens_fast_batch(texts.clone());
+        pyo3::Python::initialize();
+        let batched = pyo3::Python::attach(|py| count_tokens_fast_batch(py, texts.clone()));
         assert_eq!(batched.len(), texts.len());
         assert_eq!(batched[1], count_tokens_fast("bb"));
     }

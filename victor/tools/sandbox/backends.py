@@ -543,6 +543,12 @@ class SeatbeltSandbox(SandboxBackend):
             lines.append(f'(allow file-write* (subpath "{self._writable_state_root()}"))')
             for tmp in _SEATBELT_WRITABLE_TEMP:
                 lines.append(f'(allow file-write* (subpath "{tmp}"))')
+            # /dev/null is a black hole, not an exfiltration surface — tools
+            # legitimately target it (curl -o /dev/null, discard redirects
+            # opened by the wrapped process itself). Live-qualified on
+            # macOS 26.2/arm64: without this literal, curl fails with
+            # rc=56 "Failure writing output" under the deny-default floor.
+            lines.append('(allow file-write* (literal "/dev/null"))')
         else:
             lines.append("(allow file-write*)")
 
