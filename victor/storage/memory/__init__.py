@@ -123,10 +123,21 @@ from victor.storage.memory.adapters import (
     ConversationMemoryAdapter,
     GraphMemoryAdapter,
     ToolResultsMemoryAdapter,
+    PreferenceEpisodicAdapter,
     create_entity_adapter,
     create_conversation_adapter,
     create_graph_adapter,
     create_tool_results_adapter,
+    create_preference_episodic_adapters,
+)
+from victor.storage.memory.preference_episodic import (
+    Episode,
+    Preference,
+    PreferenceEpisodicStore,
+    MemoryScope,
+    MemoryWriteRefused,
+    OversizedContentRefused,
+    SecretContentRefused,
 )
 
 __all__ = [
@@ -179,8 +190,18 @@ __all__ = [
     "ConversationMemoryAdapter",
     "GraphMemoryAdapter",
     "ToolResultsMemoryAdapter",
+    "PreferenceEpisodicAdapter",
     "create_entity_adapter",
     "create_conversation_adapter",
     "create_graph_adapter",
     "create_tool_results_adapter",
+    "create_preference_episodic_adapters",
+    # Preference / episodic memory (FEP-0048)
+    "PreferenceEpisodicStore",
+    "Preference",
+    "Episode",
+    "MemoryScope",
+    "MemoryWriteRefused",
+    "OversizedContentRefused",
+    "SecretContentRefused",
 ]

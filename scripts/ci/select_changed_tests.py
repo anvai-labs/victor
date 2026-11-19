@@ -357,6 +357,10 @@ RELATED_TESTS = {
     "victor/storage/memory/adapters.py": (
         "tests/unit/memory/test_memory_adapters.py",
         "tests/unit/memory/test_conversation_history_store_protocol.py",
+        "tests/unit/storage/memory/test_preference_episodic.py",
+    ),
+    "victor/storage/memory/preference_episodic.py": (
+        "tests/unit/storage/memory/test_preference_episodic.py",
     ),
     "victor/config/classification_settings.py": (
         "tests/unit/agent/services/test_classification_backend.py",
