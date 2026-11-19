@@ -2,7 +2,7 @@
 
 **Status:** Adopted engineering guidance; implementation investigations remain incremental
 
-**Last verified:** 2026-11-02 (CCG identity, graph semantics and wheel matrix)
+**Last verified:** 2026-11-19 (FOU-C3 parity inventory; CCG identity, graph semantics and wheel matrix)
 
 Victor should keep Python as the orchestration, integration, and I/O language and use the existing
 Rust/PyO3 workspace as its default compiled acceleration path. Adding Cython, Numba, or a direct
@@ -15,8 +15,10 @@ tool is an exception that requires measurements showing the existing choices can
   already covers tokenization, context fitting, similarity, embeddings, graph algorithms, parsing,
   filtering, indexing, and security scans.
 - Python adapters under `victor/processing/native/` retain reference or fallback behavior. The
-  required `native-parity` CI job builds a release wheel and checks native/fallback agreement for
-  the tokenizer and context fitter; equivalent differential coverage is not yet universal.
+  required `native-parity` CI job builds a release wheel and checks native/fallback agreement —
+  originally for the tokenizer and context fitter, broadened by FOU-C3 to embeddings, secrets,
+  graph algorithms, trace scanning, dedup/hashing, classifier keywords, and JSON repair (see the
+  inventory below; the remaining gaps are listed there as future increments).
 - Rust release builds use optimization level 3, fat LTO, one codegen unit, and panic unwinding so a
   Rust panic does not abort the Python process.
 - Release automation reuses the affected-change native qualification matrix: Linux x86-64 and
@@ -98,6 +100,8 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    **Audited and landed 2026-11-18 — see the `Python::detach` audit subsection below.**
 3. Prototype contiguous-buffer inputs and persistent native indexes for embedding/similarity paths;
    compare them with current nested-vector conversion and the existing NumPy fallback.
+   **Parity half landed 2026-11-19 (FOU-C3)** — see the parity/benchmark inventory subsection
+   below; the contiguous-buffer/persistent-index prototype remains open.
 4. Make the wheel support table explicit and tested. Track the declared Python minimum alongside
    the wheel matrix, then evaluate an `abi3` proof build before expanding per-version artifacts.
 5. Add advisory performance reports first. Ratchet only stable production-size benchmarks with
@@ -410,6 +414,58 @@ extension (0.31.1)**, including `test_tokenizer_parity.py` and
 split graph functions against the rebuilt `.so`. Known non-ownership cost that remains:
 nested-`Vec` conversion at FFI extraction stays attached — that is backlog item 3
 (contiguous-buffer inputs), out of scope for this audit.
+
+### Parity/benchmark inventory (FOU-C3, 2026-11-19, landed)
+
+Backlog item 3's parity half: every exported operation of `victor_native`
+(`rust/crates/python-bindings/src/lib.rs`: 104 functions + 26 classes) mapped to its Python
+reference/fallback and its differential-parity coverage. The `native-parity` CI job runs
+`pytest tests/unit/native -m native_parity` after building the wheel, so every suite marked
+`native_parity` below is a merge gate on a freshly built extension; the same suites run (and
+self-skip when the wheel is absent) in ordinary unit runs.
+
+Coverage categories: **differential** = the same inputs asserted through both dispatch paths;
+**dual-backend** = protocol/backend-parametrized tests that run the same assertions against the
+Python and Rust implementations; **wrapper** = property tests against whichever path dispatch
+selects (no cross-path comparison).
+
+| Rust module | Exported operations | Python reference / fallback | Parity coverage |
+|---|---|---|---|
+| protocol (FEP-0010) | `PyRole`, `PyToolCall`, `PyUsage`, `PyMessage`, `PyStreamChunk`, `echo_message`, `echo_stream_chunk` | `victor_protocol` shared crate shapes | Differential at the FFI: `test_protocol_ffi.py`, `test_native_protocols.py` |
+| tokenizer | `BpeTokenizer`, `count_tokens_fast`, `count_tokens_fast_batch` | tiktoken encoder (+ word estimate fallback) | Differential: `test_tokenizer_parity.py` (±1 documented divergence pinned) |
+| context_fitter | `fit_context`, `truncate_message`, `batch_score_messages`, `MessageSlot`, `FitResult` | `processing/native/context_fitter.py` | Differential: `test_context_fitter_parity.py` (`batch_score_messages`: wrapper tests only) |
+| ccg_extract | `extract_statements_batch`, `build_ccg_batch`, `StatementRecord`, `EdgeRecord`, `CcgFileResult` | `core/indexing/ccg_builder.py` walk (oracle) | Differential over repo/golden fixtures: `test_ccg_extract.py` + control-dependence suites (native-parity job, second command) |
+| plugin_ccg | `extract_plugin_statements_batch`, `PluginStatementRecord` | victor-coding builder tables (goldens) | Differential (golden corpus, python + typescript): per the Option-B record above |
+| secrets | `scan_secrets`, `has_secrets`, `get_secret_types`, `mask_secrets`, `list_secret_patterns`, `scan_secrets_summary`, `SecretMatch` | `security/safety/secrets.py` `SecretScanner` | **NEW (FOU-C3)** `test_secrets_parity.py`: full agreement corpus + benign corpus through both paths, `has_secrets`/mask-leak properties, registry-divergence ledger pinned; plus the FOU-A2b scanner suite. Mask STYLE differs by design (Rust partial-masks, Python `[REDACTED]`) — the contract is leak-freedom |
+| graph_algo | `pagerank`, `weighted_pagerank`, `betweenness_centrality`, `connected_components`, `detect_cycles` | `victor/native/python/graph_algo.py` | **NEW (FOU-C3)** `test_graph_algo_parity.py`: deterministic graphs through both sides; PageRank within 1e-6 (never bit-exact — ahash iteration order varies per-process), Brandes within 1e-9, structural results exact |
+| trace_scanner | `scan_usage_file`, `scan_usage_files`, `SessionStats` | `_scan_usage_file_python` | **NEW (FOU-C3)** `test_trace_scanner_parity.py`: plain/gzip/malformed/filtering corpora both paths; same-session-across-files divergence pinned (native aggregates, Python concatenates) |
+| embeddings | `quantize_embedding`, `batch_quantize_embeddings`, `dequantize_embedding`, `quantized_cosine_similarity`, `batch_quantized_cosine_similarity`, `matmul_vector`, `batch_matmul_vector`, `random_projection`, `pairwise_distances`, `knn_graph`, `QuantizedEmbedding` | none in-repo (native-only surface) — spec reference implemented in NumPy f32 in the test | **NEW (FOU-C3)** `test_embeddings_parity.py`: quantization bit-parity (incl. half-away-from-zero rounding), integer-space cosine, LCG projection reproduced bit-exactly (matmul tolerance ~1e-4), pairwise/KNN vs NumPy reference |
+| dedup | `normalize_block`, `rolling_hash_blocks`, `find_duplicate_blocks` | `processing/native/deduplication.py` | **NEW (FOU-C3)** `test_text_pipeline_parity.py`: normalization bytes, block splits, duplicate flags/indices identical; digest VALUES pinned as divergent by design (xxHash3 vs MD5) |
+| hashing | `compute_signature`, `compute_batch_signatures`, `signature_similarity` | `processing/native/deduplication.py` | **NEW (FOU-C3)** same file: determinism, key-order independence, length/format, similarity extremes; digests divergent by design (as above) |
+| classifier | `classify_task`, `has_action_keywords`, `has_analysis_keywords`, `has_generation_keywords`, `has_negation`, `find_all_keywords`, `TaskClassifier`, `ClassificationResult`, `TaskType` | keyword fallbacks in `processing/native/classifier.py`; `classify_task` falls back to `victor.agent.unified_classifier` | **NEW (FOU-C3)** keyword predicates + `find_all_keywords` differential. `classify_task` deliberately has NO parity contract: the fallback is a different weighted-pattern algorithm by design — a future decision item, not a test target |
+| json_repair | `repair_json`, `extract_json_objects`, `coerce_string_type` | `processing/native/json_repair.py` | **NEW (FOU-C3)** `test_text_pipeline_parity.py`: repair/extract corpora identical; TWO pinned divergences — the Python `repair_json` fallback corrupts string content containing `True`/`False`/`None` (Rust is string-aware; fix belongs to the module owners), and `coerce_string_type` answers `yes`/`on`/`1`/`0`/JSON-object inputs differently with vs without the wheel (hot path matches native semantics, fallback predates it) |
+| similarity | `cosine_similarity`, `batch_cosine_similarity`, `similarity_matrix`, `top_k_similar`, `batch_normalize_vectors`, `batch_cosine_similarity_normalized`, `top_k_similar_normalized`, `EmbeddingIndex` | `processing/native/similarity.py` (NumPy) + `victor/native/python/similarity.py` | Dual-backend protocol tests: `test_native.py`, `test_python_fallbacks.py`. `EmbeddingIndex` (native-only class): uncovered |
+| ast_indexer | `is_stdlib_module`, `batch_is_stdlib_modules`, `filter_stdlib_imports`, `extract_identifiers`, `extract_identifiers_with_positions` | `victor/native/python/ast_indexer.py` | Dual-backend: `test_ast_indexer.py`, `test_python_fallbacks.py` |
+| arg_normalizer | `coerce_string_type`, `batch_coerce_string_types`, `normalize_json_string`, `batch_normalize_json_strings`, `repair_quotes`, `is_valid_json`, `get_json_type` | `victor/native/python/arg_normalizer.py` | Dual-backend: `test_python_fallbacks.py`; scalar `coerce_string_type` divergence pinned in `test_text_pipeline_parity.py` |
+| chunking | `chunk_by_sentences`, `chunk_by_chars`, `chunk_by_paragraphs`, `detect_doc_type`, `count_tokens_approx`, `count_lines`, `find_line_boundaries`, `line_at_offset`, `chunk_with_overlap`, `ChunkInfoRust` | `processing/native/chunking.py` + `victor/native/python/chunker.py` | Dual-backend protocol tests + wrapper property tests + `test_chunking_security.py`; no per-op differential corpus |
+| streaming_filter | `strip_thinking_tokens`, `contains_thinking_tokens`, `find_thinking_tokens`, `extract_thinking_content`, `StreamingFilter`, `StreamingChunkResult` | `processing/native/streaming.py` | Wrapper tests: `test_processing_native_streaming.py`; no differential corpus |
+| thinking | `ThinkingDetector`, `PatternAnalysis`, `detect_circular_phrases`, `count_circular_patterns`, `find_circular_patterns` | `victor/agent/thinking_detector.py` | Wrapper tests only; no differential corpus |
+| pattern_match | `contains_any_pattern`, `find_all_patterns`, `count_pattern_matches`, `get_matched_pattern_indices`, `batch_contains_any`, `weighted_pattern_score`, `PatternMatcher`, `PatternMatch` | consumer-side Python implementations (classification, enrichment) | Wrapper/consumer tests only; no differential corpus |
+| extractor | `extract_file_path`, `extract_code_blocks`, `extract_shell_commands`, `extract_tool_call`, `batch_extract_file_paths` | `processing/native/tool_extraction.py` | Wrapper + consumer tests; no differential corpus |
+| sanitizer | `sanitize_response`, `is_garbage_content`, `detect_leakage_patterns`, `strip_markup`, `validate_tool_name` | `victor/agent/response_sanitizer.py` | Wrapper tests: `test_response_sanitizer.py`; no differential corpus |
+| yaml_loader | `parse_yaml`, `parse_yaml_with_env`, `parse_yaml_file`, `parse_yaml_file_with_env`, `validate_yaml`, `extract_workflow_names` | `processing/native/accelerator.py` (PyYAML) | Wrapper tests only; no differential corpus |
+
+Count: **~110 exported operations; 41 newly under differential parity (FOU-C3)**, 23 already
+differential (protocol/ccg/tokenizer/context-fitter/secret-scanner), ~20 dual-backend, the rest
+wrapper-level. **Remaining uncovered differentials for a future increment:** `EmbeddingIndex`,
+`batch_score_messages` (dedicated corpus), streaming_filter, thinking, pattern_match, extractor,
+sanitizer, yaml_loader, and the remaining chunking/arg_normalizer batch ops. **Findings recorded
+by the FOU-C3 suites** (pinned, not hidden): Python `repair_json` string-content corruption;
+`coerce_string_type` install-shape split; xxHash3-vs-MD5 digest divergence (structure-level
+contract); `scan_usage_files` same-session aggregation vs concatenation; secret-registry
+divergences on both sides (Rust-only vendor families: anthropic/openai/twilio/sendgrid/slack-
+webhook/heroku/discord; Python-only: bearer, PGP header, bare-40-char AWS secret, refresh-token
+and real-shape Slack gaps).
 
 ### Harvest environment constraint (2026-10-25, landed)
 
