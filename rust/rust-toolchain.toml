@@ -1,0 +1,12 @@
+# Pin the workspace to the toolchain CI builds and tests with
+# (.github/workflows: dtolnay rust-toolchain resolved to 1.100.0,
+# rustc 0ef1bc386 / LLVM 23.1.5 — the exact version the 198-test rust
+# suite and every promotion battery have been green on). The
+# 2026-11-18 fmt-failure class was LOCAL toolchain skew (1.99.x
+# rustfmt vs CI's 1.100.0): any rustup-installed toolchain now
+# auto-selects this exact version, so `cargo fmt --check` and
+# `cargo test` behave identically before every push. To move the
+# pin: bump the channel here IN THE SAME PR that updates CI's
+# dtolnay channel, then `rustup update` locally.
+[toolchain]
+channel = "1.100.0"
