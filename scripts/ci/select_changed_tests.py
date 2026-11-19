@@ -392,6 +392,20 @@ RELATED_TESTS = {
         "tests/unit/agent/test_memory_injection.py",
     ),
     "victor/evaluation/memory_ab.py": ("tests/unit/agent/test_memory_ab.py",),
+    # FOU-S3c/S3d: injection screen + its FP battery share the corpus-pinned
+    # suites (screen tightenings keep benign counterparts in both).
+    "victor/security/injection_screen.py": (
+        "tests/unit/security/test_injection_screen.py",
+        "tests/unit/security/test_injection_fp_battery.py",
+        "tests/unit/security/test_tool_output_containment.py",
+    ),
+    "victor/evaluation/injection_fp_battery.py": (
+        "tests/unit/security/test_injection_fp_battery.py",
+    ),
+    "victor/evaluation/injection_fp_corpus.py": (
+        "tests/unit/security/test_injection_fp_battery.py",
+        "tests/unit/security/test_injection_screen.py",
+    ),
     "victor/security/permissions.py": (
         "tests/unit/security/test_permissions.py",
         "tests/unit/tools/test_memory_write.py",

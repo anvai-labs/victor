@@ -36,7 +36,7 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | MERGED | #1907, #1910 (kernel-truth cBPF fix; live probes EPERM, fork=OK) |
 | FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a | MERGED | #1912 (8 adversarial findings fixed pre-merge; suite opt-out via tests/conftest.py). macOS Seatbelt live qualification COMPLETE 2026-11-18: 13/13 probe checks on macOS 26.2/arm64 — one real profile gap found+fixed (`/dev/null` write allow, #1944); probe pattern in tests/unit/tools/sandbox/test_seatbelt_qualification.py |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | TODO | — |
-| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c GREEN (injection screen: annotation-only, in-envelope highlighting, corpus-pinned false-positive discipline); S3d TODO (ADR-036 hard-fail battery) | #1908, #1911 |
+| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c GREEN (injection screen: annotation-only, in-envelope highlighting, corpus-pinned false-positive discipline); S3d MERGED (#1959: ADR-036 FP battery verdict = **CONDITIONAL** — benign 155/155 zero FP after 9 tightenings, adversarial 33/35 TP with 2 documented FNs [quote-guard abuse, homoglyph]; hard-fail stays GATED-on-verdict, wiring absent) | #1908, #1911 |
 | FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | PART-BLOCKED | `effect_gated_completion` graduation LOCKED OUT by the 2026-08-03 negative A/B (on 0.847 vs off 0.864, overlapping CIs — do NOT graduate, codified #884). `per_turn_auditor` deterministic battery SHIPPED (`victor/evaluation/auditor_ab.py` + 13-test suite): verdict **ESCALATE_LIVE_AB_REQUIRED** — wiring verified (flag resolves + edge-model judge injected on BOTH execution paths; a buffered-path wiring gap — `turn_execution_runtime` resolved the effect gate but never the auditor — found and fixed in the same change; OFF arm strict no-op pinned by negative test; placement audit guards the dormant-flag class) and cost known (max 1 edge-model call per COMPLETE turn, ≤1780-char bounded prompt, 128-token output cap, 0 main-loop token overhead; the deterministic heuristic alarm skips the judge; `max_alarms` bounds downgrades then annotate-and-allow). Judge QUALITY (premature-completion catch vs false-downgrade) is undecidable offline → default stays OFF; graduation requires the documented live A/B: `python -m victor.evaluation.flag_ab --flag per_turn_auditor --base-url <ollama> --model qwen3-coder-tools:30b --corpus effect-gate --variants 2` then `assess_graduation()` (EVR-5 oracle) + catch/false-downgrade rates. No default flipped |
 | FOU-A1 | Subagent-spawn tool (Task-tool pattern) | A | ledger §A1 design | FOU-D2 | TODO | — |
 | FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | A2a MERGED (`PreferenceEpisodicStore` + `MemoryType.PREFERENCE/EPISODE` + two-database schema (memory_preference/memory_episode) + adapter lanes; 33-test suite: round-trip, scope isolation (negative), secret/oversize refusal, forget-by-id/content, thread queries, coordinator interop, db placement). A2b MERGED (#1952: `memory_set`/`memory_forget` tools, workspace-write gated + `DEFAULT_TOOL_PERMISSIONS`; `MemoryConsolidator` propose/commit/discard hook in Session service, confirm-by-default with `memory_auto_capture` default off; secret-scanner word-boundary fix — generic keyword patterns now require a `[=:]` value-bearing delimiter, benign prose no longer refused, dual-path (native+Python) parity tests). A2c MERGED (#1954: `MemoryBlockBuilder` PERCEIVE injection via PerceptionIntegration `memory_injector` collaborator — scoped coordinator queries, 500-token hard cap by rank exclusion, off-when-empty byte-identical negative, flag + `VICTOR_MEMORY_ENABLED` env re-resolved at every read; BudgetManager additive context-block registration so memory competes by priority (evict weaker-only, refit, starve); `victor/evaluation/memory_ab.py` deterministic A/B battery (flag_ab.py documented as too LLM-heavy for the wiring gate) over seeded fixtures → snapshots + ADR-036 verdict `KEEP_DEFAULT_ON` (usefulness 1.0, max 20 tokens, 0 false surfaces, baseline 0 injections); 48-test suite; production container wiring deferred per the FEP's additive-optional hook parameter). A2d IN REVIEW (#1956: `/memory` slash command — list preferences with scope/source/confidence + recent episodes + staged proposals, set with user-scope default/`--project`, forget by id/content, confirm/discard; API routes GET/POST/DELETE `/memory` + `/memory/proposals` list/confirm/discard with sibling management-route auth posture and structured 4xx refusals that never echo the matched secret; shared consolidator handle on `MemoryConsolidator` reached from the client layer via the new `victor.framework.memory` seam, bootstrap SessionService now binds it (confirm-by-default, auto-capture only from `settings.memory.memory_auto_capture`) so end_session stages onto the handle the surfaces confirm; `PreferenceEpisodicStore.recent_episodes` public listing read; 45-test suite; docs in quickstart + http-api) | #1951; A2b MERGED #1952; A2c MERGED #1954; A2d IN REVIEW #1956 |
@@ -146,6 +146,44 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
   (executor.assert_not_awaited); clean args + no-session-canary +
   disabled-knob negative tests.
 - Selector targets + tool-pipeline ripple suites green (997 passed).
+
+## FOU-S3d evidence (2026-11-19, fou/s3d-fp-battery, #1959)
+
+- **RED**: `tests/unit/security/test_injection_fp_battery.py` failed
+  collection on the S3c branch (battery + corpus modules absent).
+- **Battery**: `victor/evaluation/injection_fp_battery.py` +
+  `injection_fp_corpus.py` — mirrors memory_ab conventions (two JSON
+  snapshots `injection_fp_{benign,injection}.json`, verdict dict, CLI,
+  deterministic offline). Corpus: **155 realistic benign samples across 8
+  categories** (python/ts/rust source mentioning prompt/token vocabulary;
+  MCP docs quoting `<tool_call>` syntax; logs/config dumps with
+  password-policy prose; shell transcripts; review comments DISCUSSING
+  injection; policy text) + **35 adversarial injection samples** (S3c base
+  + split/padded/paraphrased/encoded variants).
+- **Verdict: CONDITIONAL** — annotation-level FP rate **0/155** (each
+  tightening keeps its benign counterpart pinned in
+  test_injection_screen.py `S3D_TIGHTENING_BENIGN` + the corpus);
+  adversarial **33/35** TP with 2 DESIGNED FNs (inj-034 quote-guard abuse,
+  inj-035 homoglyph U+0406 — reported, NOT chased by pattern expansion).
+  Per-family: impersonation 12 TP/2 FN, forgery 10/0, exfil 11/0.
+- **9 tightenings applied to injection_screen.py** (probe: initial corpus
+  run had 29 FPs → 0): quoted-mention guard (odd-quote-parity per line;
+  documented trade-off = the quote-abuse FN), imperative-continuation
+  lookaheads, model-directed-verb requirement on "New instructions:",
+  constraint-removal cue on "You are now a X", imperative cue on line-start
+  override headers, suspicious-body requirement on `<tool_call>{`,
+  letter-start on `<function_results>`, dotted-method routing tokens,
+  HIGH-RISK payload (pipe-to-shell/metadata IP/credential files) on
+  "executed the command". Plus one exfil pattern ADDED
+  (tell/give/show...+the/all forms — closed 3 adversarial FNs at no FP
+  cost).
+- **Hard-fail stays GATED**: battery REPORTS only (`hard_fail_wired: False`
+  pinned by test); no production flag flipped. CONDITIONAL verdict means a
+  follow-up may close the 2 FN classes (NFKC homoglyph pre-pass; quote-guard
+  policy) before re-running for a GRADUATE_HARD_FAIL_CANDIDATE.
+- Gates: black 26.10.1 + ruff clean; tests/unit/security/ +
+  tests/unit/evaluation/ = 1592 passed, 7 skipped (known env-noise warning
+  only); `pytest tests/ --collect-only -q` clean (41434 tests).
 ## FOU-A0 evidence: codegraph intent tier (2026-11-18, FEP-0049)
 
 Parallel track to the FOU ladder (adoption/X-axis capability). The original
