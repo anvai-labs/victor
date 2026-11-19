@@ -28,13 +28,12 @@ Documented divergences are pinned, not hidden:
   STRUCTURE (identical normalization bytes, identical block splits, identical
   duplicate-flag sequences and duplicate indices, deterministic and
   key-order-independent signatures). Pinned in ``TestHashFunctionDivergence``.
-- **``repair_json`` string-content bug** — the Python fallback replaces
-  ``True``/``False``/``None`` byte-wise BEFORE quote tracking, corrupting
-  string values (``{'msg': 'True facts about None'}`` becomes
-  ``"true facts about null"``); the Rust state machine is string-aware and
-  preserves them. Pinned in ``TestRepairJsonStringContentDivergence`` — the
-  Rust behavior is the intended contract; fixing the Python fallback belongs
-  to the json_repair owners.
+- **``repair_json`` string-content** — formerly a pinned divergence (the
+  Python fallback rewrote ``True``/``False``/``None`` inside string values);
+  the fallback now ports the Rust state machine's quote/escape tracking, so
+  both paths are byte-identical including string-content preservation.
+  Covered by ``TestRepairJsonParity`` and
+  ``TestRepairJsonStringContentParity``.
 - **``coerce_string_type`` install-shape split** — with the wheel installed,
   the scalar hot path maps ``yes``/``on``/``1``/``0`` to string/int; without
   it, the pure-Python fallback maps them to bool. Pinned in
@@ -281,6 +280,20 @@ REPAIR_CORPUS = [
     '{"a": "quote\\" inside", \'b\': 2}',  # escaped quote + mixed quotes
     "[1, 2, 3]",
     "  {'spaced': 'key'}  ",
+    # String-content preservation (FOU-C3 #1957 finding): literals inside
+    # string VALUES must survive the repair on both paths.
+    "{'msg': 'True facts about None'}",
+    "{'msg': 'NoneTheLess TrueNorth', 'flag': False}",
+    "{'a': 'TrueFalseNone'}",
+    "{'s': 'braces {not json} here', 'n': None}",
+    "{'a': 'escaped \\' single', 'b': True}",  # \' apostrophe escape
+    "{'a': 'backslash \\\\ then None'}",  # backslash escape before a literal
+    "{'k': \"double 'inner' single\", 'j': True}",  # quotes inside quotes
+    "{'a': 'mixed \\' and \" both', 'b': None}",
+    "{'apostrophe': \"it's True alright\"}",  # ' inside double-quoted string
+    '{"key": "None value"}',  # literals in a valid-JSON string value
+    "[True, False, None]",  # literals outside strings stay rewriteable
+    "True",  # bare literal document
 ]
 
 EXTRACT_CORPUS = [
@@ -320,27 +333,47 @@ class TestExtractJsonObjectsParity:
             assert text[start:end] == extracted
 
 
-class TestRepairJsonStringContentDivergence:
-    """PINNED parity MISMATCH: the Python fallback corrupts string contents.
-
-    The Rust state machine only rewrites ``True``/``False``/``None`` OUTSIDE
-    string literals; the Python fallback does a blind ``str.replace`` BEFORE
-    its quote tracking, so string VALUES containing those words are silently
-    altered. Rust is the intended contract (it parses to the right data);
-    changing the fallback belongs to the json_repair owners. Breaking this
-    pin means one side changed — re-judge, then update.
-    """
+class TestRepairJsonStringContentParity:
+    """The FOU-C3 #1957 finding, now closed: the Python fallback used to
+    rewrite ``True``/``False``/``None`` byte-wise BEFORE quote tracking,
+    corrupting string values (``{'msg': 'True facts about None'}`` became
+    ``"true facts about null"``). The fallback now tracks quote/escape state
+    exactly like the Rust machine, so both paths agree byte for byte AND
+    parse back to the original string data."""
 
     @_requires_native
-    def test_rust_preserves_and_python_corrupts(self):
+    def test_string_values_survive_repair_both_paths(self):
         text = "{'msg': 'True facts about None'}"
         native = json_repair_mod.repair_json(text)
         fallback = _forced_python(json_repair_mod, "repair_json", text)
 
-        assert json_repair_mod.json_loads(native) == {"msg": "True facts about None"}
-        assert native != fallback
-        # Pin the exact corrupted fallback output so the divergence is precise.
-        assert fallback == '{"msg": "true facts about null"}'
+        assert native == fallback
+        expected = {"msg": "True facts about None"}
+        assert json_repair_mod.json_loads(native) == expected
+        assert json_repair_mod.json_loads(fallback) == expected
+
+    @_requires_native
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            # Mid-word occurrences inside string values are preserved.
+            ("{'m': 'NoneTheLess', 'n': None}", {"m": "NoneTheLess", "n": None}),
+            ("{'m': 'TrueNorth', 'f': False}", {"m": "TrueNorth", "f": False}),
+            # Braces inside strings are not structural.
+            ("{'s': 'braces {not json} here'}", {"s": "braces {not json} here"}),
+            # Escaped quotes inside strings stay escaped and intact.
+            ('{"a": "quote\\" inside"}', {"a": 'quote" inside'}),
+            ("{'a': 'it\\'s True'}", {"a": "it's True"}),
+            # A lone double quote inside a single-quoted string gets escaped.
+            ('{\'a\': "say \\"hi\\""}', {"a": 'say "hi"'}),
+        ],
+    )
+    def test_content_edge_cases_identical_and_parse(self, text, expected):
+        native = json_repair_mod.repair_json(text)
+        fallback = _forced_python(json_repair_mod, "repair_json", text)
+
+        assert native == fallback
+        assert json_repair_mod.json_loads(native) == expected
 
 
 class TestCoerceStringTypeDivergence:

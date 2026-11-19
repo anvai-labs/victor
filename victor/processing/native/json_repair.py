@@ -33,6 +33,11 @@ def repair_json(input_str: str) -> str:
     - Single quotes -> double quotes
     - Python True/False/None -> JSON true/false/null
 
+    String literals are preserved verbatim: ``True``/``False``/``None`` inside
+    quoted values (including as mid-word substrings) are never rewritten, and
+    the quote/escape tracking mirrors the Rust state machine in
+    ``rust/crates/python-bindings/src/json_repair.rs`` byte for byte.
+
     Args:
         input_str: Potentially malformed JSON string
 
@@ -43,40 +48,87 @@ def repair_json(input_str: str) -> str:
         return _native.repair_json(input_str)
 
     # Pure Python fallback
-    result = input_str
-
     # Fast path: check if already valid
     try:
-        json_loads(result)
-        return result
+        json_loads(input_str)
+        return input_str
     except json.JSONDecodeError:
         pass
 
-    # Replace Python literals
-    result = result.replace("True", "true")
-    result = result.replace("False", "false")
-    result = result.replace("None", "null")
+    return _repair_json_python(input_str)
 
-    # Replace single quotes with double quotes (simple approach)
-    # This is a simplified version; the Rust implementation handles edge cases better
-    in_string = False
-    output = []
+
+def _repair_json_python(input_str: str) -> str:
+    """String-aware port of the Rust ``repair_json`` state machine.
+
+    States mirror the Rust implementation: Normal (outside strings),
+    InDoubleQuote, InSingleQuote, and Escaped. Python literals are only
+    rewritten in Normal state, so string VALUES keep their contents.
+    """
+    NORMAL, DOUBLE, SINGLE, ESCAPED = range(4)
+    state = NORMAL
+    output: List[str] = []
+    n = len(input_str)
     i = 0
-    while i < len(result):
-        c = result[i]
-        if c == "\\" and i + 1 < len(result):
+
+    while i < n:
+        c = input_str[i]
+        if state == NORMAL:
+            if c == "'" or c == '"':
+                # Both quote styles normalize to double quotes.
+                output.append('"')
+                state = SINGLE if c == "'" else DOUBLE
+                i += 1
+            elif c == "T" and input_str.startswith("True", i):
+                output.append("true")
+                i += 4
+            elif c == "F" and input_str.startswith("False", i):
+                output.append("false")
+                i += 5
+            elif c == "N" and input_str.startswith("None", i):
+                output.append("null")
+                i += 4
+            else:
+                output.append(c)
+                i += 1
+        elif state == DOUBLE:
+            if c == '"':
+                output.append('"')
+                state = NORMAL
+                i += 1
+            elif c == "\\":
+                output.append("\\")
+                state = ESCAPED
+                i += 1
+            else:
+                output.append(c)
+                i += 1
+        elif state == SINGLE:
+            if c == "'":
+                output.append('"')
+                state = NORMAL
+                i += 1
+            elif c == '"':
+                # Double quote inside a single-quoted string needs escaping.
+                output.append('\\"')
+                i += 1
+            elif c == "\\":
+                if i + 1 < n and input_str[i + 1] == "'":
+                    # \' in a single-quoted Python string is a literal apostrophe.
+                    output.append("'")
+                    i += 2
+                else:
+                    output.append("\\")
+                    state = ESCAPED
+                    i += 1
+            else:
+                output.append(c)
+                i += 1
+        else:  # ESCAPED
             output.append(c)
-            output.append(result[i + 1])
-            i += 2
-            continue
-        if c == '"':
-            in_string = not in_string
-            output.append(c)
-        elif c == "'" and not in_string:
-            output.append('"')
-        else:
-            output.append(c)
-        i += 1
+            # The Rust machine returns to InDoubleQuote here unconditionally.
+            state = DOUBLE
+            i += 1
 
     return "".join(output)
 
