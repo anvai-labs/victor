@@ -120,28 +120,30 @@
   <text x="450" y="470" class="q-label" text-anchor="middle">GENERALISTS</text>
   <!-- peers (x = adoption*50, y = 500 - depth*50) -->
   <!-- Claude Code (8.5, 9.0) → (425, 50) -->
-  <circle cx="425" cy="50" r="6" fill="#3fb950"/><text x="432" y="46" class="peer-label" fill="#3fb950">Claude Code</text>
+  <circle cx="450" cy="50" r="6" fill="#3fb950"/><text x="432" y="46" class="peer-label" fill="#3fb950">Claude Code</text>
   <!-- Codex (7.5, 8.5) → (375, 75) -->
   <circle cx="375" cy="75" r="5" fill="#a371f7"/><text x="382" y="71" class="peer-label" fill="#a371f7">Codex</text>
   <!-- LangGraph (8.0, 9.5) → (400, 25) -->
   <circle cx="400" cy="25" r="5" fill="#db61a2"/><text x="407" y="21" class="peer-label" fill="#db61a2">LangGraph</text>
   <!-- MAF (7.5, 6.5) → (375, 175) -->
-  <circle cx="375" cy="175" r="5" fill="#f0883e"/><text x="382" y="171" class="peer-label" fill="#f0883e">MAF</text>
+  <circle cx="375" cy="125" r="5" fill="#f0883e"/><text x="382" y="171" class="peer-label" fill="#f0883e">MAF</text>
   <!-- CrewAI (6.5, 5.5) → (325, 225) -->
-  <circle cx="325" cy="225" r="5" fill="#56d4dd"/><text x="332" y="221" class="peer-label" fill="#56d4dd">CrewAI</text>
+  <circle cx="425" cy="225" r="5" fill="#56d4dd"/><text x="332" y="221" class="peer-label" fill="#56d4dd">CrewAI</text>
   <!-- OpenAI SDK (6.0, 5.0) → (300, 250) -->
-  <circle cx="300" cy="250" r="5" fill="#8b949e"/><text x="307" y="246" class="peer-label" fill="#8b949e">OAI SDK</text>
+  <circle cx="325" cy="200" r="5" fill="#8b949e"/><text x="307" y="246" class="peer-label" fill="#8b949e">OAI SDK</text>
   <!-- DSPy (3.5, 4.5) → (175, 275) -->
   <circle cx="175" cy="275" r="5" fill="#e3b341"/><text x="182" y="271" class="peer-label" fill="#e3b341">DSPy</text>
   <!-- LangChain (9.5, 4.5) → (475, 275) -->
   <circle cx="475" cy="275" r="5" fill="#f85149"/><text x="482" y="271" class="peer-label" fill="#f85149">LangChain</text>
   <!-- Devin/Cognition (9.0, 6.5) → (450, 175) — SaaS-easy, closed box -->
-  <circle cx="450" cy="175" r="6" fill="#d29922"/><text x="440" y="171" class="peer-label" text-anchor="end" fill="#d29922">Devin/Cognition</text>
+  <circle cx="450" cy="175" r="6" fill="#d29922"/>
+  <!-- Cursor (9.5, 6.5) → (475, 175) — added 2026-11-19 audit; remove-embedding-indexing claim VERIFY -->
+  <circle cx="475" cy="175" r="6" fill="#7ee787"/><text x="482" y="171" class="peer-label" fill="#7ee787">Cursor</text><text x="440" y="171" class="peer-label" text-anchor="end" fill="#d29922">Devin/Cognition</text>
   <!-- Victor OLD (3.5, 8.0) → (175, 100) dashed circle -->
   <circle cx="175" cy="100" r="8" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="4 3"/>
   <text x="165" y="92" class="peer-label" fill="#8b949e">Victor 11-16</text>
-  <!-- Victor NEW (5.5, 9.5) → (275, 25) solid blue (2026-11-19, pre-promotion) -->
-  <circle cx="275" cy="25" r="7" fill="#58a6ff" stroke="#fff" stroke-width="2" z-index="2"/>
+  <!-- Victor (5.0, 9.0) → (250, 50) — 0.32 promotion pending; moves to (5.0, 9.0) on release + field data -->
+  <circle cx="250" cy="50" r="7" fill="#58a6ff" stroke="#fff" stroke-width="2" z-index="2"/>
   <text x="215" y="33" class="peer-label" fill="#58a6ff" font-weight="bold">Victor today</text>
   <!-- movement arrow: right AND up -->
   <line x1="175" y1="100" x2="220" y2="52" class="move-arrow"/>
@@ -159,7 +161,7 @@
   <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#f85149;"></span>LangChain</span>
   <span style="display:inline-flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#8b949e;"></span>OAI SDK</span>
 </div>
-<p class="subtitle" style="text-align:center;">Both axes moved: Y 8.0 → 9.1 (durability +2.0 closed the LangGraph gap, security +2.0 execution-verified, intent tier +0.5), X 3.5 → 4.5 (Ollama-first default + victor init quickstart). Devin/Cognition added: extreme-right adoption, mid-depth (closed box — spend governance, not execution containment).</p>
+<p class="subtitle" style="text-align:center;">Both axes moved: Y 8.0 → 9.0 (durability +2.0 closed the LangGraph gap, security +2.0 execution-verified, intent tier +0.5), X 3.5 → 5.0 (Ollama-first default + victor init quickstart). Devin/Cognition added: extreme-right adoption, mid-depth (closed box — spend governance, not execution containment).</p>
 </div>
 
 <!-- ═══════════════════════ SOLO ENTREPRENEUR ADOPTION TODO ═══════════════════════ -->
@@ -281,7 +283,7 @@
 </div>
 <div class="card">
 <h2>Adoption X-Axis Path</h2>
-<div class="metric-row"><span class="metric-name">Now</span><div class="metric-scores"><span class="score-new">5.5 / 10</span></div></div>
+<div class="metric-row"><span class="metric-name">Now</span><div class="metric-scores"><span class="score-new">5.0 / 10</span></div></div>
 <div class="metric-row"><span class="metric-name">Critical path (wk 1–4)</span><div class="metric-scores"><span class="score-new">5.5</span></div></div>
 <div class="metric-row"><span class="metric-name">Growth path (wk 5–12)</span><div class="metric-scores"><span class="score-new">7.0</span></div></div>
 <div class="metric-row"><span class="metric-name">Long-term (mo 2–6)</span><div class="metric-scores"><span class="score-new">8.0+</span></div></div>
