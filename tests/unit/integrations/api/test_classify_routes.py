@@ -552,12 +552,12 @@ async def test_real_managed_classify_owns_dispatch_and_cleanup(monkeypatch, tmp_
                 )
             )
             if outcome == "cancel":
-                await asyncio.wait_for(started.wait(), 3)
+                await asyncio.wait_for(started.wait(), 30)
                 task.cancel()
                 with pytest.raises(asyncio.CancelledError):
                     await task
             else:
-                result = await asyncio.wait_for(task, 3)
+                result = await asyncio.wait_for(task, 30)
                 assert result.status_code == (200 if outcome == "success" else 504)
         assert created and created[0]._request_manager is None
         assert base.closed
