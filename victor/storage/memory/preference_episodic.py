@@ -243,7 +243,7 @@ class PreferenceEpisodicStore:
         Returns:
             The stored ``Preference``.
         """
-        self._validate_content(content)
+        self.validate_content(content)
         self._check_scope(scope)
 
         timestamp = now if now is not None else time.time()
@@ -373,7 +373,7 @@ class PreferenceEpisodicStore:
 
         Refuses secret-shaped or oversized summaries; nothing is stored.
         """
-        self._validate_content(summary)
+        self.validate_content(summary)
 
         ts = timestamp if timestamp is not None else time.time()
         episode = Episode(
@@ -637,8 +637,18 @@ class PreferenceEpisodicStore:
     # Internals
     # ------------------------------------------------------------------
 
-    def _validate_content(self, content: str) -> None:
-        """Refuse oversized or secret-shaped content before any write."""
+    def validate_content(self, content: str) -> None:
+        """Validate content against the write-path policy without storing.
+
+        Raises:
+            OversizedContentRefused: content exceeds the byte cap.
+            SecretContentRefused: content matches secret-shaped patterns.
+
+        Public so write-path callers (tool, consolidation hook) can
+        pre-screen candidates — e.g. drop doomed consolidation proposals at
+        propose time — under exactly the same policy the store enforces
+        before persisting.
+        """
         size = len(content.encode("utf-8"))
         if size > self._max_content_bytes:
             raise OversizedContentRefused(size, cap_bytes=self._max_content_bytes)

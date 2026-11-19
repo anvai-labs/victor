@@ -231,6 +231,10 @@ DEFAULT_TOOL_PERMISSIONS: Dict[str, PermissionMode] = {
     "todo_write": PermissionMode.WORKSPACE_WRITE,
     "scaffold": PermissionMode.WORKSPACE_WRITE,
     "refactor": PermissionMode.WORKSPACE_WRITE,
+    # Long-term memory writes (FEP-0048): user-directed capture and delete
+    # mutate durable memory, so they need workspace-write, not read-only.
+    "memory_set": PermissionMode.WORKSPACE_WRITE,
+    "memory_forget": PermissionMode.WORKSPACE_WRITE,
     # Danger/full-access tools
     "shell": PermissionMode.DANGER_FULL_ACCESS,
     "code_executor": PermissionMode.DANGER_FULL_ACCESS,

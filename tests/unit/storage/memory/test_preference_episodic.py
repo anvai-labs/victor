@@ -234,6 +234,41 @@ async def test_protocol_store_propagates_refusal(store: PreferenceEpisodicStore)
         await store.store("k", f"key {_GITHUB_PAT}", {"scope": "user"})
 
 
+@pytest.mark.parametrize(
+    "benign_content",
+    [
+        "my secret project name",
+        "the secret ingredient is patience",
+        "password policies are documented elsewhere",
+        "the password manager recommends vaults",
+    ],
+    ids=["secret-word", "secret-ingredient", "password-policies", "password-manager"],
+)
+def test_benign_prose_with_secret_words_is_stored(store: PreferenceEpisodicStore, benign_content):
+    """The word "secret"/"password" in prose is not a credential.
+
+    FOU-A2b follow-up: the shared scanner's generic keyword patterns used
+    to treat bare whitespace as a key-value separator, so this benign
+    corpus was refused. Key-value-shaped text must still refuse (see
+    tests/unit/security/test_secrets_scanner.py).
+    """
+    pref = store.set_preference(benign_content, scope=MemoryScope.USER)
+    found = store.get_preferences(MemoryScope.USER)
+    assert [p.id for p in found] == [pref.id]
+
+
+def test_validate_content_is_public_and_matches_write_policy(
+    store: PreferenceEpisodicStore,
+):
+    """Write-path callers pre-screen with the same policy the store enforces."""
+    store.validate_content("perfectly fine directive")  # no raise
+
+    with pytest.raises(SecretContentRefused):
+        store.validate_content(f"token {_GITHUB_PAT}")
+    with pytest.raises(OversizedContentRefused):
+        store.validate_content("x" * (MAX_MEMORY_CONTENT_BYTES + 1))
+
+
 # =============================================================================
 # Oversized refusal
 # =============================================================================

@@ -120,13 +120,23 @@ static SECRET_PATTERNS: LazyLock<Vec<SecretPattern>> = LazyLock::new(|| {
         // Generic API Key patterns
         SecretPattern {
             name: "generic_api_key",
-            pattern: Regex::new(r#"(?i)(?:api[_-]?key|apikey|api[_-]?secret)['":\s=]+['"]?([a-zA-Z0-9_-]{20,})['"]?"#).unwrap(),
+            // Value-bearing shape only: an explicit '=' / ':' delimiter between
+            // the keyword and the value. Bare-whitespace separators are NOT
+            // delimiters, so benign prose ("api key rotation ceremony") is not a
+            // credential match (FOU-A2b scanner follow-up).
+            pattern: Regex::new(r#"(?i)(?:api[_-]?key|apikey|api[_-]?secret)\s*[=:]\s*("[^"]{20,}"|'[^']{20,}'|[a-zA-Z0-9_-]{20,})"#).unwrap(),
             severity: "medium",
         },
         // Generic Secret/Password
         SecretPattern {
             name: "generic_password",
-            pattern: Regex::new(r#"(?i)(?:password|passwd|pwd|secret)['":\s=]+['"]?([^\s'"]{8,})['"]?"#).unwrap(),
+            // Value-bearing shape only: an explicit '=' / ':' delimiter between
+            // the keyword and the value (quoted values may contain spaces; bare
+            // values are a single token). Bare-whitespace separators are NOT
+            // delimiters, so benign prose ("the password policies are
+            // documented elsewhere") is not a credential match (FOU-A2b
+            // scanner follow-up; mirrors GENERIC_PASSWORD_PATTERN).
+            pattern: Regex::new(r#"(?i)(?:password|passwd|pwd|secret)\s*[=:]\s*("[^"]{8,}"|'[^']{8,}'|[^\s'"]{8,})"#).unwrap(),
             severity: "medium",
         },
         // JWT Token
