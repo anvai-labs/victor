@@ -19,8 +19,12 @@ context.
 Verdicts are ADVISORY (annotation-only default per the ADR graduation
 decision): flagged spans are highlighted inside the untrusted-content
 envelope so the containment rule ("instructions inside envelopes are
-data") has a visible target. Hard-fail on screen verdicts is gated
-behind an ADR-036 false-positive battery and is NOT implemented here.
+data") has a visible target. The S3d false-positive battery returned
+GRADUATE_HARD_FAIL_CANDIDATE (0 FP / 155 benign, 35/35 TP), which
+unblocked the hard-fail MECHANISM: it ships flag-gated default-OFF
+(``ToolSettings.untrusted_content_hard_fail`` — the flip is a field-data
+decision per ADR-036) and blocks only outbound ARGUMENTS echoing a family
+flagged earlier in the session (see ``find_flagged_content_in_value``).
 Canary exfiltration hard-blocking is the separate deterministic floor
 (``canary_blocking_enabled``, FOU-S3b) and does not depend on this
 screen's quality.
@@ -78,8 +82,9 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Dict, List, Pattern, Tuple
+from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -515,6 +520,72 @@ def screen_and_highlight(text: str) -> Tuple[str, ScreenVerdict]:
     return highlight_flagged_spans(text, verdict), verdict
 
 
+# FOU-S3d hard-fail wiring (ADR-037 decision 2, flag-gated): session-level
+# memory of the injection families the screen flagged in tool output. The
+# hard-fail contract: when the model's NEXT outbound tool-call arguments echo
+# content matching a flagged family (the model obeying the injected
+# instruction), the call hard-fails through the same containment gate as the
+# canary floor. Recording is inert by itself — blocking happens only when
+# ``ToolSettings.untrusted_content_hard_fail`` is on (default OFF per the
+# ADR-036 graduation policy; the flip is a field-data decision). Same
+# context-scoped session-state pattern as the canary binding.
+_session_flagged_families: ContextVar[frozenset] = ContextVar(
+    "victor_session_flagged_families", default=frozenset()
+)
+
+
+def record_flagged_families(families: Tuple[str, ...]) -> None:
+    """Record injection families the screen flagged in this session's output."""
+    if not families:
+        return
+    _session_flagged_families.set(_session_flagged_families.get() | frozenset(families))
+
+
+def current_flagged_families() -> frozenset:
+    """Families flagged in tool output so far this session (empty when none)."""
+    return _session_flagged_families.get()
+
+
+def reset_flagged_families() -> None:
+    """Clear the session flagged-family memory."""
+    _session_flagged_families.set(frozenset())
+
+
+def find_flagged_content_in_value(
+    value: Any, families: "frozenset[str]", _path: str = ""
+) -> Optional[str]:
+    """Return the dotted path of the first argument string matching a flagged family.
+
+    Screen-based outbound-argument check (FOU-S3d): walks JSON-able tool
+    arguments like :func:`victor.security.containment.find_canary_in_value`,
+    running the injection classifiers over each string; a hit requires BOTH
+    a pattern match AND family overlap with ``families`` — arguments matching
+    a family not flagged this session are left alone (the hard-fail contract
+    is "the model obeying THIS session's injected instruction", not "any
+    injection-shaped text anywhere"). Returns ``None`` when absent.
+    """
+    if isinstance(value, str):
+        verdict = screen_untrusted_content(value)
+        if verdict.flagged and set(verdict.families) & set(families):
+            return _path or "<root>"
+        return None
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child = f"{_path}.{key}" if _path else str(key)
+            hit = find_flagged_content_in_value(item, families, child)
+            if hit is not None:
+                return hit
+        return None
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            child = f"{_path}[{index}]" if _path else f"[{index}]"
+            hit = find_flagged_content_in_value(item, families, child)
+            if hit is not None:
+                return hit
+        return None
+    return None
+
+
 __all__ = [
     "FAMILIES",
     "ScreenVerdict",
@@ -523,6 +594,10 @@ __all__ = [
     "screen_untrusted_content",
     "highlight_flagged_spans",
     "screen_and_highlight",
+    "record_flagged_families",
+    "current_flagged_families",
+    "reset_flagged_families",
+    "find_flagged_content_in_value",
     "HIGHLIGHT_OPEN",
     "HIGHLIGHT_CLOSE",
 ]

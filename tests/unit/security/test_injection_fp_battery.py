@@ -96,8 +96,9 @@ def test_battery_report_and_artifacts(tmp_path: Path):
     # Verdict rides in the report dict (memory_ab reporting convention).
     assert result["verdict"]["verdict"] == "GRADUATE_HARD_FAIL_CANDIDATE"
     assert result["verdict"]["should_gate_hard_fail"] is True
-    # The battery REPORTS; it never flips a production flag.
-    assert result["hard_fail_wired"] is False
+    # The battery REPORTS; it never flips the production flag. True here
+    # means the flag-gated mechanism is wired (FOU-S3d), default OFF.
+    assert result["hard_fail_wired"] is True
     # Recorded tightenings from the S3d FP pass ride in the report.
     assert result["tightenings"]
 

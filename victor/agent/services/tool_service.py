@@ -341,9 +341,18 @@ def format_and_prune_tool_output(
         and llm_output
     ):
         try:
-            from victor.security.injection_screen import screen_and_highlight
+            from victor.security.injection_screen import (
+                record_flagged_families,
+                screen_and_highlight,
+            )
 
             llm_output, _verdict = screen_and_highlight(llm_output)
+            # FOU-S3d: remember the flagged families for this session so the
+            # flag-gated argument hard-fail (untrusted_content_hard_fail) can
+            # detect the model echoing injected instructions. Recording is
+            # inert — nothing blocks unless that flag is on.
+            if _verdict.flagged:
+                record_flagged_families(_verdict.families)
         except Exception:  # advisory channel only — never break delivery
             logger.debug("Injection screen failed; delivering unhighlighted", exc_info=True)
     try:
