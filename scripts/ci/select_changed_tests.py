@@ -1150,7 +1150,20 @@ RELATED_TESTS = {
             "tests/unit/framework/test_agentic_loop_run_streaming.py",
             "tests/unit/framework/test_agentic_loop_verification.py",
             "tests/unit/framework/test_agentic_loop_effect_gate.py",
+            "tests/unit/evaluation/test_auditor_ab.py",
         ),
+    ),
+    "victor/evaluation/auditor_ab.py": ("tests/unit/evaluation/test_auditor_ab.py",),
+    "victor/framework/per_turn_auditor.py": (
+        "tests/unit/framework/test_per_turn_auditor.py",
+        "tests/unit/framework/test_per_turn_auditor_judge.py",
+        "tests/unit/framework/test_agentic_loop_per_turn_auditor.py",
+        "tests/unit/evaluation/test_auditor_ab.py",
+        "tests/unit/agent/test_edge_turn_judge.py",
+    ),
+    "victor/agent/edge_turn_judge.py": (
+        "tests/unit/agent/test_edge_turn_judge.py",
+        "tests/unit/evaluation/test_auditor_ab.py",
     ),
     "victor/agent/services/chat_runtime_services.py": (
         "tests/unit/agent/services/test_chat_stream_governance.py",
