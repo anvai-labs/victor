@@ -1,5 +1,5 @@
 {
-  "count": 94,
+  "count": 95,
   "pairs": [
     "victor.agent -> victor.framework.decorators",
     "victor.agent.creation_strategies -> victor.framework.agent_factory",
@@ -28,6 +28,7 @@
     "victor.agent.services.turn_execution_runtime -> victor.framework.agentic_loop",
     "victor.agent.services.turn_execution_runtime -> victor.framework.agentic_loop_executor",
     "victor.agent.services.turn_execution_runtime -> victor.framework.effect_gate",
+    "victor.agent.services.turn_execution_runtime -> victor.framework.per_turn_auditor",
     "victor.agent.services.turn_execution_runtime -> victor.framework.topology_runtime",
     "victor.agent.session_manager_base -> victor.ui.commands.utils",
     "victor.agent.streaming.handler -> victor.framework.temperature",

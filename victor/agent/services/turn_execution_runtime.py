@@ -1186,8 +1186,20 @@ class TurnExecutor:
         )
         _rubric_fn = self._build_rubric_complete_fn() if _strategy in ("rubric", "hybrid") else None
         from victor.framework.effect_gate import resolve_effect_gate_enabled
+        from victor.framework.per_turn_auditor import resolve_per_turn_auditor_enabled
 
         _effect_gate = resolve_effect_gate_enabled(_settings)
+        _auditor = resolve_per_turn_auditor_enabled(_settings)
+        # EVR-6: when the auditor is on, back it with the edge-model prefix judge (Ollama,
+        # token-free) — build_edge_turn_judge() returns None when the edge model is
+        # unavailable, so the auditor degrades to its deterministic heuristic. Mirrors the
+        # streaming path (chat_stream_executor.py) so the flag means the same thing in both
+        # execution modes.
+        _turn_judge = None
+        if _auditor:
+            from victor.agent.edge_turn_judge import build_edge_turn_judge
+
+            _turn_judge = build_edge_turn_judge()
         if caller_run_context is not None:
             # Structured path: loop config from the object; the criteria gate
             # resolution (FEP-0043) and completion-tool names travel inside it.
@@ -1195,12 +1207,14 @@ class TurnExecutor:
                 executor=executor,
                 completion_strategy=_strategy,
                 enable_effect_gate=_effect_gate,
+                enable_per_turn_auditor=_auditor,
             )
         else:
             _loop_config = {
                 "executor": executor,
                 "completion_strategy": _strategy,
                 "enable_effect_gate": _effect_gate,
+                "enable_per_turn_auditor": _auditor,
                 "enable_criteria_gate": bool((run_context or {}).get("criteria")),
             }
         orchestrator = self._resolve_orchestrator()
@@ -1218,6 +1232,7 @@ class TurnExecutor:
             rubric_complete_fn=_rubric_fn,
             verifier=getattr(self, "_verifier", None),
             max_verify_retries=getattr(self, "_max_verify_retries", 0),
+            per_turn_judge=_turn_judge,
         )
 
         # Inject task classification into state for execute_turn()
