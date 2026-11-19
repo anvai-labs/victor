@@ -264,6 +264,65 @@ curl -X POST http://localhost:8080/api/v1/mode/switch \
   -d '{"mode":"review"}'
 ```
 
+### Long-Term Memory
+
+Preferences and episodic memories persist across sessions (FEP-0048).
+Consolidation proposals are staged by the end-session hook and stored only
+after an explicit confirm.
+
+#### GET /api/v1/memory
+
+List stored preferences (both scopes by default; `scope=user|project`
+filters) and recent episodes.
+
+```bash
+curl "http://localhost:8080/api/v1/memory?scope=project"
+```
+
+#### POST /api/v1/memory
+
+Store a preference at user (default) or project scope.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/memory \
+  -H "Content-Type: application/json" \
+  -d '{"content":"always use uv, never pip","scope":"user"}'
+```
+
+Secret-shaped or oversized content is refused with a structured `400`:
+`{"success": false, "refusal": "SecretContentRefused", "error": "..."}` —
+the refusal names the matched secret type, never the value itself.
+
+#### DELETE /api/v1/memory
+
+Forget by exact `preference_id`, or by `content_match` within one
+`scope` (required with `content_match`).
+
+```bash
+curl -X DELETE "http://localhost:8080/api/v1/memory?preference_id=pref_ab12"
+```
+
+#### GET /api/v1/memory/proposals
+
+List consolidation proposals staged by the end-session hook (stored only
+after confirm).
+
+#### POST /api/v1/memory/proposals/confirm
+
+Commit the staged proposals as episodes.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/memory/proposals/confirm
+```
+
+#### POST /api/v1/memory/proposals/discard
+
+Drop the staged proposals without writing anything.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/memory/proposals/discard
+```
+
 ### GET /api/v1/capabilities/recommend
 
 Recommend teams and workflows from the shared framework coordination catalogs.

@@ -2,9 +2,9 @@
 fep: "0048"
 title: "Core Long-Term Memory — Preferences and Episodic Store Wired at Perceive"
 type: Standards Track
-status: Draft
+status: Implemented
 created: 2026-11-16
-modified: 2026-11-16
+modified: 2026-11-18
 authors:
   - name: Vijaykumar Singh
     email: vijay@anvaiops.com
@@ -191,8 +191,8 @@ blocking objections.
 
 ## Acceptance Criteria
 
-- [ ] Preference and episode content classes land behind `MemoryProviderProtocol`
-- [ ] Write path refuses secret-shaped content (negative tests pin this)
-- [ ] PERCEIVE injection is budget-bounded and disabled-when-empty is a no-op
-- [ ] `/memory` and API surfaces can list, set, and forget memories
-- [ ] A/B evidence recorded for the injection flag per ADR-036 before default-on
+- [x] Preference and episode content classes land behind `MemoryProviderProtocol`
+- [x] Write path refuses secret-shaped content (negative tests pin this)
+- [x] PERCEIVE injection is budget-bounded and disabled-when-empty is a no-op
+- [x] `/memory` and API surfaces can list, set, and forget memories
+- [x] A/B evidence recorded for the injection flag per ADR-036 before default-on

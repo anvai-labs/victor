@@ -420,6 +420,15 @@ class PreferenceEpisodicStore:
         )
         return [self._row_to_episode(row) for row in rows]
 
+    def recent_episodes(self, *, limit: int = 20) -> List[Episode]:
+        """Most recent episodes across threads, newest first (project db).
+
+        The listing surface for the user-facing memory views (the /memory
+        slash command and the GET /memory API route); thread-scoped queries
+        use ``episodes_for_thread``.
+        """
+        return self._recent_episodes(limit=limit)
+
     # ------------------------------------------------------------------
     # MemoryProviderProtocol read path
     # ------------------------------------------------------------------
