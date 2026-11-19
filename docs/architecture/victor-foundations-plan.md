@@ -36,7 +36,7 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | MERGED | #1907, #1910 (kernel-truth cBPF fix; live probes EPERM, fork=OK) |
 | FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a | MERGED | #1912 (8 adversarial findings fixed pre-merge; suite opt-out via tests/conftest.py). macOS Seatbelt live qualification COMPLETE 2026-11-18: 13/13 probe checks on macOS 26.2/arm64 — one real profile gap found+fixed (`/dev/null` write allow, #1944); probe pattern in tests/unit/tools/sandbox/test_seatbelt_qualification.py |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | TODO | — |
-| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c GREEN (injection screen: annotation-only, in-envelope highlighting, corpus-pinned false-positive discipline); S3d IN REVIEW (#1959: ADR-036 FP battery verdict = **CONDITIONAL** — benign 155/155 zero FP after 9 tightenings, adversarial 33/35 TP with 2 documented FNs [quote-guard abuse, homoglyph]; hard-fail stays GATED-on-verdict, wiring absent) | #1908, #1911 |
+| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c GREEN (injection screen: annotation-only, in-envelope highlighting, corpus-pinned false-positive discipline); S3d MERGED (#1959) + **S3d FOLLOW-UP MERGED (fix/injection-homoglyph-normalize): homoglyph pre-pass + quote-guard abuse carve-out closed both designed FN classes → battery re-run verdict = GRADUATE_HARD_FAIL_CANDIDATE (0 FP / 155 benign, 35 TP / 0 FN / 35 adversarial); hard-fail WIRING = the now-unblocked next increment (consumed via ADR-036; still absent here)** | #1908, #1911 |
 | FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | PART-BLOCKED | `effect_gated_completion` graduation LOCKED OUT by the 2026-08-03 negative A/B (on 0.847 vs off 0.864, overlapping CIs — do NOT graduate, codified #884); `per_turn_auditor` battery = executable remainder |
 | FOU-A1 | Subagent-spawn tool (Task-tool pattern) | A | ledger §A1 design | FOU-D2 | TODO | — |
 | FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | A2a MERGED (`PreferenceEpisodicStore` + `MemoryType.PREFERENCE/EPISODE` + two-database schema (memory_preference/memory_episode) + adapter lanes; 33-test suite: round-trip, scope isolation (negative), secret/oversize refusal, forget-by-id/content, thread queries, coordinator interop, db placement). A2b MERGED (#1952: `memory_set`/`memory_forget` tools, workspace-write gated + `DEFAULT_TOOL_PERMISSIONS`; `MemoryConsolidator` propose/commit/discard hook in Session service, confirm-by-default with `memory_auto_capture` default off; secret-scanner word-boundary fix — generic keyword patterns now require a `[=:]` value-bearing delimiter, benign prose no longer refused, dual-path (native+Python) parity tests). A2c MERGED (#1954: `MemoryBlockBuilder` PERCEIVE injection via PerceptionIntegration `memory_injector` collaborator — scoped coordinator queries, 500-token hard cap by rank exclusion, off-when-empty byte-identical negative, flag + `VICTOR_MEMORY_ENABLED` env re-resolved at every read; BudgetManager additive context-block registration so memory competes by priority (evict weaker-only, refit, starve); `victor/evaluation/memory_ab.py` deterministic A/B battery (flag_ab.py documented as too LLM-heavy for the wiring gate) over seeded fixtures → snapshots + ADR-036 verdict `KEEP_DEFAULT_ON` (usefulness 1.0, max 20 tokens, 0 false surfaces, baseline 0 injections); 48-test suite; production container wiring deferred per the FEP's additive-optional hook parameter). A2d IN REVIEW (#1956: `/memory` slash command — list preferences with scope/source/confidence + recent episodes + staged proposals, set with user-scope default/`--project`, forget by id/content, confirm/discard; API routes GET/POST/DELETE `/memory` + `/memory/proposals` list/confirm/discard with sibling management-route auth posture and structured 4xx refusals that never echo the matched secret; shared consolidator handle on `MemoryConsolidator` reached from the client layer via the new `victor.framework.memory` seam, bootstrap SessionService now binds it (confirm-by-default, auto-capture only from `settings.memory.memory_auto_capture`) so end_session stages onto the handle the surfaces confirm; `PreferenceEpisodicStore.recent_episodes` public listing read; 45-test suite; docs in quickstart + http-api) | #1951; A2b MERGED #1952; A2c MERGED #1954; A2d IN REVIEW #1956 |
@@ -184,6 +184,48 @@ No FEP required (new tool, not a framework API change). Sketch for implementatio
 - Gates: black 26.10.1 + ruff clean; tests/unit/security/ +
   tests/unit/evaluation/ = 1592 passed, 7 skipped (known env-noise warning
   only); `pytest tests/ --collect-only -q` clean (41434 tests).
+
+## FOU-S3d follow-up evidence (2026-11-19, fix/injection-homoglyph-normalize)
+
+Closes the two DESIGNED FN classes from the S3d battery; **battery re-run
+verdict: GRADUATE_HARD_FAIL_CANDIDATE** (0 FP / 155 benign, 35 TP / 0 FN /
+35 adversarial; `hard_fail_wired: False` still pinned — the battery
+REPORTS, it never flips).
+
+- **Homoglyph pre-pass** (`normalize_for_matching` in
+  `victor/security/injection_screen.py`): patterns run over a NORMALIZED
+  COPY — per-character NFKC (folds fullwidth/mathematical-alphanumeric
+  forms) plus a curated Cyrillic/Greek look-alike→Latin map (а е о р с х у
+  і ѕ ј һ ԁ … + uppercase + Greek ο ι κ ρ τ υ ν α ε …). The screened
+  content handed onward is BYTE-IDENTICAL (detection-only normalization).
+  Span handling: normalization builds a per-character index map and
+  `_map_span` maps matches back to ORIGINAL-text coordinates exactly —
+  no whole-line approximation, no misaligned highlight offsets (positive
+  test pins the span cut from the original text with the homoglyph
+  intact). ASCII input short-circuits to the identity map.
+- **Quote-guard abuse carve-out**: the odd-quote-parity guard (already
+  PER-LINE, never cumulative) still skips discussion OF a payload; a
+  quoted run whose DIRECTIVE continues after its closing quote (imperative
+  verb — do/dump/delete/send/… — in the 160-char tail window past the
+  close) now flags. `_IMPERATIVE_CONTINUATION` and the exfil direction
+  lookahead accept a closing quote so the candidate match is found across
+  the quote boundary; the guard + carve-out then decide discussion vs.
+  directive. Quoted discussions (py-020/docs-004/review-001/review-003)
+  stay guarded — pinned as new benign counterparts alongside real
+  Cyrillic/Greek prose (normalization must not create FPs).
+- **Positive tests added** (`test_injection_screen.py`
+  `TestS3dFollowUpAdversarialClasses`): inj-034/inj-035 verbatim +
+  variants (Cyrillic о/е/а, Greek omicron, fullwidth via NFKC; quote
+  abuse on impersonation and exfil phrasing), content-immutability,
+  span-mapping, and discussion-vs-abuse discrimination. Battery suite:
+  `EXPECTED_FNS = set()`, verdict assertions flipped to
+  GRADUATE_HARD_FAIL_CANDIDATE.
+- **Hard-fail wiring is the now-unblocked next increment** (consumed via
+  ADR-036): evidence complete, no production flag touched here.
+- Gates: black 26.10.1 + ruff clean; tests/unit/security/ +
+  tests/unit/evaluation/ = 1610 passed, 7 skipped;
+  `pytest tests/ --collect-only -q` clean (41745 tests).
+
 ## FOU-A0 evidence: codegraph intent tier (2026-11-18, FEP-0049)
 
 Parallel track to the FOU ladder (adoption/X-axis capability). The original
