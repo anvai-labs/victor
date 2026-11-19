@@ -46,6 +46,8 @@ class ToolNames:
     WORKFLOW = "workflow"
     OVERVIEW = "overview"
     SCAFFOLD = "scaffold"
+    MEMORY_SET = "memory_set"
+    MEMORY_FORGET = "memory_forget"
 
     # Unified command-shell domains (bash-style `domain action args`).
     # These are the primary LLM-facing tools; granular primitives above are
