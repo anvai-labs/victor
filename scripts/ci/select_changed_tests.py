@@ -362,6 +362,28 @@ RELATED_TESTS = {
     "victor/storage/memory/preference_episodic.py": (
         "tests/unit/storage/memory/test_preference_episodic.py",
     ),
+    "victor/tools/memory_write.py": (
+        "tests/unit/tools/test_memory_write.py",
+    ),
+    "victor/agent/services/memory_consolidation.py": (
+        "tests/unit/agent/services/test_memory_consolidation.py",
+    ),
+    "victor/config/memory_settings.py": (
+        "tests/unit/config/test_memory_settings.py",
+        "tests/unit/agent/services/test_memory_consolidation.py",
+    ),
+    "victor/security/permissions.py": (
+        "tests/unit/security/test_permissions.py",
+        "tests/unit/tools/test_memory_write.py",
+    ),
+    "victor/security/safety/secrets.py": (
+        "tests/unit/security/test_secrets_scanner.py",
+        "tests/unit/storage/memory/test_preference_episodic.py",
+    ),
+    "rust/crates/python-bindings/src/secrets.rs": (
+        "tests/unit/security/test_secrets_scanner.py",
+        "tests/unit/storage/memory/test_preference_episodic.py",
+    ),
     "victor/config/classification_settings.py": (
         "tests/unit/agent/services/test_classification_backend.py",
         "tests/unit/architecture/test_layering_facades.py",
