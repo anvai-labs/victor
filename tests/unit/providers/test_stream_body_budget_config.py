@@ -30,7 +30,6 @@ def test_stream_body_budget_becomes_one_integer_gateway_header(monkeypatch):
     provider = SandhiTypedProviderMixin()
     provider._gateway_overrides = lambda: {"url": "https://gateway.test"}
     monkeypatch.setattr(st, "_wire_call_headers", lambda: {"x-sandhi-step-id": "step-1"})
-    monkeypatch.setattr(st, "installed_chat_contract_minor", lambda: 14)
     provider.extra_config = {"stream_body_timeout_secs": 600}
     headers = provider._sandhi_stream_wire_headers()
     assert headers["x-sandhi-step-id"] == "step-1"
@@ -53,7 +52,6 @@ async def test_stream_body_budget_reaches_gateway_stream_wire_request(monkeypatc
     provider._typed_provider = lambda model: object()
     provider._gateway_overrides = lambda: {"url": "https://gateway.test"}
     monkeypatch.setattr(st, "_wire_call_headers", lambda: {"x-sandhi-step-id": "step-1"})
-    monkeypatch.setattr(st, "installed_chat_contract_minor", lambda: 14)
     provider._sandhi_timeout = lambda: 1.0
     provider._sandhi_stream_idle_timeout = lambda: 1.0
     captured = []
@@ -113,7 +111,6 @@ class TestStreamBodyBudgetReviewFixes:
 
     def test_fractional_ms_rounds_not_truncates(self, monkeypatch):
         """Finding 1e: 1.5ms must round to '2', not truncate to '1'."""
-        monkeypatch.setattr(st, "installed_chat_contract_minor", lambda: 14)
         provider = SandhiTypedProviderMixin()
         provider.extra_config = {"stream_body_timeout_secs": 0.0015}
         headers = provider._sandhi_stream_wire_headers()
@@ -144,15 +141,13 @@ class TestStreamBodyBudgetReviewFixes:
         headers = provider._sandhi_base_wire_headers()
         assert headers == provider._sandhi_stream_wire_headers()
 
-    def test_body_budget_gated_on_contract_minor(self, monkeypatch):
-        """Finding 4: the header is dropped with a warning when the
-        installed binding predates the body-budget contract minor."""
+    def test_body_budget_is_emitted_under_clean_version_one_pin(self, monkeypatch):
+        """The exact 0.22 pin always owns the body-budget preflight header."""
         monkeypatch.setattr(st, "_wire_call_headers", lambda: {"x-sandhi-step-id": "s"})
-        monkeypatch.setattr(st, "installed_chat_contract_minor", lambda: 13)
         provider = SandhiTypedProviderMixin()
         provider.extra_config = {"stream_body_timeout_secs": 600}
         headers = provider._sandhi_stream_wire_headers()
-        assert "x-sandhi-stream-body-budget-ms" not in headers
+        assert headers["x-sandhi-stream-body-budget-ms"] == "600000"
 
     def test_idle_and_setup_use_shared_validator(self):
         """Finding 1c: the shared validator enforces the same bounds as the

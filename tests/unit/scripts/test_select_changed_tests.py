@@ -576,6 +576,23 @@ def test_mcp_schema_owners_include_legacy_location_and_end_to_end_contract(sourc
     assert {contract_test, "tests/unit/tools/test_mcp_schema_fidelity.py"} <= set(select([source]))
 
 
+def test_reasoning_capability_changes_select_nonblocking_and_exact_metadata_regressions():
+    selected = select(
+        [
+            "victor/agent/provider_capabilities.py",
+            "victor/providers/moonshot_provider.py",
+        ]
+    )
+    assert {
+        "tests/unit/agent/planning/test_readable_schema.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+        "tests/unit/providers/test_sandhi_thinking_capabilities.py",
+        "tests/unit/providers/test_moonshot_kimi_k3.py",
+    } == set(selected)
+    transport_selected = set(select(["victor/providers/sandhi_transport.py"]))
+    assert "tests/unit/providers/test_sandhi_thinking_capabilities.py" in transport_selected
+
+
 def test_stream_helper_changes_select_retry_and_boundary_regressions():
     assert {
         "tests/unit/agent/services/test_chat_stream_governance.py",

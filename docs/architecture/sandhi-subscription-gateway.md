@@ -2,8 +2,8 @@
 
 ## Coordinated execution-contract migration
 
-Victor's 0.31.1 maintenance candidate is the release carrier for published
-`sandhi-gateway==0.21.0`. This consumer pin does not imply a service upgrade.
+Victor's 0.32.0 promotion candidate is the release carrier for published
+`sandhi-gateway==0.22.1`. This consumer pin does not imply a service upgrade.
 The user authorized a coordinated migration because Victor is the sole client;
 there is no requirement to retain a permissive Sandhi legacy mode.
 
@@ -19,7 +19,7 @@ An explicit transient provider rejection can still use the logical-call retry
 policy and keeps the same call identity across authorized attempts.
 
 Sandhi's four admitted typed streaming source families share source validation
-and actual token observation across embedded and accounted calls. Published 0.21.0
+and actual token observation across embedded and accounted calls. Published 0.22.1
 retains the durable HTTP execution boundary, explicit gateway-peer contract,
 optional authentication profiles and model-scoped OIDC budgets, and adds
 hierarchical rolling budget windows. HTTP
@@ -30,7 +30,7 @@ delivery or be refused explicitly. Disjoint fresh/read/write/output token counts
 are evidence; cache policy and provider price schedules remain separate concerns.
 An embedded observation is not a gateway ledger receipt.
 
-The official published Sandhi 0.21.0 wheel has passed focused compatibility checks
+The official published Sandhi 0.22.1 wheel has passed focused compatibility checks
 against this Victor source: installed version and contract constants, generated
 Python-stub identity, and the Sandhi binding/provider suites. Keep Contracts and
 CodeGraph on their independent release lines. The matching
@@ -38,11 +38,11 @@ Victor consumer remains subject to independent review, public-hosted CI and its
 own release gate. Deployment is a separate decision.
 
 The root, API and CPU-embeddings deployment locks carry the same exact Sandhi
-pin. The mandatory dependency resolves from the official PyPI 0.21.0 release.
+pin. The mandatory dependency resolves from the official PyPI 0.22.1 release.
 The 0.20.0 consumer qualification remains the latest comprehensive public record;
-0.21.0 retains its generated Python contract and wire/chat contract versions, and
-the 0.31.1 maintenance candidate repeats the binding and provider checks before
-promotion. The 0.17.x–0.20.x records remain historical and do not substitute for
+0.21.0 retained its generated Python contract and wire/chat contract versions;
+the 0.32.0 candidate repeats the binding, semantic-thinking and provider checks
+before promotion. The 0.17.x–0.20.x records remain historical and do not substitute for
 this acceptance.
 
 ### Explicit endpoint usage conventions
@@ -71,7 +71,7 @@ account headers and cache capabilities remain server owned.
 
 ### Independent gateway client dialect
 
-The Victor 0.31.1 candidate and published Sandhi 0.21.0 support a local
+The Victor 0.32.0 candidate and published Sandhi 0.22.1 support a local
 starter with no client credential. A gateway URL deliberately selects that
 gateway before upstream account or API-key discovery:
 
@@ -114,7 +114,7 @@ Users do not create a fake key. The current binding requires a non-empty bearer,
 so Victor internally sends the fixed public `Bearer not-needed` marker in starter
 mode. It carries no identity or authority; a None-mode server ignores it and
 creates its own fixed principal. A protected server refuses it. Published Sandhi
-0.20.0 introduced the starter server mode retained by 0.21.0.
+0.20.0 introduced the starter server mode retained by 0.22.1.
 
 `gateway.protocol` accepts `chat_completions`, `anthropic_messages`, `responses`, or
 `gemini_generate_content`. It overrides the provider's direct protocol hint. With no
@@ -655,8 +655,9 @@ before partial JSON generation instead of timing out minutes later. Authenticate
 model discovery can expose the sanitized effective limits without revealing
 backend URLs, credentials or provider references.
 
-Exact-policy comparison and sanitized discovery are Sandhi 0.21 capabilities.
-Victor's embedded `sandhi-gateway==0.21.0` binding remains wire-compatible.
+Exact-policy comparison and sanitized discovery were introduced by Sandhi 0.21
+and are retained by 0.22.1. Victor's embedded `sandhi-gateway==0.22.1` binding
+remains wire-compatible.
 Enable the declared 600-second planning budget only after the target gateway
 reports an effective policy that admits it.
 

@@ -60,11 +60,25 @@ class TestConsumedContractPin:
                 "tool_choice",
                 "temperature",
                 "max_output_tokens",
+                "thinking",
                 "extensions",
                 "metadata",
             },
         )
         assert not missing, f"chat-request.v1 lost fields Victor sends: {missing}"
+
+    def test_thinking_request_shape_victor_consumes(self):
+        schema = _schema("chat-request.v1")
+        thinking = schema.get("definitions", {}).get("ThinkingRequestV1")
+
+        assert thinking is not None
+        assert thinking.get("required") == ["enabled"]
+        assert set((thinking.get("properties") or {})) == {
+            "enabled",
+            "effort",
+            "budget_tokens",
+        }
+        assert thinking.get("additionalProperties") is False
 
     def test_chat_response_carries_fields_victor_reads(self):
         missing = _missing(

@@ -2168,22 +2168,6 @@ def _empty_response_diagnostics(plan_response: Any) -> Dict[str, Any]:
     return diagnostics
 
 
-def _provider_supports_reasoning_effort(provider: Any, model: Optional[str]) -> bool:
-    """Whether ``reasoning_effort`` may be forwarded for this provider/model.
-
-    Sending it where it is not accepted converts a recoverable empty response
-    into a hard 400, so this defaults to False whenever it cannot be confirmed.
-    """
-    checker = getattr(provider, "supports_reasoning_effort", None)
-    if not callable(checker):
-        return False
-    try:
-        return bool(checker(model))
-    except Exception:
-        logger.debug("supports_reasoning_effort check failed", exc_info=True)
-        return False
-
-
 async def generate_task_plan(
     provider,
     user_request: str,
@@ -2280,7 +2264,6 @@ async def generate_task_plan(
     plan_max_tokens = base_plan_max_tokens
     plan_temperature = 0.2  # Lower temp for consistent structure
     plan_reasoning_effort: Optional[str] = None
-    supports_reasoning_effort = _provider_supports_reasoning_effort(provider, model)
 
     last_error = None
     for attempt in range(max_retries + 1):
@@ -2366,11 +2349,14 @@ async def generate_task_plan(
             # reproduces it. Escalate the parameters before the next attempt.
             if isinstance(e, _EmptyPlanResponse) and attempt < max_retries:
                 diagnosis = diagnose_empty_response(_empty_response_diagnostics(plan_response))
+                # Planning begins with no reasoning control. Recovery may expand
+                # the token budget, but must not introduce capability discovery
+                # or an effort override that the caller never requested.
                 retry = next_retry_parameters(
                     attempt=attempt,
                     base_max_tokens=plan_max_tokens,
                     diagnosis=diagnosis,
-                    supports_reasoning_effort=supports_reasoning_effort,
+                    supports_reasoning_effort=False,
                 )
                 if retry.escalated:
                     logger.info("Plan generation: %s", retry.reason)

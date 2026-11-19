@@ -1267,3 +1267,76 @@ class TestStepEnrichment:
         assert (
             by_id["8a"].context["loop_over"] == by_id["3"].context["produces"]
         ), "loop_over must match produces so plan_state flows correctly"
+
+
+@pytest.mark.asyncio
+async def test_generate_task_plan_reasoning_recovery_preserves_omitted_effort():
+    class Provider:
+        model = "qwen3.7-plus"
+
+        def __init__(self) -> None:
+            self.capability_calls = 0
+            self.chat_kwargs = []
+
+        async def supports_reasoning_effort_async(self, model):
+            self.capability_calls += 1
+            return True
+
+        async def chat(self, **kwargs):
+            self.chat_kwargs.append(kwargs)
+            if len(self.chat_kwargs) == 1:
+                return {"content": "", "reasoning": "spent the planning budget"}
+            return {
+                "content": (
+                    '{"name":"ok","complexity":"complex","desc":"valid",'
+                    '"steps":[[1,"analyze","Read manifest","read",[],"tool"]]}'
+                )
+            }
+
+    provider = Provider()
+    plan = await generate_task_plan(
+        provider=provider,
+        user_request="review manifest",
+        complexity=TaskComplexity.COMPLEX,
+        max_retries=1,
+    )
+    assert plan.name == "ok"
+    assert provider.capability_calls == 0
+    assert len(provider.chat_kwargs) == 2
+    assert "reasoning_effort" not in provider.chat_kwargs[0]
+    assert "reasoning_effort" not in provider.chat_kwargs[1]
+    assert provider.chat_kwargs[1]["max_tokens"] > provider.chat_kwargs[0]["max_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_generate_task_plan_does_not_probe_reasoning_for_omitted_effort():
+    class Provider:
+        model = "qwen3.7-plus"
+
+        def __init__(self) -> None:
+            self.capability_calls = 0
+            self.chat_kwargs = None
+
+        async def supports_reasoning_effort_async(self, model):
+            self.capability_calls += 1
+            return True
+
+        async def chat(self, **kwargs):
+            self.chat_kwargs = kwargs
+            return {
+                "content": (
+                    '{"name":"ok","complexity":"complex","desc":"valid",'
+                    '"steps":[[1,"analyze","Read manifest","read",[],"tool"]]}'
+                )
+            }
+
+    provider = Provider()
+    plan = await generate_task_plan(
+        provider=provider,
+        user_request="review manifest",
+        complexity=TaskComplexity.COMPLEX,
+        max_retries=1,
+    )
+    assert plan.name == "ok"
+    assert provider.capability_calls == 0
+    assert "reasoning_effort" not in provider.chat_kwargs

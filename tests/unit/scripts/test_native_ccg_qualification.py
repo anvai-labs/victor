@@ -42,6 +42,7 @@ def assert_contract(qualification, release):
     )
     assert "if" not in probe and not probe.get("continue-on-error")
     build = next(step for step in job["steps"] if "PyO3/maturin-action@" in step.get("uses", ""))
+    assert build["with"]["maturin-version"] == "1.16.0"
     assert build["with"]["target"] == "${{ matrix.target }}"
     assert "--locked" in build["with"]["args"] and "--release" in build["with"]["args"]
     assert build["with"]["manylinux"] == "auto"
@@ -86,3 +87,35 @@ def test_packaging_guard_rejects_incomplete_or_unqualified_wheels(bypass):
         release["jobs"]["build-native"]["uses"] = "./.github/workflows/old-native.yml"
     with pytest.raises(AssertionError):
         assert_contract(qualification, release)
+
+
+def test_maturin_version_is_pinned_across_native_builds():
+    qualification = load("native-ccg-qualification.yml")
+    fast = load("ci-fast.yml")
+    action = next(
+        step
+        for step in qualification["jobs"]["wheel"]["steps"]
+        if "PyO3/maturin-action@" in step.get("uses", "")
+    )
+    assert action["with"]["maturin-version"] == "1.16.0"
+    commands = [
+        line.strip()
+        for step in fast["jobs"]["native-parity"]["steps"]
+        for line in step.get("run", "").splitlines()
+        if "maturin" in line and "pip install" in line
+    ]
+    assert commands == ['pip install --upgrade pip "maturin==1.16.0"']
+    assert Path(ROOT / "rust/requirements-build.txt").read_text() == "maturin==1.16.0\n"
+    assert 'requires = ["maturin==1.16.0"]' in (ROOT / "rust/pyproject.toml").read_text()
+
+
+def test_ci_fast_rust_toolchains_are_pinned():
+    fast = load("ci-fast.yml")
+    toolchains = [
+        step
+        for job in fast["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("uses", "").startswith("dtolnay/rust-toolchain@")
+    ]
+    assert toolchains
+    assert all(step.get("with", {}).get("toolchain") == "1.100.0" for step in toolchains)

@@ -277,3 +277,25 @@ async def test_stream_inherits_reasoning_without_overriding_request(
     await _Helper(orch)._stream_provider_response_inner({}, override, _ctx())
     assert captured.get("reasoning_effort") == expected
     assert override == original_override
+
+
+async def test_stream_reasoning_capability_probe_is_async():
+    captured = {}
+
+    async def stream(**kwargs):
+        captured.update(kwargs)
+        yield StreamChunk(content="ok")
+
+    async def supports_async(_model):
+        return True
+
+    def supports_sync(_model):
+        raise AssertionError("streaming discovery must not block the event loop")
+
+    orch = _make_orch(stream)
+    orch.reasoning_effort = "high"
+    orch.provider.supports_reasoning_effort_async = supports_async
+    orch.provider.supports_reasoning_effort = supports_sync
+    await _Helper(orch)._stream_provider_response_inner({}, {}, _ctx())
+
+    assert captured["reasoning_effort"] == "high"

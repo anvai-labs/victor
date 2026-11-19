@@ -90,7 +90,7 @@ COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
 ENV PATH=/usr/local/cargo/bin:$PATH RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && \
-    rm -rf /var/lib/apt/lists/* && python -m pip install 'maturin>=1.10,<2'
+    rm -rf /var/lib/apt/lists/* && python -m pip install 'maturin==1.16.0'
 COPY rust /build/rust
 RUN cd /build/rust && maturin build --release --locked --out /native-wheels
 
