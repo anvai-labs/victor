@@ -306,6 +306,38 @@ class TestRepairJson:
         parsed = json.loads(result)
         assert parsed == ["a", "b", "c"]
 
+    def test_preserves_literals_inside_string_values(self):
+        """Regression (FOU-C3 #1957): True/False/None inside string VALUES
+        must survive the repair; only bare literals are rewritten."""
+        input_str = "{'msg': 'True facts about None', 'flag': True}"
+        result = repair_json(input_str)
+        parsed = json.loads(result)
+        assert parsed == {"msg": "True facts about None", "flag": True}
+
+    def test_preserves_midword_literal_substrings(self):
+        """Regression: mid-word occurrences in string values are not rewritten."""
+        input_str = "{'m': 'NoneTheLess', 'n': 'TrueNorth', 'x': None}"
+        parsed = json.loads(repair_json(input_str))
+        assert parsed == {"m": "NoneTheLess", "n": "TrueNorth", "x": None}
+
+    def test_preserves_escaped_quotes_inside_strings(self):
+        """Regression: escaped quotes inside strings stay intact."""
+        input_str = "{'a': 'it\\'s True', 'b': \"quote: True\"}"
+        parsed = json.loads(repair_json(input_str))
+        assert parsed == {"a": "it's True", "b": "quote: True"}
+
+    def test_preserves_braces_inside_strings(self):
+        """Regression: braces inside string values are not structural."""
+        input_str = "{'s': 'braces {not json} here', 'n': None}"
+        parsed = json.loads(repair_json(input_str))
+        assert parsed == {"s": "braces {not json} here", "n": None}
+
+    def test_rewrites_bare_literals_outside_strings(self):
+        """Bare Python literals OUTSIDE strings are still rewritten."""
+        input_str = "{'flag': True, 'off': False, 'val': None, 's': 'True stays'}"
+        parsed = json.loads(repair_json(input_str))
+        assert parsed == {"flag": True, "off": False, "val": None, "s": "True stays"}
+
 
 class TestExtractJsonObjects:
     """Tests for extract_json_objects function."""
