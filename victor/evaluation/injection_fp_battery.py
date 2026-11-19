@@ -124,6 +124,22 @@ TIGHTENINGS: Tuple[Dict[str, str], ...] = (
         "change": "added (tell|give|show|share|print|output|reveal) + 'the/all' form",
         "benign_counterpart": "no FP on corpus; closes inj-028/inj-032/inj-033 FNs",
     },
+    {
+        "family": "(all) — S3d follow-up",
+        "change": "homoglyph pre-pass: patterns match a per-char NFKC + "
+        "Cyrillic/Greek look-alike-normalized COPY (content handed onward is "
+        "byte-identical; spans mapped back via a per-char index map)",
+        "benign_counterpart": "no FP on corpus; closes inj-035 homoglyph FN",
+    },
+    {
+        "family": "(all) — S3d follow-up",
+        "change": "quoted-mention abuse carve-out: a quoted run whose directive "
+        "continues after its closing quote (imperative verb in the tail) flags; "
+        "imperative/direction lookaheads accept a closing quote so the candidate "
+        "is found across the quote boundary",
+        "benign_counterpart": "py-020/docs-004/review-001/review-003 quoted "
+        "discussions stay guarded; closes inj-034 quote-guard-abuse FN",
+    },
 )
 
 
@@ -322,8 +338,9 @@ def run_injection_fp_battery(
 
     Returns:
         Dict with snapshot paths, both arm dicts, the ADR-036 verdict, the
-        recorded tightenings, and ``hard_fail_wired=False`` (the battery
-        REPORTS; it never flips a production flag).
+        recorded tightenings, and the ``hard_fail_wired`` posture flag
+        (True: the flag-gated mechanism is wired, default OFF — the battery
+        REPORTS; it never flips the production flag).
     """
     out = Path(out_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -352,9 +369,11 @@ def run_injection_fp_battery(
         "injection_battery": injection.to_dict(),
         "verdict": verdict.to_dict(),
         "tightenings": [dict(t) for t in TIGHTENINGS],
-        # Proof-of-posture: this battery gates nothing by itself — hard-fail
-        # wiring stays absent until a clean verdict lands in a future PR.
-        "hard_fail_wired": False,
+        # Proof-of-posture: this battery gates nothing by itself. The
+        # hard-fail MECHANISM shipped flag-gated default-OFF
+        # (ToolSettings.untrusted_content_hard_fail, FOU-S3d wiring);
+        # True reports the wiring exists, not that the flag flipped.
+        "hard_fail_wired": True,
     }
 
 

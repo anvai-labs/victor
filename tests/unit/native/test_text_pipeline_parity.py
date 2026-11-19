@@ -28,17 +28,17 @@ Documented divergences are pinned, not hidden:
   STRUCTURE (identical normalization bytes, identical block splits, identical
   duplicate-flag sequences and duplicate indices, deterministic and
   key-order-independent signatures). Pinned in ``TestHashFunctionDivergence``.
-- **``repair_json`` string-content bug** — the Python fallback replaces
-  ``True``/``False``/``None`` byte-wise BEFORE quote tracking, corrupting
-  string values (``{'msg': 'True facts about None'}`` becomes
-  ``"true facts about null"``); the Rust state machine is string-aware and
-  preserves them. Pinned in ``TestRepairJsonStringContentDivergence`` — the
-  Rust behavior is the intended contract; fixing the Python fallback belongs
-  to the json_repair owners.
-- **``coerce_string_type`` install-shape split** — with the wheel installed,
-  the scalar hot path maps ``yes``/``on``/``1``/``0`` to string/int; without
-  it, the pure-Python fallback maps them to bool. Pinned in
-  ``TestCoerceStringTypeDivergence``.
+- **``repair_json`` string-content** — formerly a pinned divergence (the
+  Python fallback rewrote ``True``/``False``/``None`` inside string values);
+  the fallback now ports the Rust state machine's quote/escape tracking, so
+  both paths are byte-identical including string-content preservation.
+  Covered by ``TestRepairJsonParity`` and
+  ``TestRepairJsonStringContentParity``.
+- **``coerce_string_type`` install-shape split** — RESOLVED: the sweep found
+  the fallback mapping ``yes``/``on``/``1``/``0`` to bool while the native
+  contract keeps them string/int. The fallback now runs the same shared
+  coercion pipeline as the hot path (native semantics), asserted as strict
+  output parity in ``TestCoerceStringTypeParity``.
 
 Selected by the native-parity CI job (``pytest -m native_parity``).
 """
@@ -281,6 +281,20 @@ REPAIR_CORPUS = [
     '{"a": "quote\\" inside", \'b\': 2}',  # escaped quote + mixed quotes
     "[1, 2, 3]",
     "  {'spaced': 'key'}  ",
+    # String-content preservation (FOU-C3 #1957 finding): literals inside
+    # string VALUES must survive the repair on both paths.
+    "{'msg': 'True facts about None'}",
+    "{'msg': 'NoneTheLess TrueNorth', 'flag': False}",
+    "{'a': 'TrueFalseNone'}",
+    "{'s': 'braces {not json} here', 'n': None}",
+    "{'a': 'escaped \\' single', 'b': True}",  # \' apostrophe escape
+    "{'a': 'backslash \\\\ then None'}",  # backslash escape before a literal
+    "{'k': \"double 'inner' single\", 'j': True}",  # quotes inside quotes
+    "{'a': 'mixed \\' and \" both', 'b': None}",
+    "{'apostrophe': \"it's True alright\"}",  # ' inside double-quoted string
+    '{"key": "None value"}',  # literals in a valid-JSON string value
+    "[True, False, None]",  # literals outside strings stay rewriteable
+    "True",  # bare literal document
 ]
 
 EXTRACT_CORPUS = [
@@ -320,55 +334,142 @@ class TestExtractJsonObjectsParity:
             assert text[start:end] == extracted
 
 
-class TestRepairJsonStringContentDivergence:
-    """PINNED parity MISMATCH: the Python fallback corrupts string contents.
-
-    The Rust state machine only rewrites ``True``/``False``/``None`` OUTSIDE
-    string literals; the Python fallback does a blind ``str.replace`` BEFORE
-    its quote tracking, so string VALUES containing those words are silently
-    altered. Rust is the intended contract (it parses to the right data);
-    changing the fallback belongs to the json_repair owners. Breaking this
-    pin means one side changed — re-judge, then update.
-    """
+class TestRepairJsonStringContentParity:
+    """The FOU-C3 #1957 finding, now closed: the Python fallback used to
+    rewrite ``True``/``False``/``None`` byte-wise BEFORE quote tracking,
+    corrupting string values (``{'msg': 'True facts about None'}`` became
+    ``"true facts about null"``). The fallback now tracks quote/escape state
+    exactly like the Rust machine, so both paths agree byte for byte AND
+    parse back to the original string data."""
 
     @_requires_native
-    def test_rust_preserves_and_python_corrupts(self):
+    def test_string_values_survive_repair_both_paths(self):
         text = "{'msg': 'True facts about None'}"
         native = json_repair_mod.repair_json(text)
         fallback = _forced_python(json_repair_mod, "repair_json", text)
 
-        assert json_repair_mod.json_loads(native) == {"msg": "True facts about None"}
-        assert native != fallback
-        # Pin the exact corrupted fallback output so the divergence is precise.
-        assert fallback == '{"msg": "true facts about null"}'
+        assert native == fallback
+        expected = {"msg": "True facts about None"}
+        assert json_repair_mod.json_loads(native) == expected
+        assert json_repair_mod.json_loads(fallback) == expected
 
-
-class TestCoerceStringTypeDivergence:
-    """PINNED install-shape split: with the wheel, the scalar hot path runs
-    (matching NATIVE semantics); without it, the pure-Python fallback runs
-    with DIFFERENT truthiness mappings (``yes``/``on``/``1``/``0`` -> bool)
-    and no structured-type detection. Same input, different result depending
-    on whether the native extension is installed. Both behaviors are pinned
-    so any change on either side is a loud event."""
-
+    @_requires_native
     @pytest.mark.parametrize(
-        "value,native_result,fallback_result",
+        "text,expected",
         [
-            ("5", ("int", "5", None), ("int", "5", None)),
-            ("3.14", ("float", "3.14", None), ("float", "3.14", None)),
-            ("true", ("bool", "true", None), ("bool", "true", None)),
-            ("none", ("null", "null", None), ("null", "null", None)),
-            ("hello", ("string", "hello", None), ("string", "hello", None)),
-            # The divergent family:
-            ("yes", ("string", "yes", None), ("bool", "true", None)),
-            ("on", ("string", "on", None), ("bool", "true", None)),
-            ("1", ("int", "1", None), ("bool", "true", None)),
-            ("0", ("int", "0", None), ("bool", "false", None)),
-            ('{"a":1}', ("dict", '{"a":1}', None), ("string", '{"a":1}', None)),
+            # Mid-word occurrences inside string values are preserved.
+            ("{'m': 'NoneTheLess', 'n': None}", {"m": "NoneTheLess", "n": None}),
+            ("{'m': 'TrueNorth', 'f': False}", {"m": "TrueNorth", "f": False}),
+            # Braces inside strings are not structural.
+            ("{'s': 'braces {not json} here'}", {"s": "braces {not json} here"}),
+            # Escaped quotes inside strings stay escaped and intact.
+            ('{"a": "quote\\" inside"}', {"a": 'quote" inside'}),
+            ("{'a': 'it\\'s True'}", {"a": "it's True"}),
+            # A lone double quote inside a single-quoted string gets escaped.
+            ('{\'a\': "say \\"hi\\""}', {"a": 'say "hi"'}),
         ],
     )
-    def test_both_install_shapes_pinned(self, value, native_result, fallback_result):
-        if not _NATIVE_AVAILABLE:
-            pytest.skip("native wheel not installed — dispatch equals the fallback")
-        assert json_repair_mod.coerce_string_type(value) == native_result
-        assert json_repair_mod._coerce_string_type_python_fallback(value) == fallback_result
+    def test_content_edge_cases_identical_and_parse(self, text, expected):
+        native = json_repair_mod.repair_json(text)
+        fallback = _forced_python(json_repair_mod, "repair_json", text)
+
+        assert native == fallback
+        assert json_repair_mod.json_loads(native) == expected
+
+
+class TestCoerceStringTypeParity:
+    """The C3 sweep pinned an install-shape split here: the pure-Python
+    fallback mapped ``yes``/``on``/``1``/``0`` to bool and had no
+    structured-type detection, while the native contract (the Rust hot path,
+    mirrored by the scalar fast path in ``json_repair.py``) keeps only
+    ``true``/``false`` as bool, coerces ``1``/``0`` to int, and validates
+    JSON object/array candidates as dict/list. The fallback now runs the
+    SAME shared coercion pipeline as the hot path, so the contract is strict
+    parity: same input, same ``(type_name, coerced_str, error)`` tuple on
+    either install shape."""
+
+    # Values where the old fallback diverged from the native contract:
+    DIVERGENT_FAMILY = (
+        "yes",
+        "on",
+        "no",
+        "off",
+        "1",
+        "0",
+        '{"a": 1}',
+        "[1, 2]",
+    )
+
+    # Broad corpus: truthiness words, case variants, null family, numeric
+    # strings, whitespace, empty, plain strings, structured candidates.
+    PARITY_CORPUS = DIVERGENT_FAMILY + (
+        "YES",
+        "On",
+        "TRUE",
+        "False",
+        "true",
+        "false",
+        "null",
+        "none",
+        "nil",
+        "NONE",
+        "5",
+        "-123",
+        "007",
+        "3.14",
+        "-0.5",
+        "1e3",
+        "  true  ",
+        "\t42\n",
+        " hello ",
+        "",
+        "hello world",
+        "True)",
+        "/usr/bin",
+        "0x10",
+        '{"a"',
+        "{invalid}",
+        "  ",
+    )
+
+    @pytest.mark.parametrize("value", PARITY_CORPUS)
+    @_requires_native
+    def test_dispatch_equals_fallback(self, value):
+        dispatch = json_repair_mod.coerce_string_type(value)
+        fallback = _forced_python(json_repair_mod, "coerce_string_type", value)
+        assert (
+            dispatch == fallback
+        ), f"install-shape fork for {value!r}: dispatch={dispatch!r} fallback={fallback!r}"
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            # The old fallback's bool expansion must NOT come back:
+            ("yes", ("string", "yes", None)),
+            ("YES", ("string", "YES", None)),  # original case preserved
+            ("on", ("string", "on", None)),
+            ("no", ("string", "no", None)),
+            ("off", ("string", "off", None)),
+            ("1", ("int", "1", None)),
+            ("0", ("int", "0", None)),
+            # Native truthiness contract: only true/false are bool.
+            ("true", ("bool", "true", None)),
+            ("FALSE", ("bool", "false", None)),
+            # Null family.
+            ("None", ("null", "null", None)),
+            # Output is trimmed like the Rust trim().
+            ("  yes  ", ("string", "yes", None)),
+            ("\ttrue\n", ("bool", "true", None)),
+            # Empty / degenerate inputs stay strings.
+            ("", ("string", "", None)),
+            ("{invalid", ("string", "{invalid", None)),
+            # Structured candidates are detected like serde_json does.
+            ('{"a": 1}', ("dict", '{"a": 1}', None)),
+            ("[1, 2]", ("list", "[1, 2]", None)),
+        ],
+    )
+    def test_fallback_matches_native_contract_without_wheel(self, value, expected):
+        """Run the pure-Python fallback directly (native dispatch forced off)
+        and assert the NATIVE contract tuples — the exact expectations the
+        Rust hot path produces. This fails against the pre-fix fallback."""
+        assert _forced_python(json_repair_mod, "coerce_string_type", value) == expected

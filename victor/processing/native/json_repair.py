@@ -16,7 +16,7 @@
 
 from functools import lru_cache
 import json
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from victor.core.json_utils import json_loads
 from victor.processing.native._base import _NATIVE_AVAILABLE, _native
@@ -33,6 +33,11 @@ def repair_json(input_str: str) -> str:
     - Single quotes -> double quotes
     - Python True/False/None -> JSON true/false/null
 
+    String literals are preserved verbatim: ``True``/``False``/``None`` inside
+    quoted values (including as mid-word substrings) are never rewritten, and
+    the quote/escape tracking mirrors the Rust state machine in
+    ``rust/crates/python-bindings/src/json_repair.rs`` byte for byte.
+
     Args:
         input_str: Potentially malformed JSON string
 
@@ -43,40 +48,87 @@ def repair_json(input_str: str) -> str:
         return _native.repair_json(input_str)
 
     # Pure Python fallback
-    result = input_str
-
     # Fast path: check if already valid
     try:
-        json_loads(result)
-        return result
+        json_loads(input_str)
+        return input_str
     except json.JSONDecodeError:
         pass
 
-    # Replace Python literals
-    result = result.replace("True", "true")
-    result = result.replace("False", "false")
-    result = result.replace("None", "null")
+    return _repair_json_python(input_str)
 
-    # Replace single quotes with double quotes (simple approach)
-    # This is a simplified version; the Rust implementation handles edge cases better
-    in_string = False
-    output = []
+
+def _repair_json_python(input_str: str) -> str:
+    """String-aware port of the Rust ``repair_json`` state machine.
+
+    States mirror the Rust implementation: Normal (outside strings),
+    InDoubleQuote, InSingleQuote, and Escaped. Python literals are only
+    rewritten in Normal state, so string VALUES keep their contents.
+    """
+    NORMAL, DOUBLE, SINGLE, ESCAPED = range(4)
+    state = NORMAL
+    output: List[str] = []
+    n = len(input_str)
     i = 0
-    while i < len(result):
-        c = result[i]
-        if c == "\\" and i + 1 < len(result):
+
+    while i < n:
+        c = input_str[i]
+        if state == NORMAL:
+            if c == "'" or c == '"':
+                # Both quote styles normalize to double quotes.
+                output.append('"')
+                state = SINGLE if c == "'" else DOUBLE
+                i += 1
+            elif c == "T" and input_str.startswith("True", i):
+                output.append("true")
+                i += 4
+            elif c == "F" and input_str.startswith("False", i):
+                output.append("false")
+                i += 5
+            elif c == "N" and input_str.startswith("None", i):
+                output.append("null")
+                i += 4
+            else:
+                output.append(c)
+                i += 1
+        elif state == DOUBLE:
+            if c == '"':
+                output.append('"')
+                state = NORMAL
+                i += 1
+            elif c == "\\":
+                output.append("\\")
+                state = ESCAPED
+                i += 1
+            else:
+                output.append(c)
+                i += 1
+        elif state == SINGLE:
+            if c == "'":
+                output.append('"')
+                state = NORMAL
+                i += 1
+            elif c == '"':
+                # Double quote inside a single-quoted string needs escaping.
+                output.append('\\"')
+                i += 1
+            elif c == "\\":
+                if i + 1 < n and input_str[i + 1] == "'":
+                    # \' in a single-quoted Python string is a literal apostrophe.
+                    output.append("'")
+                    i += 2
+                else:
+                    output.append("\\")
+                    state = ESCAPED
+                    i += 1
+            else:
+                output.append(c)
+                i += 1
+        else:  # ESCAPED
             output.append(c)
-            output.append(result[i + 1])
-            i += 2
-            continue
-        if c == '"':
-            in_string = not in_string
-            output.append(c)
-        elif c == "'" and not in_string:
-            output.append('"')
-        else:
-            output.append(c)
-        i += 1
+            # The Rust machine returns to InDoubleQuote here unconditionally.
+            state = DOUBLE
+            i += 1
 
     return "".join(output)
 
@@ -172,12 +224,16 @@ def coerce_string_type(value: str) -> Tuple[str, str, Optional[str]]:
     Fast detection and coercion of string values to bool/int/float/null.
     Uses Rust implementation when available for ~3-5x speedup.
 
+    Both install shapes share one coercion pipeline (``_coerce_string_type_core``)
+    and therefore produce IDENTICAL output for the same input; dispatch selects
+    only the executor, never the semantics.
+
     Args:
         value: String value to coerce
 
     Returns:
         Tuple of (type_name, coerced_str, error_or_none)
-        - type_name: "null", "bool", "int", "float", or "string"
+        - type_name: "null", "bool", "int", "float", "dict", "list", or "string"
         - coerced_str: The value as a string in canonical form
         - error_or_none: Error message if coercion failed, else None
     """
@@ -185,6 +241,61 @@ def coerce_string_type(value: str) -> Tuple[str, str, Optional[str]]:
         return _coerce_string_type_native_hot_path(value)
 
     return _coerce_string_type_python_fallback(value)
+
+
+_NULL_LITERALS = frozenset({"none", "null", "nil"})
+
+_StructuredResolver = Callable[[str], Optional[Tuple[str, str, None]]]
+
+
+def _reject_nonfinite_json_constant(name: str) -> float:
+    """Reject ``NaN``/``Infinity`` JSON constants the way serde_json does."""
+    raise ValueError(f"non-finite JSON constant not allowed: {name}")
+
+
+def _coerce_string_type_core(
+    value: str,
+    structured_resolver: Optional[_StructuredResolver],
+) -> Tuple[str, str, Optional[str]]:
+    """Shared coercion pipeline — the native contract, install-shape invariant.
+
+    Only ``true``/``false`` (case-insensitive, trimmed) are bool; ``yes``/``on``
+    /``no``/``off`` stay strings and ``1``/``0`` coerce to int, matching the
+    Rust ``coerce_string_type`` (``rust/crates/python-bindings/src/
+    arg_normalizer.rs``). ``structured_resolver`` decides how JSON
+    object/array candidates are classified (native FFI on the hot path,
+    ``json.loads`` validation in the pure-Python fallback); everything else
+    is byte-identical between install shapes.
+    """
+    stripped = value.strip()
+    lower = stripped.lower()
+
+    if lower in _NULL_LITERALS:
+        return ("null", "null", None)
+
+    if lower == "true":
+        return ("bool", "true", None)
+    if lower == "false":
+        return ("bool", "false", None)
+
+    try:
+        int_val = int(stripped)
+        return ("int", str(int_val), None)
+    except ValueError:
+        pass
+
+    try:
+        float_val = float(stripped)
+        return ("float", str(float_val), None)
+    except ValueError:
+        pass
+
+    if structured_resolver is not None and stripped and stripped[0] in "{[":
+        resolved = structured_resolver(stripped)
+        if resolved is not None:
+            return resolved
+
+    return ("string", stripped, None)
 
 
 @lru_cache(maxsize=4096)
@@ -196,68 +307,37 @@ def _coerce_string_type_native_hot_path(value: str) -> Tuple[str, str, Optional[
     For scalar inputs we match the native semantics directly in Python and only
     cross the FFI boundary for structured JSON candidates.
     """
-    stripped = value.strip()
-    lower = stripped.lower()
 
-    if lower in ("none", "null", "nil"):
-        return ("null", "null", None)
+    def _resolve_structured(stripped: str) -> Optional[Tuple[str, str, None]]:
+        if _NATIVE_AVAILABLE and hasattr(_native, "coerce_string_type"):
+            type_name, coerced_str, third = _native.coerce_string_type(value)
+            return (
+                type_name,
+                coerced_str,
+                None if isinstance(third, float) else third,
+            )
+        return None
 
-    if lower == "true":
-        return ("bool", "true", None)
-    if lower == "false":
-        return ("bool", "false", None)
-
-    if stripped and stripped[0] not in "{[":
-        try:
-            int_val = int(stripped)
-            return ("int", str(int_val), None)
-        except ValueError:
-            pass
-
-        try:
-            float_val = float(stripped)
-            return ("float", str(float_val), None)
-        except ValueError:
-            pass
-
-        return ("string", stripped, None)
-
-    if _NATIVE_AVAILABLE and hasattr(_native, "coerce_string_type"):
-        type_name, coerced_str, third = _native.coerce_string_type(value)
-        return (
-            type_name,
-            coerced_str,
-            None if isinstance(third, float) else third,
-        )
-
-    return ("string", stripped, None)
+    return _coerce_string_type_core(value, _resolve_structured)
 
 
 def _coerce_string_type_python_fallback(value: str) -> Tuple[str, str, Optional[str]]:
-    """Pure Python fallback used when the native module is unavailable."""
-    # Check for null
-    if value.lower() in ("none", "null", "nil"):
-        return ("null", "null", None)
+    """Pure Python fallback used when the native module is unavailable.
 
-    # Check for bool
-    if value.lower() in ("true", "yes", "on", "1"):
-        return ("bool", "true", None)
-    if value.lower() in ("false", "no", "off", "0"):
-        return ("bool", "false", None)
+    Delegates to the same shared pipeline as the native hot path; the JSON
+    validation below mirrors serde_json (which rejects non-finite constants).
+    """
 
-    # Check for int
-    try:
-        int_val = int(value)
-        return ("int", str(int_val), None)
-    except ValueError:
-        pass
+    def _resolve_structured(stripped: str) -> Optional[Tuple[str, str, None]]:
+        kind = "dict" if stripped[0] == "{" else "list"
+        try:
+            parsed = json.loads(stripped, parse_constant=_reject_nonfinite_json_constant)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if isinstance(parsed, dict) and kind == "dict":
+            return (kind, stripped, None)
+        if isinstance(parsed, list) and kind == "list":
+            return (kind, stripped, None)
+        return None
 
-    # Check for float
-    try:
-        float_val = float(value)
-        return ("float", str(float_val), None)
-    except ValueError:
-        pass
-
-    # Default to string
-    return ("string", value, None)
+    return _coerce_string_type_core(value, _resolve_structured)

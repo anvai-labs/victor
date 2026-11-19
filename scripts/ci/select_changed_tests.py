@@ -62,6 +62,10 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/processing/native/json_repair.py": (
+        "tests/unit/native/test_text_pipeline_parity.py",
+        "tests/unit/tools/test_argument_normalizer.py",
+    ),
     "victor/providers/gateway_contract.py": (
         "tests/unit/providers/test_sandhi_gateway_peer.py",
         "tests/unit/providers/test_subscription_gateway.py",
@@ -293,6 +297,7 @@ RELATED_TESTS = {
         "tests/unit/agent/test_tool_optimization_integration.py",
         "tests/unit/agent/test_tool_pipeline.py",
         "tests/unit/agent/tool_execution/test_async_executor.py",
+        "tests/unit/security/test_injection_hard_fail.py",
         "tests/unit/tools/test_search_router_pipeline.py",
         "tests/unit/tools/test_tool_pipeline_parallel.py",
     ),
@@ -393,10 +398,12 @@ RELATED_TESTS = {
     ),
     "victor/evaluation/memory_ab.py": ("tests/unit/agent/test_memory_ab.py",),
     # FOU-S3c/S3d: injection screen + its FP battery share the corpus-pinned
-    # suites (screen tightenings keep benign counterparts in both).
+    # suites (screen tightenings keep benign counterparts in both); the
+    # hard-fail wiring suite pins the flag-gated escalation contract.
     "victor/security/injection_screen.py": (
         "tests/unit/security/test_injection_screen.py",
         "tests/unit/security/test_injection_fp_battery.py",
+        "tests/unit/security/test_injection_hard_fail.py",
         "tests/unit/security/test_tool_output_containment.py",
     ),
     "victor/evaluation/injection_fp_battery.py": (
@@ -1241,6 +1248,7 @@ RELATED_TESTS = {
     "victor/config/tool_settings.py": (
         "tests/unit/config/test_tool_selection_access.py",
         "tests/unit/config/test_settings_stratification.py",
+        "tests/unit/security/test_injection_hard_fail.py",
     ),
     "victor/framework/agent_factory.py": (
         "tests/unit/framework/test_skill_registry_wiring.py",
