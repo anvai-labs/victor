@@ -156,6 +156,7 @@ Learn these commands to work efficiently:
 | `/clear` | Clear conversation history |
 | `/provider <name>` | Switch to a different LLM provider |
 | `/mode <mode>` | Switch between BUILD/PLAN/EXPLORE |
+| `/memory` | List long-term memory and staged proposals (`/memory set <content> [--project]`, `/memory forget <id\|text>`, `/memory confirm`, `/memory discard`) |
 | `/save "title"` | Save the current session |
 | `/resume` | Restore a previous session |
 | `/quit` or `/exit` | Exit Victor |

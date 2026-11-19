@@ -378,3 +378,89 @@ def test_no_ledger_registered_stores_nothing(store: PreferenceEpisodicStore):
     asyncio.run(service.create_session("sess-1"))
     asyncio.run(service.end_session())
     assert store._recent_episodes() == []
+
+
+# =============================================================================
+# Shared handle (FOU-A2d): the confirm surfaces (TUI /memory, API routes)
+# and the production Session service all drive ONE process-scoped
+# consolidator, so staged proposals proposed by end_session are visible to
+# the confirm path.
+# =============================================================================
+
+
+@pytest.fixture
+def shared_handle():
+    from victor.agent.services.memory_consolidation import reset_shared_memory
+
+    reset_shared_memory()
+    yield
+    reset_shared_memory()
+
+
+def test_shared_consolidator_is_memoized(shared_handle):
+    from victor.agent.services.memory_consolidation import (
+        get_shared_memory_consolidator,
+    )
+
+    first = get_shared_memory_consolidator()
+    assert get_shared_memory_consolidator() is first
+
+
+def test_reset_shared_memory_clears_both_handles(shared_handle):
+    from victor.agent.services.memory_consolidation import (
+        get_shared_memory_consolidator,
+        get_shared_memory_store,
+        reset_shared_memory,
+    )
+
+    get_shared_memory_store()
+    get_shared_memory_consolidator()
+    reset_shared_memory()
+
+    new_store = get_shared_memory_store()
+    assert get_shared_memory_consolidator()._store is new_store
+
+
+def test_injected_store_and_consolidator_are_returned(shared_handle, store):
+    from victor.agent.services.memory_consolidation import (
+        get_shared_memory_consolidator,
+        get_shared_memory_store,
+        set_shared_memory_consolidator,
+        set_shared_memory_store,
+    )
+
+    set_shared_memory_store(store)
+    consolidator = MemoryConsolidator(store)
+    set_shared_memory_consolidator(consolidator)
+
+    assert get_shared_memory_store() is store
+    assert get_shared_memory_consolidator() is consolidator
+
+
+def test_shared_store_is_memoized(shared_handle):
+    from victor.agent.services.memory_consolidation import get_shared_memory_store
+
+    first = get_shared_memory_store()
+    assert get_shared_memory_store() is first
+
+
+def test_bootstrap_session_service_binds_the_shared_consolidator(dbs, shared_handle):
+    """Production wiring: the container-created SessionService stages
+    proposals onto the same consolidator the /memory surfaces confirm."""
+    from victor.agent.services.memory_consolidation import (
+        get_shared_memory_consolidator,
+        set_shared_memory_store,
+    )
+    from victor.core.bootstrap_services import _create_session_service
+    from victor.core.container import ServiceContainer
+    from victor.storage.memory.preference_episodic import PreferenceEpisodicStore
+
+    set_shared_memory_store(PreferenceEpisodicStore(global_db=dbs[0], project_db=dbs[1]))
+
+    service = _create_session_service(ServiceContainer())
+
+    assert service._memory_consolidator is get_shared_memory_consolidator()
+    # Confirm-by-default: the production binding never auto-captures.
+    assert service._memory_consolidator.auto_capture is False
+    # And the service-level seam resolves against it.
+    assert service.pending_memory_proposals() == []
