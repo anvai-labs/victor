@@ -361,10 +361,14 @@ RELATED_TESTS = {
     ),
     "victor/storage/memory/preference_episodic.py": (
         "tests/unit/storage/memory/test_preference_episodic.py",
+        "tests/unit/commands/test_memory_command.py",
+        "tests/unit/integrations/api/test_memory_routes.py",
     ),
     "victor/tools/memory_write.py": ("tests/unit/tools/test_memory_write.py",),
     "victor/agent/services/memory_consolidation.py": (
         "tests/unit/agent/services/test_memory_consolidation.py",
+        "tests/unit/commands/test_memory_command.py",
+        "tests/unit/integrations/api/test_memory_routes.py",
     ),
     "victor/config/memory_settings.py": (
         "tests/unit/config/test_memory_settings.py",
@@ -1090,6 +1094,29 @@ RELATED_TESTS = {
     "victor/integrations/api/routes/agent_routes.py": (
         "tests/unit/agent/test_background_agent.py",
         "tests/unit/integrations/api/test_ws_auth_gate.py",
+    ),
+    # /memory + /memory/proposals routes (FEP-0048 FOU-A2d): list/set/forget,
+    # structured refusals and the consolidation confirm/discard lifecycle are
+    # pinned by the memory routes suite (no per-route mirror file).
+    "victor/integrations/api/routes/memory_routes.py": (
+        "tests/unit/integrations/api/test_memory_routes.py",
+    ),
+    # The router registry: the extension contract test walks
+    # create_all_routers(), so an addition must keep that passing.
+    "victor/integrations/api/routes/__init__.py": (
+        "tests/unit/api/test_vscode_extension_contract.py",
+        "tests/unit/integrations/api/test_memory_routes.py",
+    ),
+    # /memory slash command (FEP-0048 FOU-A2d): parsing, refusal output
+    # (secret never echoed) and confirm/discard are pinned by the command
+    # suite (slash commands live under tests/unit/commands, not a mirror).
+    "victor/ui/slash/commands/memory.py": ("tests/unit/commands/test_memory_command.py",),
+    # /memory alias release from /context is pinned by the command suite.
+    "victor/ui/slash/commands/tools.py": ("tests/unit/commands/test_memory_command.py",),
+    # Client-facing shared-memory seam: both confirm surfaces exercise it.
+    "victor/framework/memory.py": (
+        "tests/unit/commands/test_memory_command.py",
+        "tests/unit/integrations/api/test_memory_routes.py",
     ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",

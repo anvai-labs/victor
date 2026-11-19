@@ -251,6 +251,70 @@ class MemoryConsolidator:
         return self.discard()
 
 
+# ------------------------------------------------------------------------------
+# Shared process handle (FOU-A2d)
+# ------------------------------------------------------------------------------
+#
+# The confirm surfaces (the TUI /memory command, the /memory/proposals API
+# routes) must drive the SAME consolidator the Session-service end_session
+# hook stages onto, or staged proposals would be invisible to the confirm
+# path. One lazily-constructed store + consolidator per process, injection
+# points for tests/embedders; client layers reach it through the sanctioned
+# framework seam (``victor.framework.memory``) because they may not import
+# ``victor.agent.*`` directly.
+
+_shared_store: Optional[PreferenceEpisodicStore] = None
+_shared_consolidator: Optional[MemoryConsolidator] = None
+
+
+def get_shared_memory_store() -> PreferenceEpisodicStore:
+    """The process-wide preference/episodic store (lazy; injectable).
+
+    Constructs against the database singletons on first call, which honor
+    ``VICTOR_HOME`` / project-path overrides — tests redirect storage via
+    ``set_shared_memory_store`` or the database resets, not this module.
+    """
+    global _shared_store
+    if _shared_store is None:
+        _shared_store = PreferenceEpisodicStore()
+    return _shared_store
+
+
+def set_shared_memory_store(store: PreferenceEpisodicStore) -> None:
+    """Pin the shared store (tests / embedders with their own databases)."""
+    global _shared_store
+    _shared_store = store
+
+
+def get_shared_memory_consolidator(*, auto_capture: bool = False) -> MemoryConsolidator:
+    """The process-wide consolidator the confirm surfaces drive (lazy).
+
+    Confirm-by-default: ``auto_capture`` only takes effect when this call
+    constructs the instance (first call wins; later calls return the
+    existing consolidator regardless of the flag).
+    """
+    global _shared_consolidator
+    if _shared_consolidator is None:
+        _shared_consolidator = MemoryConsolidator(
+            get_shared_memory_store(),
+            auto_capture=auto_capture,
+        )
+    return _shared_consolidator
+
+
+def set_shared_memory_consolidator(consolidator: MemoryConsolidator) -> None:
+    """Pin the shared consolidator (tests / embedders)."""
+    global _shared_consolidator
+    _shared_consolidator = consolidator
+
+
+def reset_shared_memory() -> None:
+    """Drop both shared handles (tests re-point storage between cases)."""
+    global _shared_store, _shared_consolidator
+    _shared_store = None
+    _shared_consolidator = None
+
+
 def _ledger_entry(entry: Any) -> Tuple[str, str]:
     """Extract (role, content) from a dict- or object-shaped ledger entry."""
     if isinstance(entry, dict):
@@ -272,4 +336,9 @@ __all__ = [
     "DEFAULT_MAX_PROPOSALS",
     "MemoryConsolidator",
     "PROPOSAL_SUMMARY_MAX_CHARS",
+    "get_shared_memory_consolidator",
+    "get_shared_memory_store",
+    "reset_shared_memory",
+    "set_shared_memory_consolidator",
+    "set_shared_memory_store",
 ]
