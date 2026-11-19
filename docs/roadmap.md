@@ -14,7 +14,7 @@ evaluation loop and gating every change on it over adding new capabilities.
 
 ---
 
-## Now — November 2026: prepared 0.31.1 maintenance and published 0.31.0
+## Now — November 2026: shipped 0.31.x maintenance; 0.32.0 promotion in flight
 
 !!! info "Reconciled 2026-11-18"
 
