@@ -413,12 +413,7 @@ mod tests {
 
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
-            BpeTokenizer::new(
-                py,
-                "test_tokenizer".to_string(),
-                ranks,
-                special_tokens,
-            )
+            BpeTokenizer::new(py, "test_tokenizer".to_string(), ranks, special_tokens)
         })
     }
 
@@ -470,8 +465,7 @@ mod tests {
             "hello world".to_string(),
         ];
         pyo3::Python::initialize();
-        let batch_counts =
-            pyo3::Python::attach(|py| tok.count_tokens_batch(py, texts.clone()));
+        let batch_counts = pyo3::Python::attach(|py| tok.count_tokens_batch(py, texts.clone()));
         for (i, t) in texts.iter().enumerate() {
             assert_eq!(
                 batch_counts[i],
