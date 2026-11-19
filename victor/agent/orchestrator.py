@@ -510,9 +510,7 @@ class AgentOrchestrator(
             from victor.agent.content_registry import create_default_registry
             from victor.agent.optimization_injector import OptimizationInjector
             from victor.agent.prompt_pipeline import UnifiedPromptPipeline
-            from victor.agent.services.runtime_intelligence import (
-                RuntimeIntelligenceService,
-            )
+            from victor.agent.services.runtime_intelligence import RuntimeIntelligenceService
 
             self._optimization_injector = OptimizationInjector()
             self._runtime_intelligence = RuntimeIntelligenceService.from_orchestrator(
@@ -520,22 +518,10 @@ class AgentOrchestrator(
                 task_analyzer=get_task_analyzer(),
                 optimization_injector=self._optimization_injector,
             )
-            # FEP-0048 A2c (FOU-A2c) production wiring — the FEP-0041 dormancy
-            # corrective. This orchestrator is the chat composition root: every
-            # real session surface (CLI chat buffered + streaming, TUI, and the
-            # HTTP/ChatService path via AgentFactory) reads THIS
-            # _runtime_intelligence, and the AgenticLoop PERCEIVE stage reaches
-            # injection through runtime_intelligence.analyze_turn →
-            # perception_integration.perceive. bind_production_memory_injector
-            # skips entirely when memory_enabled/VICTOR_MEMORY_ENABLED is off
-            # (zero cost opt-out) and degrades to no-injection on store failure
-            # — memory must never break session start.
-            from victor.agent.memory_injection import bind_production_memory_injector
+            from victor.agent.memory_injection import bind_orchestrator_memory_injector
 
-            bind_production_memory_injector(
-                self._runtime_intelligence.perception_integration,
-                settings=settings,
-            )
+            bind_orchestrator_memory_injector(self)  # FEP-0048 A2c, see memory_injection.py
+
             # Fetch optional services for prompt pipeline
             from victor.agent.tool_pipeline import ToolPipeline
             from victor.framework.rl.credit_tracking_service import (

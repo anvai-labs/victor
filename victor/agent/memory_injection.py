@@ -516,3 +516,22 @@ __all__ = [
     "resolve_memory_enabled",
     "resolve_memory_scope_enabled",
 ]
+
+
+def bind_orchestrator_memory_injector(
+    orchestrator: Any, settings: Any = None
+) -> Optional["MemoryBlockBuilder"]:
+    """Orchestrator-flavored production binding (FEP-0048 A2c wiring).
+
+    Navigates the orchestrator's own collaborators so the chat composition
+    root stays within its hotspot line ratchet: one import + one call there.
+    Skips when disabled (resolved before any store opens), degrades to
+    no-injection on failure — memory never breaks session start.
+    """
+    runtime_intelligence = getattr(orchestrator, "_runtime_intelligence", None)
+    perception = getattr(runtime_intelligence, "perception_integration", None)
+    if perception is None:
+        return None
+    return bind_production_memory_injector(
+        perception, settings=settings or getattr(orchestrator, "settings", None)
+    )
