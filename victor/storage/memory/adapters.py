@@ -56,6 +56,7 @@ from victor.storage.memory.unified import (
 
 if TYPE_CHECKING:
     from victor.storage.memory.entity_memory import EntityMemory
+    from victor.storage.memory.preference_episodic import PreferenceEpisodicStore
     from victor.agent.conversation.types import (
         ConversationMessage,
         MessagePriority,
@@ -829,6 +830,114 @@ class ToolResultsMemoryAdapter:
 
 
 # =============================================================================
+# Preference / Episode Memory Adapter (FEP-0048)
+# =============================================================================
+
+
+class PreferenceEpisodicAdapter:
+    """Adapter for PreferenceEpisodicStore to implement MemoryProviderProtocol.
+
+    The store serves two lanes (preferences and episodes). The coordinator
+    registers one provider per ``MemoryType``, so this adapter is instantiated
+    per lane and routes/filters results for that lane only. Use
+    :func:`create_preference_episodic_adapters` to register both lanes.
+
+    Example:
+        store = PreferenceEpisodicStore()
+        coordinator.register_provider(PreferenceEpisodicAdapter(store))
+        coordinator.register_provider(PreferenceEpisodicAdapter(
+            store, lane=MemoryType.EPISODE
+        ))
+    """
+
+    _LANES = (MemoryType.PREFERENCE, MemoryType.EPISODE)
+
+    def __init__(self, store: "PreferenceEpisodicStore", lane: MemoryType = MemoryType.PREFERENCE):
+        """Initialize adapter.
+
+        Args:
+            store: PreferenceEpisodicStore instance to wrap
+            lane: Which lane this adapter serves (PREFERENCE or EPISODE)
+
+        Raises:
+            ValueError: If ``lane`` is not one of the store's lanes.
+        """
+        if lane not in self._LANES:
+            raise ValueError(
+                f"PreferenceEpisodicAdapter lane must be one of "
+                f"{[t.name for t in self._LANES]}, got {lane.name}"
+            )
+        self._store = store
+        self._lane = lane
+        self._available = True
+
+    @property
+    def memory_type(self) -> MemoryType:
+        """Return this adapter's lane."""
+        return self._lane
+
+    async def search(self, query: MemoryQuery) -> List[MemoryResult]:
+        """Search the store, returning only this adapter's lane.
+
+        Args:
+            query: Search query specification
+
+        Returns:
+            List of MemoryResult with provenance stamped
+        """
+        try:
+            results = self._store.search(query)
+        except Exception as e:
+            logger.warning(f"PreferenceEpisodicAdapter search failed: {e}")
+            return []
+
+        lane_results = [
+            replace(r, source=self._lane)
+            for r in results
+            if r.metadata.get("kind") == self._lane.name.lower()
+        ]
+
+        provenance = self._store.provenance(query.query_id, self._lane)
+        return [replace(r, provenance=provenance) for r in lane_results]
+
+    async def store(
+        self,
+        key: str,
+        value: Any,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Route a protocol store call to the store's typed write helpers.
+
+        Refusals (secret-shaped, oversized content) propagate as
+        ``MemoryWriteRefused`` so callers can surface them.
+
+        Args:
+            key: Unused (ids are minted by the store)
+            value: Content to store
+            metadata: Lane routing ("kind"), scope, source, session/thread ids
+        """
+        await self._store.store(key, value, metadata)
+
+    async def get(self, key: str) -> Optional[MemoryResult]:
+        """Get a memory by id (any lane); None when unknown.
+
+        Args:
+            key: Memory id
+
+        Returns:
+            Memory result or None
+        """
+        result = await self._store.get(key)
+        if result is None or result.metadata.get("kind") != self._lane.name.lower():
+            return None
+        return replace(result, source=self._lane)
+
+    def is_available(self) -> bool:
+        """Check if the underlying store is available."""
+        return self._available and self._store.is_available()
+
+
+# =============================================================================
 # Factory Functions
 # =============================================================================
 
@@ -889,15 +998,37 @@ def create_tool_results_adapter(
     return ToolResultsMemoryAdapter(conversation_store, session_id)
 
 
+def create_preference_episodic_adapters(
+    store: "PreferenceEpisodicStore",
+) -> List[PreferenceEpisodicAdapter]:
+    """Create lane adapters for a PreferenceEpisodicStore (both lanes).
+
+    The coordinator registers one provider per ``MemoryType``; this returns
+    the PREFERENCE and EPISODE lane adapters so a single store serves both.
+
+    Args:
+        store: PreferenceEpisodicStore instance
+
+    Returns:
+        [PREFERENCE-lane adapter, EPISODE-lane adapter]
+    """
+    return [
+        PreferenceEpisodicAdapter(store, lane=MemoryType.PREFERENCE),
+        PreferenceEpisodicAdapter(store, lane=MemoryType.EPISODE),
+    ]
+
+
 __all__ = [
     # Adapters
     "EntityMemoryAdapter",
     "ConversationMemoryAdapter",
     "GraphMemoryAdapter",
     "ToolResultsMemoryAdapter",
+    "PreferenceEpisodicAdapter",
     # Factory functions
     "create_entity_adapter",
     "create_conversation_adapter",
     "create_graph_adapter",
     "create_tool_results_adapter",
+    "create_preference_episodic_adapters",
 ]

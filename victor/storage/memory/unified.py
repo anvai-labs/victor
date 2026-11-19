@@ -100,6 +100,12 @@ class MemoryType(Enum):
     CODE = auto()
     """Code memory - file contents, chunks."""
 
+    PREFERENCE = auto()
+    """Preference memory - stable user/project directives (FEP-0048)."""
+
+    EPISODE = auto()
+    """Episode memory - timestamped event summaries (FEP-0048)."""
+
 
 # =============================================================================
 # Data Types
