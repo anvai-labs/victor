@@ -15,11 +15,12 @@
 """FOU-S3d unit suite: injection-screen false-positive battery (ADR-036).
 
 Covers the battery's evidence contract: the REAL corpus runs through the
-CURRENT screen (benign half must be 0 FP after the S3d tightenings; the
-adversarial half reports its designed FN findings), verdict mapping pinned
-for constructed FP/FN scenarios, and the JSON artifact snapshots. Fully
+CURRENT screen — after the S3d follow-up (homoglyph pre-pass + quote-guard
+abuse carve-out) BOTH halves are clean (0 FP benign / 0 FN adversarial ->
+GRADUATE_HARD_FAIL_CANDIDATE), verdict mapping is pinned for constructed
+FP/FN scenarios, and the JSON artifact snapshots are asserted. Fully
 offline and deterministic; the battery flips NO production flag — hard-fail
-wiring stays absent per ADR-037 decision 5.
+wiring stays absent per ADR-037 decision 5 (consumption is ADR-036's call).
 """
 
 import json
@@ -35,9 +36,9 @@ from victor.evaluation.injection_fp_corpus import (
     injection_corpus,
 )
 
-#: The designed FN findings of the shipped corpus (documented, NOT chased by
-#: pattern expansion — see the battery report's missed_samples section).
-EXPECTED_FNS = {"inj-034", "inj-035"}
+#: The S3d follow-up closed the two designed FN classes (inj-034 quote-guard
+#: abuse, inj-035 homoglyph); nothing in the shipped corpus may miss.
+EXPECTED_FNS: set = set()
 
 
 def test_corpus_sizes_and_categories():
@@ -56,12 +57,12 @@ def test_sample_ids_are_unique():
 
 
 def test_real_corpus_runs_clean_under_current_screen(tmp_path: Path):
-    """The core S3d finding: the REAL corpus through the CURRENT screen.
+    """The core S3d finding, upgraded by the follow-up: REAL corpus, CURRENT screen.
 
     Benign half: zero false positives (each tightening keeps its benign
-    counterpart pinned here via the corpus). Adversarial half: only the
-    designed FN findings (quote-guard abuse, homoglyph) may miss — anything
-    else is a regression.
+    counterpart pinned here via the corpus). Adversarial half: zero false
+    negatives — the homoglyph pre-pass and the quote-guard abuse carve-out
+    closed the two designed FN classes; anything else missing is a regression.
     """
     benign_fp = run_injection_fp_battery(benign_provider=benign_corpus, out_dir=str(tmp_path))[
         "benign_battery"
@@ -93,8 +94,8 @@ def test_battery_report_and_artifacts(tmp_path: Path):
     assert inj_snapshot["false_negatives"] == len(EXPECTED_FNS)
 
     # Verdict rides in the report dict (memory_ab reporting convention).
-    assert result["verdict"]["verdict"] == "CONDITIONAL"
-    assert result["verdict"]["should_gate_hard_fail"] is False
+    assert result["verdict"]["verdict"] == "GRADUATE_HARD_FAIL_CANDIDATE"
+    assert result["verdict"]["should_gate_hard_fail"] is True
     # The battery REPORTS; it never flips a production flag.
     assert result["hard_fail_wired"] is False
     # Recorded tightenings from the S3d FP pass ride in the report.
@@ -199,7 +200,7 @@ def test_cli_main_runs_offline(tmp_path: Path):
     from victor.evaluation.injection_fp_battery import _main
 
     rc = _main(["--out-dir", str(tmp_path)])
-    assert rc == 0  # CONDITIONAL: no annotation-level FP, exit policy = clean
+    assert rc == 0  # GRADUATE_HARD_FAIL_CANDIDATE: clean FP and FN, exit policy = clean
     assert (tmp_path / "injection_fp_injection.json").exists()
 
 
