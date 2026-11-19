@@ -62,6 +62,10 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/processing/native/json_repair.py": (
+        "tests/unit/native/test_text_pipeline_parity.py",
+        "tests/unit/tools/test_argument_normalizer.py",
+    ),
     "victor/providers/gateway_contract.py": (
         "tests/unit/providers/test_sandhi_gateway_peer.py",
         "tests/unit/providers/test_subscription_gateway.py",
