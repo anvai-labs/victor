@@ -95,6 +95,7 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    attachment, and call volume in representative agent sessions.
 2. Audit CPU-heavy bindings outside `similarity.rs` for safe `Python::detach` regions. Start with
    tokenizer batches, embedding transforms, graph algorithms, and trace scanning.
+   **Audited and landed 2026-11-18 — see the `Python::detach` audit subsection below.**
 3. Prototype contiguous-buffer inputs and persistent native indexes for embedding/similarity paths;
    compare them with current nested-vector conversion and the existing NumPy fallback.
 4. Make the wheel support table explicit and tested. Track the declared Python minimum alongside
@@ -361,6 +362,54 @@ platform support, and deployment dependencies conflict with predictable CLI and 
    remaining persist cost is proportional to actual bytes written into SQLite plus
    WAL backfill. No `benchmark_persist_batch.py`-motivated production change was
    made in this step.
+
+### `Python::detach` audit — tokenizer, embeddings, graph_algo, trace_scanner (2026-11-18, landed)
+
+Backlog item 2 executed against the four remaining CPU-bound modules in
+`rust/crates/python-bindings`. House rules applied: release the interpreter only for
+pure-Rust spans plausibly multi-millisecond on realistic inputs; keep all Python-object
+access (argument extraction, `PyDict`/`&str`/`PyRef` borrows, result conversion) outside
+the detached region; `PyErr` is `!Ungil`, so fallible batch paths use the crate's
+wrapper/`*_impl` idiom with errors crossing the detach as `String`s (same as
+`similarity.rs`/`ccg_extract.rs`); no side effect can be replayed after an FFI failure
+(the one I/O-bearing module, trace_scanner, opens files inside the detach and returns
+partial results — identical to its previous semantics).
+
+| Module | Function | Profile | Duration class | Action |
+|---|---|---|---|---|
+| tokenizer | `BpeTokenizer::new` | Pure Rust (owned ranks table → `AHashMap`) | Multi-ms with real ranks (cl100k ≈ 100k entries) | **Detached** (owned inputs; `parking_lot` cache write is a short Rust lock) |
+| tokenizer | `BpeTokenizer.count_tokens` | Pure Rust (BPE encode) | µs–sub-ms per single chat/chunk text | No detach (trivial-span rule) |
+| tokenizer | `BpeTokenizer.count_tokens_batch` | Pure Rust + rayon | Plausibly multi-ms (batch hot path) | **Detached** (owned `Vec<String>`, `Arc` ranks) |
+| tokenizer | `BpeTokenizer.encode` | Pure Rust | µs–sub-ms single text | No detach |
+| tokenizer | `count_tokens_fast` | Pure Rust (linear heuristic) | µs | No detach |
+| tokenizer | `count_tokens_fast_batch` | Pure Rust + rayon | Plausibly multi-ms (batch) | **Detached** |
+| embeddings | `quantize_embedding` | Pure Rust O(d) | µs | No detach |
+| embeddings | `dequantize_embedding` | Pure Rust O(d) | µs | No detach |
+| embeddings | `quantized_cosine_similarity` | Pure Rust O(d) | µs | No detach |
+| embeddings | `batch_quantize_embeddings` | Pure Rust + rayon (>100) | Plausibly multi-ms | **Detached** |
+| embeddings | `batch_quantized_cosine_similarity` | Pure Rust O(n·d), rayon >100 | Plausibly multi-ms | **Detached** (query int8 data cloned out of the `PyRef` borrow) |
+| embeddings | `matmul_vector` | Pure Rust O(rows·d) | Sub-ms realistic dims | No detach |
+| embeddings | `batch_matmul_vector` | Pure Rust O(n·rows·d), rayon >10 | Plausibly multi-ms | **Detached**; `FlatMatrix::from_nested` retyped to `Result<_, String>` so no `PyErr` crosses |
+| embeddings | `random_projection` | Pure Rust O(n·target·d) + LCG projection build | Multi-ms on realistic RAG shapes (500×1536→256 ≈ 200M FLOP) | **Detached** (wrapper/`random_projection_impl` split) |
+| embeddings | `pairwise_distances` | Pure Rust O(n²·d), serial | Multi-ms for n≳100 | **Detached** (wrapper/`_impl` split) |
+| embeddings | `knn_graph` | Pure Rust O(n²·d) + rayon | Plausibly multi-ms | **Detached** (wrapper/`_impl` split) |
+| graph_algo | `pagerank` | GIL-bound dict extraction + pure-Rust power iteration O(iter·E) | Compute plausibly multi-ms | **Split**: extraction attached, iteration **detached** (`pagerank_compute`) |
+| graph_algo | `weighted_pagerank` | Extraction + O(iter·E) fixed sweeps | Compute plausibly multi-ms (100 sweeps) | **Split**, compute **detached** |
+| graph_algo | `betweenness_centrality` | Extraction + Brandes O(V·E) | Firmly multi-ms (most expensive here) | **Split**, Brandes sweep **detached** |
+| graph_algo | `connected_components` | Extraction-dominated; single O(V+E·α) union-find pass | Sub-ms realistic module graphs | No detach (trivial compute; restructure not warranted) |
+| graph_algo | `detect_cycles` | Extraction-dominated; single O(V+E) DFS | Sub-ms realistic module graphs | No detach |
+| trace_scanner | `scan_usage_file` | Rust-only I/O + per-line serde_json parse | Firmly multi-ms on real usage logs (multi-MB) | **Detached** (owned path `String`; file I/O inside detach is safe — no Python API, no replayable side effect) |
+| trace_scanner | `scan_usage_files` | Multi-file I/O + parse | Multi-ms | **Detached** (one FFI crossing per batch; scoring/sort tail unified into `finalize_session_stats`) |
+
+Parity evidence: full `cargo test` workspace green (victor_native 198/198, zero warnings;
+interpreter-dependent tokenizer tests now call `Python::initialize()` first, matching the
+`thinking.rs` pattern); `pytest tests/unit/native/ -q` green **345 passed, 11 skipped —
+identical counts with the pre-change installed extension (0.30.0) and the rebuilt
+extension (0.31.1)**, including `test_tokenizer_parity.py` and
+`test_context_fitter_parity.py`. `tests/unit/native/test_graph_algo.py` exercises the
+split graph functions against the rebuilt `.so`. Known non-ownership cost that remains:
+nested-`Vec` conversion at FFI extraction stays attached — that is backlog item 3
+(contiguous-buffer inputs), out of scope for this audit.
 
 ### Harvest environment constraint (2026-10-25, landed)
 

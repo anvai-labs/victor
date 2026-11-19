@@ -45,8 +45,12 @@ pub struct FlatMatrix {
 }
 
 impl FlatMatrix {
-    /// Create a new flat matrix from nested vectors
-    pub fn from_nested(matrix: Vec<Vec<f32>>) -> PyResult<Self> {
+    /// Create a new flat matrix from nested vectors.
+    ///
+    /// Returns plain `String` errors (not `PyErr`) so this constructor is
+    /// safe to call inside a `Python::detach` region — a `PyErr` is `!Ungil`
+    /// and must never cross a detached span.
+    pub fn from_nested(matrix: Vec<Vec<f32>>) -> Result<Self, String> {
         if matrix.is_empty() {
             return Ok(Self {
                 data: Vec::new(),
@@ -69,12 +73,12 @@ impl FlatMatrix {
         // Validate all rows have same length
         for (i, row) in matrix.iter().enumerate() {
             if row.len() != cols {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                return Err(format!(
                     "Matrix row {} has {} cols, expected {}",
                     i,
                     row.len(),
                     cols
-                )));
+                ));
             }
         }
 
@@ -196,6 +200,9 @@ impl QuantizedEmbedding {
 ///
 /// # Returns
 /// QuantizedEmbedding with int8 data and scale factor
+///
+/// Detach audit: single-vector quantization is O(d), microsecond-scale on
+/// realistic embedding dims — no `Python::detach`.
 #[pyfunction]
 pub fn quantize_embedding(embedding: Vec<f32>) -> QuantizedEmbedding {
     quantize_embedding_slice(&embedding)
@@ -233,22 +240,34 @@ fn quantize_embedding_slice(embedding: &[f32]) -> QuantizedEmbedding {
 ///
 /// # Returns
 /// List of QuantizedEmbedding objects
+///
+/// Detach audit: batch corpus quantization (the reason for the batch entry
+/// point) is plausibly multi-millisecond; inputs are owned `Vec<Vec<f32>>` and
+/// results are plain Rust structs converted at the boundary, so the whole
+/// loop runs detached.
 #[pyfunction]
-pub fn batch_quantize_embeddings(embeddings: Vec<Vec<f32>>) -> Vec<QuantizedEmbedding> {
-    if embeddings.len() > 100 {
-        embeddings
-            .par_iter()
-            .map(|e| quantize_embedding_slice(e))
-            .collect()
-    } else {
-        embeddings
-            .iter()
-            .map(|e| quantize_embedding_slice(e))
-            .collect()
-    }
+pub fn batch_quantize_embeddings(
+    py: Python<'_>,
+    embeddings: Vec<Vec<f32>>,
+) -> Vec<QuantizedEmbedding> {
+    py.detach(move || {
+        if embeddings.len() > 100 {
+            embeddings
+                .par_iter()
+                .map(|e| quantize_embedding_slice(e))
+                .collect()
+        } else {
+            embeddings
+                .iter()
+                .map(|e| quantize_embedding_slice(e))
+                .collect()
+        }
+    })
 }
 
 /// Dequantize a quantized embedding back to float32.
+///
+/// Detach audit: O(d) single vector, microsecond-scale — no `Python::detach`.
 #[pyfunction]
 pub fn dequantize_embedding(quantized: &QuantizedEmbedding) -> Vec<f32> {
     quantized.dequantize()
@@ -257,6 +276,10 @@ pub fn dequantize_embedding(quantized: &QuantizedEmbedding) -> Vec<f32> {
 /// Compute cosine similarity between two quantized embeddings.
 ///
 /// This is faster than dequantizing first because we work with integers.
+///
+/// Detach audit: O(d) integer dot product on one pair, microsecond-scale —
+/// no `Python::detach`; batch callers use `batch_quantized_cosine_similarity`,
+/// which detaches.
 #[pyfunction]
 pub fn quantized_cosine_similarity(
     a: &QuantizedEmbedding,
@@ -296,8 +319,15 @@ pub fn quantized_cosine_similarity(
 }
 
 /// Batch cosine similarity between a query and quantized corpus.
+///
+/// Detach audit: query-vs-corpus scan is O(n·d) over the whole corpus (rayon
+/// above 100 entries) — plausibly multi-millisecond on real corpora. The
+/// query's int8 data is cloned (cheap) so no Python borrow crosses the
+/// detach; the function cannot fail (per-pair mismatches score 0.0, matching
+/// the previous `unwrap_or(0.0)` semantics), so no error crossing is needed.
 #[pyfunction]
 pub fn batch_quantized_cosine_similarity(
+    py: Python<'_>,
     query: &QuantizedEmbedding,
     corpus: Vec<QuantizedEmbedding>,
 ) -> PyResult<Vec<f32>> {
@@ -305,17 +335,28 @@ pub fn batch_quantized_cosine_similarity(
         return Ok(Vec::new());
     }
 
-    let results: Vec<f32> = if corpus.len() > 100 {
-        corpus
-            .par_iter()
-            .map(|c| quantized_cosine_similarity(query, c).unwrap_or(0.0))
-            .collect()
-    } else {
-        corpus
-            .iter()
-            .map(|c| quantized_cosine_similarity(query, c).unwrap_or(0.0))
-            .collect()
-    };
+    let query_data = query.data.clone();
+    let zero_point = query.zero_point;
+    let scale = query.scale;
+
+    let results: Vec<f32> = py.detach(move || {
+        let query_view = QuantizedEmbedding {
+            data: query_data,
+            scale,
+            zero_point,
+        };
+        if corpus.len() > 100 {
+            corpus
+                .par_iter()
+                .map(|c| quantized_cosine_similarity(&query_view, c).unwrap_or(0.0))
+                .collect()
+        } else {
+            corpus
+                .iter()
+                .map(|c| quantized_cosine_similarity(&query_view, c).unwrap_or(0.0))
+                .collect()
+        }
+    });
 
     Ok(results)
 }
@@ -351,6 +392,10 @@ fn matmul_vector_internal(matrix: &FlatMatrix, vector: &[f32]) -> Vec<f32> {
 ///
 /// # Returns
 /// Result vector
+///
+/// Detach audit: a single matrix-vector product is O(rows·d) — sub-millisecond
+/// on realistic dims (e.g. 1k x 768 ≈ 0.8 MFLOP); batch callers use
+/// `batch_matmul_vector`, which detaches.
 #[pyfunction]
 pub fn matmul_vector(matrix: Vec<Vec<f32>>, vector: Vec<f32>) -> PyResult<Vec<f32>> {
     if matrix.is_empty() {
@@ -370,18 +415,34 @@ pub fn matmul_vector(matrix: Vec<Vec<f32>>, vector: Vec<f32>) -> PyResult<Vec<f3
     }
 
     // Convert to flat matrix for better cache locality
-    let flat = FlatMatrix::from_nested(matrix)?;
+    let flat = FlatMatrix::from_nested(matrix).map_err(pyo3::exceptions::PyValueError::new_err)?;
     Ok(matmul_vector_internal(&flat, &vector))
 }
 
 /// Batch matrix-vector multiplication.
 ///
 /// Computes: results[i] = matrix @ vectors[i] for each vector
+///
+/// Detach audit: multiplies the matrix against every vector — O(n·rows·d),
+/// plausibly multi-millisecond on realistic batch shapes. The wrapper follows
+/// the crate idiom (ccg_extract/similarity): errors cross the detach as
+/// `String`s (`PyErr` is `!Ungil`) and convert to `ValueError` at the
+/// boundary; all inputs are owned values.
 #[pyfunction]
 pub fn batch_matmul_vector(
+    py: Python<'_>,
     matrix: Vec<Vec<f32>>,
     vectors: Vec<Vec<f32>>,
 ) -> PyResult<Vec<Vec<f32>>> {
+    py.detach(move || batch_matmul_vector_impl(matrix, vectors))
+        .map_err(pyo3::exceptions::PyValueError::new_err)
+}
+
+/// Rust-facing implementation of [`batch_matmul_vector`] (no GIL, no `PyErr`).
+fn batch_matmul_vector_impl(
+    matrix: Vec<Vec<f32>>,
+    vectors: Vec<Vec<f32>>,
+) -> Result<Vec<Vec<f32>>, String> {
     if matrix.is_empty() || vectors.is_empty() {
         return Ok(Vec::new());
     }
@@ -396,14 +457,14 @@ pub fn batch_matmul_vector(
                 if v.len() == flat.cols() {
                     Ok(matmul_vector_internal(&flat, v))
                 } else {
-                    Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    Err(format!(
                         "Vector has {} dims, expected {}",
                         v.len(),
                         flat.cols()
-                    )))
+                    ))
                 }
             })
-            .collect::<PyResult<Vec<_>>>()?
+            .collect::<Result<Vec<_>, String>>()?
     } else {
         vectors
             .iter()
@@ -411,14 +472,14 @@ pub fn batch_matmul_vector(
                 if v.len() == flat.cols() {
                     Ok(matmul_vector_internal(&flat, v))
                 } else {
-                    Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    Err(format!(
                         "Vector has {} dims, expected {}",
                         v.len(),
                         flat.cols()
-                    )))
+                    ))
                 }
             })
-            .collect::<PyResult<Vec<_>>>()?
+            .collect::<Result<Vec<_>, String>>()?
     };
 
     Ok(results)
@@ -435,22 +496,37 @@ pub fn batch_matmul_vector(
 ///
 /// # Returns
 /// List of projected embeddings
+///
+/// Detach audit: builds a `target_dim x input_dim` projection and multiplies
+/// the whole embedding set against it — O(n·target_dim·input_dim), firmly
+/// multi-millisecond on realistic RAG shapes (e.g. 500 chunks x 1536 dims
+/// projected to 256). Wrapper/impl split per the crate idiom: `PyErr` is
+/// `!Ungil`, so errors cross the detach as `String`s.
 #[pyfunction]
 #[pyo3(signature = (embeddings, target_dim, seed = 42))]
 pub fn random_projection(
+    py: Python<'_>,
     embeddings: Vec<Vec<f32>>,
     target_dim: usize,
     seed: u64,
 ) -> PyResult<Vec<Vec<f32>>> {
+    py.detach(move || random_projection_impl(embeddings, target_dim, seed))
+        .map_err(pyo3::exceptions::PyValueError::new_err)
+}
+
+/// Rust-facing implementation of [`random_projection`] (no GIL, no `PyErr`).
+fn random_projection_impl(
+    embeddings: Vec<Vec<f32>>,
+    target_dim: usize,
+    seed: u64,
+) -> Result<Vec<Vec<f32>>, String> {
     if embeddings.is_empty() {
         return Ok(Vec::new());
     }
 
     let input_dim = embeddings[0].len();
     if target_dim > input_dim {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "Target dimension must be <= input dimension",
-        ));
+        return Err("Target dimension must be <= input dimension".to_string());
     }
 
     // Generate random projection matrix using simple LCG
@@ -486,14 +562,10 @@ pub fn random_projection(
                 if e.len() == cols {
                     Ok(matmul_vector_internal(&projection, e))
                 } else {
-                    Err(pyo3::exceptions::PyValueError::new_err(format!(
-                        "Vector has {} dims, expected {}",
-                        e.len(),
-                        cols
-                    )))
+                    Err(format!("Vector has {} dims, expected {}", e.len(), cols))
                 }
             })
-            .collect::<PyResult<Vec<_>>>()?
+            .collect::<Result<Vec<_>, String>>()?
     } else {
         embeddings
             .iter()
@@ -501,14 +573,10 @@ pub fn random_projection(
                 if e.len() == cols {
                     Ok(matmul_vector_internal(&projection, e))
                 } else {
-                    Err(pyo3::exceptions::PyValueError::new_err(format!(
-                        "Vector has {} dims, expected {}",
-                        e.len(),
-                        cols
-                    )))
+                    Err(format!("Vector has {} dims, expected {}", e.len(), cols))
                 }
             })
-            .collect::<PyResult<Vec<_>>>()?
+            .collect::<Result<Vec<_>, String>>()?
     };
     Ok(results)
 }
@@ -516,8 +584,19 @@ pub fn random_projection(
 /// Compute pairwise distances for a set of embeddings.
 ///
 /// Returns a flattened upper triangular distance matrix.
+///
+/// Detach audit: O(n²·d) upper-triangular scan (serial) — multi-millisecond
+/// for realistic corpus sizes (e.g. n=500, d=768 ≈ 100M FLOP). Only the ragged
+/// input can fail, and that error crosses the detach as a `String` per the
+/// crate idiom.
 #[pyfunction]
-pub fn pairwise_distances(embeddings: Vec<Vec<f32>>) -> PyResult<Vec<f32>> {
+pub fn pairwise_distances(py: Python<'_>, embeddings: Vec<Vec<f32>>) -> PyResult<Vec<f32>> {
+    py.detach(move || pairwise_distances_impl(embeddings))
+        .map_err(pyo3::exceptions::PyValueError::new_err)
+}
+
+/// Rust-facing implementation of [`pairwise_distances`] (no GIL, no `PyErr`).
+fn pairwise_distances_impl(embeddings: Vec<Vec<f32>>) -> Result<Vec<f32>, String> {
     let n = embeddings.len();
     if n < 2 {
         return Ok(Vec::new());
@@ -564,9 +643,25 @@ pub fn pairwise_distances(embeddings: Vec<Vec<f32>>) -> PyResult<Vec<f32>> {
 ///
 /// # Returns
 /// List of (neighbor_indices, distances) for each embedding
+///
+/// Detach audit: full O(n²·d) similarity scan with rayon — plausibly
+/// multi-millisecond on real corpora. Wrapper/impl split per the crate idiom.
 #[pyfunction]
 #[pyo3(signature = (embeddings, k = 5))]
-pub fn knn_graph(embeddings: Vec<Vec<f32>>, k: usize) -> PyResult<Vec<(Vec<usize>, Vec<f32>)>> {
+pub fn knn_graph(
+    py: Python<'_>,
+    embeddings: Vec<Vec<f32>>,
+    k: usize,
+) -> PyResult<Vec<(Vec<usize>, Vec<f32>)>> {
+    py.detach(move || knn_graph_impl(embeddings, k))
+        .map_err(pyo3::exceptions::PyValueError::new_err)
+}
+
+/// Rust-facing implementation of [`knn_graph`] (no GIL, no `PyErr`).
+fn knn_graph_impl(
+    embeddings: Vec<Vec<f32>>,
+    k: usize,
+) -> Result<Vec<(Vec<usize>, Vec<f32>)>, String> {
     if embeddings.is_empty() {
         return Ok(Vec::new());
     }
@@ -682,7 +777,7 @@ mod tests {
     #[test]
     fn test_random_projection() {
         let embeddings = vec![vec![1.0, 2.0, 3.0, 4.0], vec![4.0, 3.0, 2.0, 1.0]];
-        let projected = random_projection(embeddings, 2, 42).unwrap();
+        let projected = random_projection_impl(embeddings, 2, 42).unwrap();
         assert_eq!(projected.len(), 2);
         assert_eq!(projected[0].len(), 2);
         assert_eq!(projected[1].len(), 2);
@@ -696,7 +791,7 @@ mod tests {
             vec![0.0, 1.0],
             vec![0.1, 0.9], // Close to third
         ];
-        let knn = knn_graph(embeddings, 2).unwrap();
+        let knn = knn_graph_impl(embeddings, 2).unwrap();
         assert_eq!(knn.len(), 4);
         // First embedding's nearest neighbor should be second
         assert_eq!(knn[0].0[0], 1);
