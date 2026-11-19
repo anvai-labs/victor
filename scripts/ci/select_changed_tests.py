@@ -369,7 +369,19 @@ RELATED_TESTS = {
     "victor/config/memory_settings.py": (
         "tests/unit/config/test_memory_settings.py",
         "tests/unit/agent/services/test_memory_consolidation.py",
+        "tests/unit/agent/test_memory_injection.py",
+        "tests/unit/agent/test_memory_ab.py",
     ),
+    "victor/agent/memory_injection.py": (
+        "tests/unit/agent/test_memory_injection.py",
+        "tests/unit/agent/test_memory_ab.py",
+        "tests/unit/config/test_memory_settings.py",
+    ),
+    "victor/agent/budget_manager.py": (
+        "tests/unit/agent/test_budget_manager.py",
+        "tests/unit/agent/test_memory_injection.py",
+    ),
+    "victor/evaluation/memory_ab.py": ("tests/unit/agent/test_memory_ab.py",),
     "victor/security/permissions.py": (
         "tests/unit/security/test_permissions.py",
         "tests/unit/tools/test_memory_write.py",
@@ -480,6 +492,7 @@ RELATED_TESTS = {
             "tests/unit/framework/test_perception_integration.py",
             "tests/unit/framework/test_task_type_adapters.py",
             "tests/unit/framework/test_task_types.py",
+            "tests/unit/agent/test_memory_injection.py",
             "tests/unit/storage/embeddings/test_task_classifier_extension.py",
         ),
     ),

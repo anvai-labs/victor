@@ -130,6 +130,10 @@ class BudgetManager(IBudgetManager, ModeAwareMixin):
     _tracker: Optional[BudgetTracker] = None
     _multiplier_calc: Optional[MultiplierCalculator] = None
     _tool_classifier: Optional[ToolCallClassifier] = None
+    #: Token allowance shared by prompt-context blocks registered at PERCEIVE
+    #: (FEP-0048 A2c: the memory block competes here instead of free-riding).
+    max_context_block_tokens: int = 1024
+    _context_blocks: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Initialize specialized components (SRP)."""
@@ -329,12 +333,84 @@ class BudgetManager(IBudgetManager, ModeAwareMixin):
     def get_diagnostics(self) -> Dict[str, Any]:
         """Get diagnostic information about all budgets.
 
-        Delegates to BudgetTracker (SRP).
+        Delegates to BudgetTracker (SRP), extended with the registered
+        prompt-context blocks (FEP-0048 A2c).
 
         Returns:
             Dictionary with detailed budget state
         """
-        return self._tracker.get_diagnostics()
+        diagnostics = self._tracker.get_diagnostics()
+        diagnostics["context_blocks"] = {
+            name: dict(info) for name, info in self._context_blocks.items()
+        }
+        return diagnostics
+
+    # =============================================================================
+    # Prompt-context block registration (FEP-0048, FOU-A2c)
+    # =============================================================================
+
+    def register_context_block(self, name: str, token_estimate: int, priority: int = 3) -> bool:
+        """Register a prompt-context block's token cost against the shared allowance.
+
+        PERCEIVE-stage context blocks (long-term memory today) register their
+        token estimate here so they compete for context tokens by priority
+        instead of free-riding. Lower ``priority`` numbers are more important
+        (the prompt-section registry convention).
+
+        When the block does not fit, weaker blocks (strictly higher priority
+        number, registered first) are evicted to make room; equal-priority
+        blocks are never displaced. Returns False when the block still does
+        not fit — the caller is expected to refit or drop the block.
+
+        Args:
+            name: Unique block name (re-registering replaces the entry).
+            token_estimate: Estimated token cost of the block (chars/4).
+            priority: Importance (lower = more important).
+
+        Returns:
+            True if registered (cost is now accounted), False if refused.
+        """
+        token_estimate = max(0, int(token_estimate))
+        if token_estimate > self.max_context_block_tokens:
+            return False
+
+        previous = self._context_blocks.pop(name, None)
+        used = self._context_block_tokens_used()
+
+        if used + token_estimate > self.max_context_block_tokens:
+            # Make room by evicting strictly weaker blocks, weakest-first in
+            # insertion order (dict preserves insertion order).
+            weaker = [
+                (n, info) for n, info in self._context_blocks.items() if info["priority"] > priority
+            ]
+            weaker.sort(key=lambda item: (-item[1]["priority"],))
+            for evicted_name, _ in weaker:
+                self._context_blocks.pop(evicted_name, None)
+                used = self._context_block_tokens_used()
+                if used + token_estimate <= self.max_context_block_tokens:
+                    break
+            if used + token_estimate > self.max_context_block_tokens:
+                if previous is not None:  # restore on refusal
+                    self._context_blocks[name] = previous
+                return False
+
+        self._context_blocks[name] = {"tokens": token_estimate, "priority": priority}
+        return True
+
+    def unregister_context_block(self, name: str) -> bool:
+        """Release a registered context block's token cost.
+
+        Returns:
+            True if a block with this name was registered, False otherwise.
+        """
+        return self._context_blocks.pop(name, None) is not None
+
+    def remaining_context_block_tokens(self) -> int:
+        """Unspent context-block tokens under the shared allowance."""
+        return max(0, self.max_context_block_tokens - self._context_block_tokens_used())
+
+    def _context_block_tokens_used(self) -> int:
+        return sum(info["tokens"] for info in self._context_blocks.values())
 
     # =============================================================================
     # Backward Compatibility Properties

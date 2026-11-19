@@ -40,3 +40,47 @@ def test_env_var_optin(monkeypatch):
     monkeypatch.setenv("VICTOR_MEMORY_AUTO_CAPTURE", "true")
     settings = Settings(**{"env_file": None})
     assert settings.memory.memory_auto_capture is True
+
+
+# =============================================================================
+# Read-path injection settings (FOU-A2c): default-on with off-when-empty
+# =============================================================================
+
+
+def test_injection_defaults_on_with_off_when_empty_semantics():
+    """Default ON per FEP-0048; an empty store still injects nothing (A2c)."""
+    memory = MemorySettings()
+    assert memory.memory_enabled is True
+    assert memory.user_scope_enabled is True
+    assert memory.project_scope_enabled is True
+    assert memory.memory_injection_max_tokens == 500
+
+
+def test_settings_flat_fields_sync_into_memory_group():
+    settings = Settings(**{"env_file": None})
+    assert settings.memory_enabled is True
+    assert settings.memory is not None
+    assert settings.memory.memory_enabled is True
+    assert settings.memory.user_scope_enabled is True
+    assert settings.memory.project_scope_enabled is True
+    assert settings.memory.memory_injection_max_tokens == 500
+
+
+def test_env_opt_out_flows_to_nested_group(monkeypatch):
+    monkeypatch.setenv("VICTOR_MEMORY_ENABLED", "false")
+    settings = Settings(**{"env_file": None})
+    assert settings.memory_enabled is False
+    assert settings.memory.memory_enabled is False
+
+
+def test_per_scope_env_opt_outs(monkeypatch):
+    monkeypatch.setenv("VICTOR_USER_SCOPE_ENABLED", "false")
+    settings = Settings(**{"env_file": None})
+    assert settings.memory.user_scope_enabled is False
+    assert settings.memory.project_scope_enabled is True
+
+
+def test_injection_cap_env_override(monkeypatch):
+    monkeypatch.setenv("VICTOR_MEMORY_INJECTION_MAX_TOKENS", "200")
+    settings = Settings(**{"env_file": None})
+    assert settings.memory.memory_injection_max_tokens == 200

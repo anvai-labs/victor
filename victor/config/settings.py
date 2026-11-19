@@ -1279,6 +1279,18 @@ class Settings(BaseSettings):
     # NOTE: memory_auto_capture now in memory nested group
     memory_auto_capture: bool = False
 
+    # Core long-term memory read path (FEP-0048, FOU-A2c). Master switch and
+    # per-scope opt-outs for the PERCEIVE injection block. Default ON with
+    # off-when-empty semantics (empty store = zero prompt change); the A/B
+    # battery (victor/evaluation/memory_ab.py) owns the ADR-036 verdict on
+    # whether the default stays on.
+    # NOTE: memory_enabled / user_scope_enabled / project_scope_enabled /
+    # memory_injection_max_tokens now in memory nested group
+    memory_enabled: bool = True
+    user_scope_enabled: bool = True
+    project_scope_enabled: bool = True
+    memory_injection_max_tokens: int = 500
+
     # ==========================================================================
     # Vertical Configuration
     # ==========================================================================
