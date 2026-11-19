@@ -1580,9 +1580,9 @@ def _restore_session_into_agent(
     """
     if not resume_session_id:
         return None
+    from victor.agent.conversation.state_machine import ConversationStateMachine
     from victor.agent.conversation.store import ConversationStore
     from victor.agent.message_history import MessageHistory
-    from victor.agent.conversation_state import ConversationStateMachine
 
     session_data = ConversationStore().load_session(resume_session_id)
 
