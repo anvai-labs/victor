@@ -62,6 +62,10 @@ DEPRECATION_NOTICE_FILES = (
     "victor/agent/sqlite_session_persistence.py",
 )
 RELATED_TESTS = {
+    "victor/processing/native/json_repair.py": (
+        "tests/unit/native/test_text_pipeline_parity.py",
+        "tests/unit/tools/test_argument_normalizer.py",
+    ),
     "victor/providers/gateway_contract.py": (
         "tests/unit/providers/test_sandhi_gateway_peer.py",
         "tests/unit/providers/test_subscription_gateway.py",
@@ -293,6 +297,7 @@ RELATED_TESTS = {
         "tests/unit/agent/test_tool_optimization_integration.py",
         "tests/unit/agent/test_tool_pipeline.py",
         "tests/unit/agent/tool_execution/test_async_executor.py",
+        "tests/unit/security/test_injection_hard_fail.py",
         "tests/unit/tools/test_search_router_pipeline.py",
         "tests/unit/tools/test_tool_pipeline_parallel.py",
     ),
@@ -357,6 +362,68 @@ RELATED_TESTS = {
     "victor/storage/memory/adapters.py": (
         "tests/unit/memory/test_memory_adapters.py",
         "tests/unit/memory/test_conversation_history_store_protocol.py",
+        "tests/unit/storage/memory/test_preference_episodic.py",
+    ),
+    "victor/storage/memory/preference_episodic.py": (
+        "tests/unit/storage/memory/test_preference_episodic.py",
+        "tests/unit/commands/test_memory_command.py",
+        "tests/unit/integrations/api/test_memory_routes.py",
+    ),
+    "victor/tools/memory_write.py": ("tests/unit/tools/test_memory_write.py",),
+    "victor/agent/services/memory_consolidation.py": (
+        "tests/unit/agent/services/test_memory_consolidation.py",
+        "tests/unit/commands/test_memory_command.py",
+        "tests/unit/integrations/api/test_memory_routes.py",
+    ),
+    "victor/config/memory_settings.py": (
+        "tests/unit/config/test_memory_settings.py",
+        "tests/unit/agent/services/test_memory_consolidation.py",
+        "tests/unit/agent/test_memory_injection.py",
+        "tests/unit/agent/test_memory_ab.py",
+    ),
+    "victor/agent/memory_injection.py": (
+        "tests/unit/agent/test_memory_injection.py",
+        "tests/unit/agent/test_memory_injection_production_wiring.py",
+        "tests/unit/agent/test_memory_ab.py",
+        "tests/unit/config/test_memory_settings.py",
+    ),
+    # The production wiring lives in the orchestrator composition root; the
+    # glob mirrors (test_orchestrator*.py) don't cover the dormancy test.
+    "victor/agent/orchestrator.py": (
+        "tests/unit/agent/test_memory_injection_production_wiring.py",
+    ),
+    "victor/agent/budget_manager.py": (
+        "tests/unit/agent/test_budget_manager.py",
+        "tests/unit/agent/test_memory_injection.py",
+    ),
+    "victor/evaluation/memory_ab.py": ("tests/unit/agent/test_memory_ab.py",),
+    # FOU-S3c/S3d: injection screen + its FP battery share the corpus-pinned
+    # suites (screen tightenings keep benign counterparts in both); the
+    # hard-fail wiring suite pins the flag-gated escalation contract.
+    "victor/security/injection_screen.py": (
+        "tests/unit/security/test_injection_screen.py",
+        "tests/unit/security/test_injection_fp_battery.py",
+        "tests/unit/security/test_injection_hard_fail.py",
+        "tests/unit/security/test_tool_output_containment.py",
+    ),
+    "victor/evaluation/injection_fp_battery.py": (
+        "tests/unit/security/test_injection_fp_battery.py",
+    ),
+    "victor/evaluation/injection_fp_corpus.py": (
+        "tests/unit/security/test_injection_fp_battery.py",
+        "tests/unit/security/test_injection_screen.py",
+    ),
+    "victor/security/permissions.py": (
+        "tests/unit/security/test_permissions.py",
+        "tests/unit/tools/test_memory_write.py",
+    ),
+    "victor/security/safety/secrets.py": (
+        "tests/unit/security/test_secrets_scanner.py",
+        "tests/unit/storage/memory/test_preference_episodic.py",
+    ),
+    "rust/crates/python-bindings/src/secrets.rs": (
+        "tests/unit/security/test_secrets_scanner.py",
+        "tests/unit/storage/memory/test_preference_episodic.py",
     ),
     "victor/config/classification_settings.py": (
         "tests/unit/agent/services/test_classification_backend.py",
@@ -456,6 +523,7 @@ RELATED_TESTS = {
             "tests/unit/framework/test_perception_integration.py",
             "tests/unit/framework/test_task_type_adapters.py",
             "tests/unit/framework/test_task_types.py",
+            "tests/unit/agent/test_memory_injection.py",
             "tests/unit/storage/embeddings/test_task_classifier_extension.py",
         ),
     ),
@@ -1048,6 +1116,29 @@ RELATED_TESTS = {
         "tests/unit/agent/test_background_agent.py",
         "tests/unit/integrations/api/test_ws_auth_gate.py",
     ),
+    # /memory + /memory/proposals routes (FEP-0048 FOU-A2d): list/set/forget,
+    # structured refusals and the consolidation confirm/discard lifecycle are
+    # pinned by the memory routes suite (no per-route mirror file).
+    "victor/integrations/api/routes/memory_routes.py": (
+        "tests/unit/integrations/api/test_memory_routes.py",
+    ),
+    # The router registry: the extension contract test walks
+    # create_all_routers(), so an addition must keep that passing.
+    "victor/integrations/api/routes/__init__.py": (
+        "tests/unit/api/test_vscode_extension_contract.py",
+        "tests/unit/integrations/api/test_memory_routes.py",
+    ),
+    # /memory slash command (FEP-0048 FOU-A2d): parsing, refusal output
+    # (secret never echoed) and confirm/discard are pinned by the command
+    # suite (slash commands live under tests/unit/commands, not a mirror).
+    "victor/ui/slash/commands/memory.py": ("tests/unit/commands/test_memory_command.py",),
+    # /memory alias release from /context is pinned by the command suite.
+    "victor/ui/slash/commands/tools.py": ("tests/unit/commands/test_memory_command.py",),
+    # Client-facing shared-memory seam: both confirm surfaces exercise it.
+    "victor/framework/memory.py": (
+        "tests/unit/commands/test_memory_command.py",
+        "tests/unit/integrations/api/test_memory_routes.py",
+    ),
     "victor/integrations/protocol/__init__.py": (
         "tests/unit/protocols/test_protocol_interface.py",
         "tests/unit/protocols/test_protocol_adapters.py",
@@ -1080,7 +1171,20 @@ RELATED_TESTS = {
             "tests/unit/framework/test_agentic_loop_run_streaming.py",
             "tests/unit/framework/test_agentic_loop_verification.py",
             "tests/unit/framework/test_agentic_loop_effect_gate.py",
+            "tests/unit/evaluation/test_auditor_ab.py",
         ),
+    ),
+    "victor/evaluation/auditor_ab.py": ("tests/unit/evaluation/test_auditor_ab.py",),
+    "victor/framework/per_turn_auditor.py": (
+        "tests/unit/framework/test_per_turn_auditor.py",
+        "tests/unit/framework/test_per_turn_auditor_judge.py",
+        "tests/unit/framework/test_agentic_loop_per_turn_auditor.py",
+        "tests/unit/evaluation/test_auditor_ab.py",
+        "tests/unit/agent/test_edge_turn_judge.py",
+    ),
+    "victor/agent/edge_turn_judge.py": (
+        "tests/unit/agent/test_edge_turn_judge.py",
+        "tests/unit/evaluation/test_auditor_ab.py",
     ),
     "victor/agent/services/chat_runtime_services.py": (
         "tests/unit/agent/services/test_chat_stream_governance.py",
@@ -1144,6 +1248,7 @@ RELATED_TESTS = {
     "victor/config/tool_settings.py": (
         "tests/unit/config/test_tool_selection_access.py",
         "tests/unit/config/test_settings_stratification.py",
+        "tests/unit/security/test_injection_hard_fail.py",
     ),
     "victor/framework/agent_factory.py": (
         "tests/unit/framework/test_skill_registry_wiring.py",
@@ -1247,6 +1352,11 @@ RELATED_TESTS = {
         "tests/unit/agent/test_mcp_registry.py",
         "tests/unit/agent/test_mcp_registry_discovery.py",
         "tests/unit/security/test_mcp_policy_boundary.py",
+    ),
+    "victor/workflows/data_pipeline.py": ("tests/unit/workflows/test_data_pipeline_breaker.py",),
+    "victor/agent/services/session_service.py": (
+        "tests/unit/agent/services/test_memory_consolidation.py",
+        "tests/unit/agent/services/test_session_runtime.py",
     ),
     "victor/integrations/mcp/standalone_http.py": (
         "tests/unit/integrations/mcp/test_standalone_http.py",

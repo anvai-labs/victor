@@ -23,7 +23,7 @@ This module provides robust error handling for production systems:
 
 Note: This module contains an embedded CircuitBreaker implementation optimized
 for the ResilientProvider workflow. For standalone circuit breaker usage with
-decorator/context manager support, see victor.providers.circuit_breaker.
+decorator/context manager support, see victor.core.circuit_breaker.
 
 Usage:
     from victor.providers.resilience import ResilientProvider, CircuitBreakerConfig
@@ -75,7 +75,7 @@ from victor.core.errors import ProviderError, ProviderPolicyError, ProviderTimeo
 
 # Import the canonical CircuitBreaker for composition
 from victor.providers import failure_taxonomy
-from victor.providers.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
+from victor.core.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
 
 
 # CircuitOpenError is a compatibility adapter for the canonical CircuitBreakerError
@@ -106,7 +106,7 @@ class CircuitBreakerState:
     Runtime state of circuit breaker.
 
     DEPRECATED: This is kept for backward compatibility only.
-    New code should use the canonical CircuitBreaker from victor.providers.circuit_breaker.
+    New code should use the canonical CircuitBreaker from victor.core.circuit_breaker.
     """
 
     state: CircuitState = CircuitState.CLOSED
@@ -123,7 +123,7 @@ class ProviderCircuitBreaker:
     Circuit breaker adapter for provider resilience workflow.
 
     This is now a thin wrapper around the canonical CircuitBreaker from
-    victor.providers.circuit_breaker. It provides the ProviderCircuitBreaker
+    victor.core.circuit_breaker. It provides the ProviderCircuitBreaker
     API (is_available, time_until_retry, execute) for backward compatibility
     while delegating all state management to the canonical implementation.
 

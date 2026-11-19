@@ -646,6 +646,7 @@ from victor.config.hitl_settings import HITLSettings  # noqa: E402
 from victor.config.plugin_settings import PluginSettings  # noqa: E402
 from victor.config.prompt_policy_settings import PromptPolicySettings  # noqa: E402
 from victor.config.conversation_settings import ConversationSettings  # noqa: E402
+from victor.config.memory_settings import MemorySettings  # noqa: E402
 from victor.config.exploration_settings import ExplorationSettings  # noqa: E402
 
 from victor.config.serialization_settings import SerializationSettings  # noqa: E402
@@ -700,6 +701,7 @@ _NESTED_GROUPS = {
     "plugins": PluginSettings,
     "prompt_policy": PromptPolicySettings,
     "conversation": ConversationSettings,
+    "memory": MemorySettings,
     "exploration": ExplorationSettings,
     "serialization": SerializationSettings,
     "automation": AutomationSettings,
@@ -1208,6 +1210,7 @@ class Settings(BaseSettings):
     plugins: Optional[PluginSettings] = Field(default=None, exclude=True, repr=False)
     prompt_policy: Optional[PromptPolicySettings] = Field(default=None, exclude=True, repr=False)
     conversation: Optional[ConversationSettings] = Field(default=None, exclude=True, repr=False)
+    memory: Optional[MemorySettings] = Field(default=None, exclude=True, repr=False)
     exploration: Optional[ExplorationSettings] = Field(default=None, exclude=True, repr=False)
     serialization: Optional[SerializationSettings] = Field(default=None, exclude=True, repr=False)
     automation: Optional[AutomationSettings] = Field(default=None, exclude=True, repr=False)
@@ -1268,6 +1271,25 @@ class Settings(BaseSettings):
 
     # Privacy and Security
     airgapped_mode: bool = False
+
+    # Core long-term memory (FEP-0048)
+    # When True, end-of-session consolidation stores proposed episodes without
+    # confirmation. Default OFF — wrong memories are worse than missing ones;
+    # the Session-service hook proposes and stages unless this is opted in.
+    # NOTE: memory_auto_capture now in memory nested group
+    memory_auto_capture: bool = False
+
+    # Core long-term memory read path (FEP-0048, FOU-A2c). Master switch and
+    # per-scope opt-outs for the PERCEIVE injection block. Default ON with
+    # off-when-empty semantics (empty store = zero prompt change); the A/B
+    # battery (victor/evaluation/memory_ab.py) owns the ADR-036 verdict on
+    # whether the default stays on.
+    # NOTE: memory_enabled / user_scope_enabled / project_scope_enabled /
+    # memory_injection_max_tokens now in memory nested group
+    memory_enabled: bool = True
+    user_scope_enabled: bool = True
+    project_scope_enabled: bool = True
+    memory_injection_max_tokens: int = 500
 
     # ==========================================================================
     # Vertical Configuration

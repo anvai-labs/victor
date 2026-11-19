@@ -36,7 +36,7 @@ This package integrates with existing Victor framework components:
    - Recovery coordinates with existing compaction system
    - Proactive compaction at configurable threshold
 
-4. Circuit Breaker: victor.providers.circuit_breaker.CircuitBreaker
+4. Circuit Breaker: victor.core.circuit_breaker.CircuitBreaker
    - Model fallback respects existing circuit breaker states
    - Uses CircuitBreakerRegistry for consistent behavior
 

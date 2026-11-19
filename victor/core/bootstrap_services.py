@@ -402,13 +402,24 @@ def _create_session_service(container: ServiceContainer) -> "SessionService":
     Returns:
         Configured SessionService instance
     """
+    from victor.agent.services.memory_consolidation import (
+        get_shared_memory_consolidator,
+    )
     from victor.agent.services.session_service import SessionService
     from victor.agent.session_state_manager import create_session_state_manager
+    from victor.config.settings import Settings
 
     # Create required session state manager
     session_state_manager = create_session_state_manager(
         tool_budget=200,  # Default tool budget
     )
+
+    # FOU-A2d: bind the shared consolidator so the end-session hook stages
+    # proposals onto the SAME handle the /memory confirm surfaces drive.
+    # Confirm-by-default: nothing is stored without the explicit confirm
+    # path; auto-capture stays opt-in via settings.memory.memory_auto_capture.
+    settings = container.get_optional(Settings)
+    auto_capture = bool(getattr(getattr(settings, "memory", None), "memory_auto_capture", False))
 
     # Create session service with required dependencies
     # lifecycle_manager and memory_manager are optional and will be set later
@@ -416,6 +427,7 @@ def _create_session_service(container: ServiceContainer) -> "SessionService":
         session_state_manager=session_state_manager,
         lifecycle_manager=None,  # Will be set by component_assembler
         memory_manager=None,  # Will be set by component_assembler
+        memory_consolidator=get_shared_memory_consolidator(auto_capture=auto_capture),
     )
 
 

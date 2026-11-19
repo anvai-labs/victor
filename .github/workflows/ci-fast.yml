@@ -970,6 +970,13 @@ jobs:
         with:
           components: rustfmt
 
+      # rust-toolchain.toml (repo root) overrides the action's toolchain
+      # resolution, so the action's component install can land on a
+      # different descriptor and cargo fmt finds no rustfmt for the pinned
+      # channel. Ensure it explicitly.
+      - name: Ensure rustfmt on the pinned toolchain
+        run: rustup component add rustfmt --toolchain 1.100.0
+
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: rust

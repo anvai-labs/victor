@@ -26,6 +26,7 @@ Architecture:
     │  ├── rl_     → Reinforcement Learning tables                        │
     │  ├── agent_  → Agent execution & teams                              │
     │  ├── ui_     → User interface (sessions, preferences)               │
+    │  ├── memory_ → Long-term memory (FEP-0048: preferences, episodes)   │
     │  └── sys_    → System metadata                                      │
     │                                                                      │
     │  Naming Pattern: {domain}_{entity}                                   │
@@ -201,6 +202,17 @@ class Tables:
     # ===========================================
     UI_SESSION = "ui_session"  # Interactive CLI session persistence
     UI_FAILED_CALL = "ui_failed_call"  # Failed tool call signatures
+
+    # ===========================================
+    # MEMORY DOMAIN (memory_) - FEP-0048
+    # ===========================================
+    # User-scope preference rows live in the GLOBAL database (~/.victor/victor.db);
+    # project-scope preference rows and all episode rows live in the PROJECT
+    # database (./.victor/project.db). Physical database separation is the
+    # primary scope-isolation boundary; every query additionally filters on
+    # scope as defense in depth.
+    MEMORY_PREFERENCE = "memory_preference"  # Stable directives (user | project scope)
+    MEMORY_EPISODE = "memory_episode"  # Timestamped event summaries (project scope)
 
     # ===========================================
     # LEGACY TABLE MAPPINGS (for migration)
@@ -734,6 +746,48 @@ class Schema:
     """
 
     # ===========================================
+    # MEMORY TABLES (FEP-0048) — same DDL applies
+    # in BOTH databases; scope decides placement.
+    # ===========================================
+
+    MEMORY_PREFERENCE = f"""
+        CREATE TABLE IF NOT EXISTS {Tables.MEMORY_PREFERENCE} (
+            id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL,
+            content TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'user',
+            confidence REAL NOT NULL DEFAULT 1.0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            metadata TEXT
+        )
+    """
+
+    MEMORY_PREFERENCE_INDEXES = f"""
+        CREATE INDEX IF NOT EXISTS idx_memory_preference_scope
+            ON {Tables.MEMORY_PREFERENCE}(scope, updated_at DESC);
+    """
+
+    MEMORY_EPISODE = f"""
+        CREATE TABLE IF NOT EXISTS {Tables.MEMORY_EPISODE} (
+            id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL DEFAULT 'project',
+            summary TEXT NOT NULL,
+            session_id TEXT NOT NULL DEFAULT '',
+            thread_id TEXT NOT NULL DEFAULT '',
+            timestamp REAL NOT NULL,
+            metadata TEXT
+        )
+    """
+
+    MEMORY_EPISODE_INDEXES = f"""
+        CREATE INDEX IF NOT EXISTS idx_memory_episode_thread
+            ON {Tables.MEMORY_EPISODE}(thread_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_memory_episode_session
+            ON {Tables.MEMORY_EPISODE}(session_id, timestamp DESC);
+    """
+
+    # ===========================================
     # GRAPH TABLES (project-level)
     # ===========================================
 
@@ -1213,6 +1267,11 @@ class Schema:
             # UI — ui_session removed (was duplicate of sessions; FK migration
             # moves messages/compaction_events to reference sessions directly)
             cls.UI_FAILED_CALL,
+            # Long-term memory (FEP-0048) — user-scope preferences are global;
+            # the same DDL also runs in the project database (project-scope
+            # preferences). PreferenceEpisodicStore self-ensures both sides so
+            # existing databases pick the tables up without a version bump.
+            cls.MEMORY_PREFERENCE,
         ]
 
     @classmethod
@@ -1227,6 +1286,8 @@ class Schema:
             # FEP-0012 decision-learning indexes
             cls.DECISION_LOG_INDEXES,
             cls.DECISION_OUTCOME_INDEXES,
+            # FEP-0048 long-term memory (user-scope preference, global db)
+            cls.MEMORY_PREFERENCE_INDEXES,
         ]
 
     @classmethod
@@ -1254,6 +1315,11 @@ class Schema:
             cls.CHANGES_FILE,
             # Edge-classifier per-project RL delta (FEP-0012)
             cls.LOCAL_CLASSIFIER_DELTA,
+            # Long-term memory (FEP-0048) — project-scope preferences and all
+            # episodes live in the project database. PreferenceEpisodicStore
+            # self-ensures these too (same DDL as the global side).
+            cls.MEMORY_PREFERENCE,
+            cls.MEMORY_EPISODE,
         ]
 
     @classmethod
@@ -1269,6 +1335,9 @@ class Schema:
             # PROFILE_INDEXES removed — interaction_history/profile_metrics dropped
             cls.CHANGES_INDEXES,
             cls.LOCAL_CLASSIFIER_DELTA_INDEXES,
+            # FEP-0048 long-term memory (project db)
+            cls.MEMORY_PREFERENCE_INDEXES,
+            cls.MEMORY_EPISODE_INDEXES,
         ]
 
 

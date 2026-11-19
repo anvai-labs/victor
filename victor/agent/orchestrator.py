@@ -510,9 +510,7 @@ class AgentOrchestrator(
             from victor.agent.content_registry import create_default_registry
             from victor.agent.optimization_injector import OptimizationInjector
             from victor.agent.prompt_pipeline import UnifiedPromptPipeline
-            from victor.agent.services.runtime_intelligence import (
-                RuntimeIntelligenceService,
-            )
+            from victor.agent.services.runtime_intelligence import RuntimeIntelligenceService
 
             self._optimization_injector = OptimizationInjector()
             self._runtime_intelligence = RuntimeIntelligenceService.from_orchestrator(
@@ -520,6 +518,10 @@ class AgentOrchestrator(
                 task_analyzer=get_task_analyzer(),
                 optimization_injector=self._optimization_injector,
             )
+            from victor.agent.memory_injection import bind_orchestrator_memory_injector
+
+            bind_orchestrator_memory_injector(self)  # FEP-0048 A2c, see memory_injection.py
+
             # Fetch optional services for prompt pipeline
             from victor.agent.tool_pipeline import ToolPipeline
             from victor.framework.rl.credit_tracking_service import (

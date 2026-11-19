@@ -36,7 +36,7 @@ It is designed for teams that need agent systems to be testable, extensible, obs
 
 | Path | Commands | Best for |
 |------|----------|----------|
-| Local model | `uv tool install victor-ai`<br>`victor init`<br>`victor chat "Explain this repo"` | Zero-config local inference: `victor init` detects a running Ollama / llama.cpp / InferFlux server, pulls `qwen2.5-coder:7b` if needed, and — only if nothing is installed — offers to download and start a llama.cpp server for you. Skip with `victor init --no-quickstart` |
+| Local model | `uv tool install victor-ai`<br>`victor init`<br>`victor chat "Explain this repo"` | Zero-config local inference: `victor init` detects a running Ollama / llama.cpp / InferFlux server, pulls `qwen2.5-coder:7b` if needed (≈4.7 GB download on first run), and — only if nothing is installed — offers to download and start a llama.cpp server for you (≈4.4 GB GGUF). Skip with `victor init --no-quickstart` |
 | Local model (manual) | `uv tool install victor-ai`<br>`ollama pull qwen2.5-coder:7b`<br>`victor chat "Explain this repo"` | You manage the server yourself (Ollama is the default profile — no provider flags needed) |
 | Cloud model | `uv tool install victor-ai`<br>`export ANTHROPIC_API_KEY=...`<br>`victor chat --provider anthropic "Plan this refactor"` | Hosted provider access |
 | Homebrew (macOS) | `brew tap anvai-labs/tap https://github.com/anvai-labs/homebrew-tap`<br>`brew install anvai-labs/tap/victor` | Mac-dev default channel (formula auto-tracks PyPI releases) |
