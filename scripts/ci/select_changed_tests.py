@@ -378,8 +378,14 @@ RELATED_TESTS = {
     ),
     "victor/agent/memory_injection.py": (
         "tests/unit/agent/test_memory_injection.py",
+        "tests/unit/agent/test_memory_injection_production_wiring.py",
         "tests/unit/agent/test_memory_ab.py",
         "tests/unit/config/test_memory_settings.py",
+    ),
+    # The production wiring lives in the orchestrator composition root; the
+    # glob mirrors (test_orchestrator*.py) don't cover the dormancy test.
+    "victor/agent/orchestrator.py": (
+        "tests/unit/agent/test_memory_injection_production_wiring.py",
     ),
     "victor/agent/budget_manager.py": (
         "tests/unit/agent/test_budget_manager.py",

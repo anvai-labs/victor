@@ -440,6 +440,68 @@ class MemoryBlockBuilder:
         )
 
 
+def bind_production_memory_injector(
+    perception: Any,
+    *,
+    settings: Any = None,
+    project_path: Any = None,
+    budget_manager: Optional["BudgetManager"] = None,
+) -> Optional["MemoryBlockBuilder"]:
+    """Bind a production ``MemoryBlockBuilder`` onto a ``PerceptionIntegration``.
+
+    This is the production wiring seam for FEP-0048 A2c (FOU-A2c) — and the
+    corrective for the FEP-0041 dormancy class: PR #1549 shipped a hook no
+    chat-loop caller ever invoked, so real sessions silently got no behavior.
+    The binding MUST happen at the composition root (``AgentOrchestrator`` for
+    chat), not inside the collaborator, or the hook ships unwired again.
+
+    Semantics:
+
+    - **Skip when off**: ``memory_enabled`` (settings) and
+      ``VICTOR_MEMORY_ENABLED`` (env) are resolved BEFORE any store is opened,
+      so an opted-out session pays nothing.
+    - **Degrade, never fail**: any construction failure (store unreachable,
+      migration error) logs a warning and returns ``None`` — session start is
+      never broken by memory.
+    - **Off-when-empty downstream**: even when bound, an empty store yields no
+      block (``MemoryBlockBuilder.build`` returns ``None``), leaving the
+      prompt byte-identical.
+
+    Args:
+        perception: The ``PerceptionIntegration`` serving PERCEIVE for a
+            session (bound via its ``set_memory_injector``).
+        settings: Application settings (drives ``memory_enabled``, per-scope
+            opt-outs, and the injection token cap).
+        project_path: Project root for the project-scope database (defaults
+            to the process working directory, matching production sessions).
+        budget_manager: Optional ``BudgetManager`` so the block competes for
+            context tokens instead of free-riding.
+
+    Returns:
+        The bound builder, or ``None`` when memory is disabled or binding
+        failed.
+    """
+    try:
+        if not resolve_memory_enabled(settings):
+            logger.debug("Memory injection disabled (settings/env); binding skipped")
+            return None
+        builder = MemoryBlockBuilder.from_environment(
+            settings=settings,
+            budget_manager=budget_manager,
+            project_path=project_path,
+        )
+        perception.set_memory_injector(builder)
+        logger.info(
+            "PERCEIVE memory injection bound (max_tokens=%d, entries=%d)",
+            builder.max_tokens,
+            builder.max_entries,
+        )
+        return builder
+    except Exception as exc:  # noqa: BLE001 — memory must never break session start
+        logger.warning("Memory injection unavailable; continuing without it: %s", exc)
+        return None
+
+
 __all__ = [
     "DEFAULT_MEMORY_INJECTION_MAX_TOKENS",
     "MEMORY_BLOCK_HEADER",
@@ -448,8 +510,28 @@ __all__ = [
     "MemoryInjectionBlock",
     "MAX_ENTRY_CHARS",
     "MIN_BLOCK_TOKENS",
+    "bind_production_memory_injector",
     "memory_prompt_suffix",
     "memory_scopes_from_context",
     "resolve_memory_enabled",
     "resolve_memory_scope_enabled",
 ]
+
+
+def bind_orchestrator_memory_injector(
+    orchestrator: Any, settings: Any = None
+) -> Optional["MemoryBlockBuilder"]:
+    """Orchestrator-flavored production binding (FEP-0048 A2c wiring).
+
+    Navigates the orchestrator's own collaborators so the chat composition
+    root stays within its hotspot line ratchet: one import + one call there.
+    Skips when disabled (resolved before any store opens), degrades to
+    no-injection on failure — memory never breaks session start.
+    """
+    runtime_intelligence = getattr(orchestrator, "_runtime_intelligence", None)
+    perception = getattr(runtime_intelligence, "perception_integration", None)
+    if perception is None:
+        return None
+    return bind_production_memory_injector(
+        perception, settings=settings or getattr(orchestrator, "settings", None)
+    )
