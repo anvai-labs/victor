@@ -370,6 +370,22 @@ RELATED_TESTS = {
         "tests/unit/integrations/api/test_memory_routes.py",
     ),
     "victor/tools/memory_write.py": ("tests/unit/tools/test_memory_write.py",),
+    "victor/tools/spawn_subagent.py": (
+        "tests/unit/tools/test_spawn_subagent.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+    ),
+    "victor/agent/factory/tool_builders.py": (
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/agent/runtime/test_component_assembler.py",
+    ),
+    "victor/agent/runtime/component_assembler.py": (
+        "tests/unit/agent/runtime/test_component_assembler.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+    ),
+    "victor/agent/orchestrator_properties.py": (
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/agent/test_orchestrator_properties.py",
+    ),
     "victor/agent/services/memory_consolidation.py": (
         "tests/unit/agent/services/test_memory_consolidation.py",
         "tests/unit/commands/test_memory_command.py",
@@ -416,6 +432,7 @@ RELATED_TESTS = {
     "victor/security/permissions.py": (
         "tests/unit/security/test_permissions.py",
         "tests/unit/tools/test_memory_write.py",
+        "tests/unit/tools/test_spawn_subagent.py",
     ),
     "victor/security/safety/secrets.py": (
         "tests/unit/security/test_secrets_scanner.py",
@@ -1249,6 +1266,7 @@ RELATED_TESTS = {
         "tests/unit/config/test_tool_selection_access.py",
         "tests/unit/config/test_settings_stratification.py",
         "tests/unit/security/test_injection_hard_fail.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
     ),
     "victor/framework/agent_factory.py": (
         "tests/unit/framework/test_skill_registry_wiring.py",

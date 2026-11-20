@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from pydantic import BaseModel, Field
 
@@ -66,6 +66,18 @@ class ToolSettings(BaseModel):
             "overlay is derived from aggregated rl_tool_q + decision_outcome "
             "signals via BudgetCalibrator. Default False = unchanged behavior; "
             "low-confidence recommendations always retain the baseline."
+        ),
+    )
+    # Subagent spawn (FOU-A1): per-spawn tool budget for child agents.
+    # None = the member-execution substrate's per-role default budget.
+    spawn_subagent_tool_budget: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Tool-call budget for agents created by the spawn_subagent tool "
+            "(FOU-A1). None uses the subagent substrate's per-role default. "
+            "The spawn call itself always counts against the parent's live "
+            "tool-call budget."
         ),
     )
     tool_selection_enabled: bool = Field(
