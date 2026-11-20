@@ -370,6 +370,22 @@ RELATED_TESTS = {
         "tests/unit/integrations/api/test_memory_routes.py",
     ),
     "victor/tools/memory_write.py": ("tests/unit/tools/test_memory_write.py",),
+    "victor/tools/spawn_subagent.py": (
+        "tests/unit/tools/test_spawn_subagent.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+    ),
+    "victor/agent/factory/tool_builders.py": (
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/agent/runtime/test_component_assembler.py",
+    ),
+    "victor/agent/runtime/component_assembler.py": (
+        "tests/unit/agent/runtime/test_component_assembler.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+    ),
+    "victor/agent/orchestrator_properties.py": (
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/agent/test_orchestrator_properties.py",
+    ),
     "victor/agent/services/memory_consolidation.py": (
         "tests/unit/agent/services/test_memory_consolidation.py",
         "tests/unit/commands/test_memory_command.py",
@@ -416,6 +432,7 @@ RELATED_TESTS = {
     "victor/security/permissions.py": (
         "tests/unit/security/test_permissions.py",
         "tests/unit/tools/test_memory_write.py",
+        "tests/unit/tools/test_spawn_subagent.py",
     ),
     "victor/security/safety/secrets.py": (
         "tests/unit/security/test_secrets_scanner.py",
@@ -1090,9 +1107,24 @@ RELATED_TESTS = {
     ),
     # /ws route: connection registration, message-auth gate, bounded auth
     # handshake and broadcast recipient admission are pinned by the WS auth
-    # gate suite (no per-route mirror file).
+    # gate suite (no per-route mirror file); bounded per-client delivery is
+    # pinned by the WS delivery bounds suite (VAS-06/10, TD-03).
     "victor/integrations/api/routes/websocket_routes.py": (
         "tests/unit/integrations/api/test_ws_auth_gate.py",
+        "tests/unit/integrations/api/test_ws_delivery_bounds.py",
+    ),
+    # fastapi_server: the broadcast seam owns bounded per-client delivery
+    # (queues, sender deadlines, overflow policy) pinned by the WS delivery
+    # bounds suite; the auth gate suite pins delivery admission/ordering.
+    "victor/integrations/api/fastapi_server.py": (
+        "tests/unit/integrations/api/test_ws_delivery_bounds.py",
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+        "tests/unit/integrations/api/test_fastapi_server.py",
+    ),
+    # Server settings group: WebSocket delivery knobs are validated positive
+    # by the WS delivery bounds suite.
+    "victor/config/groups/server_config.py": (
+        "tests/unit/integrations/api/test_ws_delivery_bounds.py",
     ),
     # Tool/team routes: approval/cancel wiring and owner-scoped broadcast
     # delivery are pinned by the consolidated-routes and WS auth gate suites
@@ -1249,6 +1281,7 @@ RELATED_TESTS = {
         "tests/unit/config/test_tool_selection_access.py",
         "tests/unit/config/test_settings_stratification.py",
         "tests/unit/security/test_injection_hard_fail.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
     ),
     "victor/framework/agent_factory.py": (
         "tests/unit/framework/test_skill_registry_wiring.py",
@@ -1443,6 +1476,13 @@ RELATED_TESTS = {
         *DEPRECATION_NOTICE_TESTS,
         "tests/unit/core/test_tool_base.py",
         *MCP_SCHEMA_TESTS,
+    ),
+    # Container sandbox lifecycle quality bar (FOU-S2, ADR-035 item 5): core
+    # owns the bar; the coding vertical delegates (shim re-exports).
+    "victor/tools/sandbox/container_sandbox.py": (
+        "tests/unit/tools/sandbox/test_container_sandbox.py",
+        "tests/unit/agent/test_code_exec_bootstrap.py",
+        "tests/unit/agent/protocols/test_infrastructure_protocols.py",
     ),
     # 5x'd stamina-budget defaults (2026-10-31): sources without a mirrored
     # test file are pinned by the suites that consume their defaults.

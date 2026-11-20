@@ -51,7 +51,18 @@ static SECRET_PATTERNS: LazyLock<Vec<SecretPattern>> = LazyLock::new(|| {
         },
         SecretPattern {
             name: "aws_secret_key",
-            pattern: Regex::new(r#"(?i)(?:aws|amazon).{0,20}['"][0-9a-zA-Z/+]{40}['"]"#).unwrap(),
+            // Two shapes, one family: (a) an aws/amazon keyword within 20
+            // chars of a quoted 40-char base64 run; (b) a bare 40-char
+            // base64 run delimited by non-run characters (the Rust regex
+            // crate has no lookaround, so the delimiters are consumed —
+            // equivalent detection semantics to the Python fallback's
+            // lookbehind/lookahead pair, per the FOU-C3 registry-parity
+            // port). Runs longer than 40 chars never match: every candidate
+            // window boundary fails, mirroring the Python lookarounds.
+            pattern: Regex::new(
+                r#"(?i)(?:aws|amazon).{0,20}['"][0-9a-zA-Z/+]{40}['"]|(?:^|[^A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?:[^A-Za-z0-9/+=]|$)"#,
+            )
+            .unwrap(),
             severity: "critical",
         },
         // OpenAI
@@ -110,6 +121,25 @@ static SECRET_PATTERNS: LazyLock<Vec<SecretPattern>> = LazyLock::new(|| {
             name: "private_key",
             pattern: Regex::new(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----").unwrap(),
             severity: "critical",
+        },
+        SecretPattern {
+            name: "pgp_private_key",
+            // PGP armored keys use the "PRIVATE KEY BLOCK" header variant,
+            // which the generic private_key family deliberately does not
+            // cover — a distinct family, mirroring the Python registry
+            // (FOU-C3 registry-parity port).
+            pattern: Regex::new(r"-----BEGIN PGP PRIVATE KEY BLOCK-----").unwrap(),
+            severity: "critical",
+        },
+        // Bearer tokens
+        SecretPattern {
+            name: "bearer_token",
+            // Requires the "bearer" keyword followed by whitespace (the
+            // delimiter) and a 20+ char token run — bare-word prose ("a
+            // bearer of good news") never matches (FOU-A2b delimiter
+            // discipline; mirrors GENERIC_BEARER_PATTERN).
+            pattern: Regex::new(r"(?i)bearer\s+[a-zA-Z0-9\-_\.]{20,}").unwrap(),
+            severity: "medium",
         },
         // Database URLs
         SecretPattern {
@@ -353,5 +383,57 @@ mod tests {
     fn test_has_secrets() {
         assert!(has_secrets("sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"));
         assert!(!has_secrets("This is normal text without secrets"));
+    }
+
+    // FOU-C3 registry-parity additions: bearer, PGP header, bare 40-char AWS
+    // secret — families the Python registry already carried.
+
+    #[test]
+    fn test_bearer_token_detection() {
+        let text = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456";
+        let types: Vec<String> = get_secret_types(text);
+        assert!(types.iter().any(|t| t == "bearer_token"), "got {:?}", types);
+    }
+
+    #[test]
+    fn test_bearer_bare_word_prose_never_matches() {
+        // Delimiter discipline: "bearer" as a bare word without a
+        // whitespace-delimited 20+ char token run is not a credential.
+        assert!(!has_secrets("a bearer of good news"));
+        assert!(!has_secrets("bearer token rotation policy"));
+    }
+
+    #[test]
+    fn test_pgp_private_key_detection() {
+        let text = "-----BEGIN PGP PRIVATE KEY BLOCK-----";
+        let types: Vec<String> = get_secret_types(text);
+        assert!(
+            types.iter().any(|t| t == "pgp_private_key"),
+            "got {:?}",
+            types
+        );
+        // The generic private_key family must NOT absorb the PGP variant
+        // (distinct families, mirroring the Python registry).
+        assert!(!types.iter().any(|t| t == "private_key"), "got {:?}", types);
+    }
+
+    #[test]
+    fn test_bare_aws_secret_detection() {
+        let text = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        let types: Vec<String> = get_secret_types(text);
+        assert!(
+            types.iter().any(|t| t == "aws_secret_key"),
+            "got {:?}",
+            types
+        );
+    }
+
+    #[test]
+    fn test_bare_aws_secret_ignores_longer_runs() {
+        // A 41+ char base64 run has no valid 40-char window boundary — the
+        // Python lookarounds reject it and so must the bare branch.
+        assert!(!has_secrets(&"a".repeat(41)));
+        assert!(!has_secrets(&"a".repeat(50)));
+        assert!(has_secrets(&"a".repeat(40)));
     }
 }
