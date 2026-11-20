@@ -1725,13 +1725,31 @@ class TurnExecutor:
             kwargs["reasoning_effort"] = reasoning_effort
 
         return await self._execution_provider.execute_turn(
-            messages=self._chat_context.messages,
+            messages=self._memory_delivered_messages(),
             model=model,
             temperature=temperature,
             max_tokens=self._provider_context.max_tokens,
             tools=tools,
             **kwargs,
         )
+
+    def _memory_delivered_messages(self) -> List[Any]:
+        """Conversation messages for the provider call, memory block inserted.
+
+        Codex finding 6: the buffered model call is one of the two provider-
+        message assembly seams; the PERCEIVE memory block is inserted here
+        EXACTLY ONCE as an ADR-037 provenance envelope (streaming inserts at
+        ``assembled_messages_for_call``). Transient — the conversation
+        history itself is never mutated; any suppression (disabled, empty
+        store, budget refusal, stale turn) leaves the list byte-identical.
+        """
+        base_messages = self._chat_context.messages
+        orchestrator = self._resolve_orchestrator()
+        if orchestrator is None:
+            return base_messages
+        from victor.agent.memory_injection import insert_memory_delivery_message
+
+        return insert_memory_delivery_message(orchestrator, base_messages)
 
     def _provider_call_overrides(self, overrides: Dict[str, Any]) -> Dict[str, Any]:
         """Extract provider-facing runtime override hints."""

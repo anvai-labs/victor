@@ -42,6 +42,7 @@ transfer-hint machinery consume this store unchanged.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -541,23 +542,50 @@ class PreferenceEpisodicStore:
         project-scoped query), but results carry their scope in metadata so
         downstream injection can filter.
 
+        Lane handling (Codex finding 19): ``query.filters["kind"]`` selects
+        the content lane BEFORE reading — ``"preference"`` skips the episode
+        table entirely and ``"episode"`` skips the preference tables. The
+        adapters push their lane down here so each scan reads only the rows
+        its caller can surface.
+
+        Synchronous by design: callers on the event loop go through the
+        adapter's ``asyncio.to_thread`` hop, never inline.
+
         Returns:
             ``MemoryResult`` entries sorted by relevance (descending), each
             with provenance stamped for dedup/merge tracing.
         """
         scope_filter = self._scope_filter(query)
+        lane_filter = self._lane_filter(query)
+
+        want_preferences = lane_filter in (None, "preference")
+        want_episodes = lane_filter in (None, "episode")
 
         results: List[MemoryResult] = []
         if scope_filter in (None, MemoryScope.USER):
-            results.extend(self._search_preferences(query, MemoryScope.USER))
+            if want_preferences:
+                results.extend(self._search_preferences(query, MemoryScope.USER))
         if scope_filter in (None, MemoryScope.PROJECT):
-            results.extend(self._search_preferences(query, MemoryScope.PROJECT))
-            results.extend(self._search_episodes(query))
+            if want_preferences:
+                results.extend(self._search_preferences(query, MemoryScope.PROJECT))
+            if want_episodes:
+                results.extend(self._search_episodes(query))
 
         threshold = max(query.min_relevance, 1e-6)
         results = [r for r in results if r.relevance >= threshold]
         results.sort(key=lambda r: r.relevance, reverse=True)
         return results[: query.limit]
+
+    @staticmethod
+    def _lane_filter(query: MemoryQuery) -> Optional[str]:
+        """The ``kind`` lane filter, normalized (``None`` = both lanes)."""
+        raw = (query.filters or {}).get("kind")
+        if raw is None:
+            return None
+        lane = str(raw).lower()
+        if lane not in ("preference", "episode"):
+            return None
+        return lane
 
     def _search_preferences(self, query: MemoryQuery, scope: MemoryScope) -> List[MemoryResult]:
         """Search one scope's preference rows in that scope's database."""
@@ -677,7 +705,16 @@ class PreferenceEpisodicStore:
             )
 
     async def get(self, key: str) -> Optional[MemoryResult]:
-        """Fetch one memory by id across both lanes/scopes."""
+        """Fetch one memory by id across both lanes/scopes.
+
+        The synchronous SQLite lookups run on a worker thread (Codex finding
+        19): protocol consumers await this on the event loop, so the DB work
+        is offloaded and the loop never blocks on it.
+        """
+        return await asyncio.to_thread(self._get_by_id_sync, key)
+
+    def _get_by_id_sync(self, key: str) -> Optional[MemoryResult]:
+        """Synchronous id lookup across both lanes/scopes (off-loop callee)."""
         for scope in MemoryScope:
             rows = self._db_for(scope).query(
                 f"""

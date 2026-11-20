@@ -96,6 +96,7 @@ def assembled_messages_for_call(
     selected_tools: Optional[list[Any]] = None,
     planned_tools: Optional[list[Any]] = None,
     goals: Optional[list[str]] = None,
+    include_memory_block: bool = True,
 ) -> List[Message]:
     """Context-assembled messages for provider calls.
 
@@ -108,6 +109,13 @@ def assembled_messages_for_call(
     prepended to the last user message instead of being injected as system
     messages. For KV-capable providers this also keeps the system prompt
     byte-identical across turns for provider prefix caching.
+
+    Provider-message delivery of the PERCEIVE memory block (Codex finding 6):
+    when the current turn perceived a memory block, it is inserted EXACTLY
+    ONCE as an ADR-037 provenance envelope, after the leading system
+    message(s) and before history. Pass ``include_memory_block=False`` for
+    message projections that are NOT a provider call (history serialization
+    for analysis), which must stay memory-free.
     """
     orchestrator._get_prompt_builder_runtime().ensure_system_prompt_current()
 
@@ -150,6 +158,14 @@ def assembled_messages_for_call(
             len(messages),
         )
     messages = normalized
+
+    # FEP-0048 A2c / Codex finding 6: the PERCEIVE memory block enters the
+    # provider payload here — enveloped, exactly once, after system before
+    # history. Transient insertion: the conversation history is never mutated.
+    if include_memory_block:
+        from victor.agent.memory_injection import insert_memory_delivery_message
+
+        messages = insert_memory_delivery_message(orchestrator, messages)
 
     # Log KV prefix fingerprint for observability (system-prompt head only;
     # the full-payload append-only classification is recorded below).
