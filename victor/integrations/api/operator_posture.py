@@ -37,7 +37,12 @@ ownership is evaluated (that requires the A4a verified-principal seam).
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Mapping, Optional
+
+from fastapi.responses import JSONResponse
+
+_logger = logging.getLogger(__name__)
 
 #: Structured-refusal type name surfaced in every refusal payload.
 MULTI_PRINCIPAL_REFUSAL_TYPE = "MultiPrincipalRefused"
@@ -89,9 +94,36 @@ def refusal_payload(surface: str) -> Dict[str, Any]:
     }
 
 
+def posture_json_response(
+    refusal: Optional[Dict[str, Any]], surface: str
+) -> Optional[JSONResponse]:
+    """Translate a ``claim_shared_state`` result into the HTTP response.
+
+    ``None`` when the caller is admitted; otherwise the structured 409
+    naming the limitation. Shared by every guarded route file so the
+    refusal semantics stay in one place.
+    """
+    if refusal is None:
+        return None
+    _logger.info("Shared-state surface refused (%s)", surface)
+    return JSONResponse(refusal, status_code=409)
+
+
+def request_principal(http_request: Any) -> Optional[str]:
+    """The principal the auth dependency resolved onto ``request.state``.
+
+    ``None`` when auth is not configured (no attribute) — the posture is
+    inactive there anyway; under the active posture ``claim_shared_state``
+    fails closed on ``None``.
+    """
+    return getattr(getattr(http_request, "state", None), "client_id", None)
+
+
 __all__ = [
     "MULTI_PRINCIPAL_REFUSAL_TYPE",
     "MultiPrincipalRefused",
     "is_multi_principal",
+    "posture_json_response",
     "refusal_payload",
+    "request_principal",
 ]

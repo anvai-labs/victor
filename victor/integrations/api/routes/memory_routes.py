@@ -35,6 +35,8 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from victor.integrations.api.operator_posture import posture_json_response, request_principal
+
 if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
 
@@ -107,11 +109,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         surfaces address ONE shared store with no owner in the lookup, so
         under the multi-credential posture a second credential must never
         reach them (sticky first-principal claim)."""
-        refusal = server.claim_shared_state(getattr(http_request.state, "client_id", None), surface)
-        if refusal is None:
-            return None
-        logger.info("Shared-state surface refused (%s)", surface)
-        return JSONResponse(refusal, status_code=409)
+        return posture_json_response(
+            server.claim_shared_state(request_principal(http_request), surface), surface
+        )
 
     @router.get("/memory")
     async def list_memories(

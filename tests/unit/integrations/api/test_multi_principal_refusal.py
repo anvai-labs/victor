@@ -45,6 +45,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from victor.integrations.api import fastapi_server
+from victor.storage.memory.preference_episodic import MemoryScope
 
 
 class _FakeVictorClient:
@@ -336,3 +337,77 @@ def test_multi_principal_refused_is_typed_and_names_the_limitation():
     exc = MultiPrincipalRefused("chat")
     assert "single-trusted-operator" in str(exc)
     assert "shared" in str(exc)
+
+
+# =============================================================================
+# Finding 4: /memory under the REAL server (auth dependency resolves
+# request.state.client_id; sticky claim over the shared store).
+# =============================================================================
+
+
+@pytest.fixture
+def memory_env(tmp_path):
+    from victor.agent.services.memory_consolidation import (
+        reset_shared_memory,
+        set_shared_memory_store,
+    )
+    from victor.core.database import (
+        get_database,
+        get_project_database,
+        reset_database,
+        reset_project_database,
+    )
+    from victor.storage.memory.preference_episodic import PreferenceEpisodicStore
+
+    reset_database()
+    reset_project_database(tmp_path)
+    store = PreferenceEpisodicStore(
+        global_db=get_database(tmp_path / "victor.db"),
+        project_db=get_project_database(tmp_path),
+    )
+    set_shared_memory_store(store)
+    yield store
+    reset_shared_memory()
+    reset_database()
+    reset_project_database(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_memory_second_credential_refused_and_store_rows_preserved(
+    monkeypatch, tmp_path, memory_env
+):
+    store = memory_env
+    monkeypatch.setattr(
+        fastapi_server,
+        "load_fastapi_router_registrations",
+        lambda *, workspace_root: [],
+    )
+    server = fastapi_server.VictorFastAPIServer(
+        workspace_root=str(tmp_path),
+        enable_graphql=False,
+        api_keys={"sk-alice": "alice", "sk-bob": "bob"},
+    )
+    transport = ASGITransport(app=server.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        ok = await client.post(
+            "/memory",
+            json={"content": "always use uv"},
+            headers=_ALICE_HEADERS,
+        )
+        refused_set = await client.post(
+            "/memory",
+            json={"content": "bob's directive"},
+            headers=_BOB_HEADERS,
+        )
+        refused_list = await client.get("/memory", headers=_BOB_HEADERS)
+        refused_forget = await client.delete(
+            "/memory", params={"preference_id": "pref_any"}, headers=_BOB_HEADERS
+        )
+
+    assert ok.status_code == 200
+    assert refused_set.status_code == 409
+    _assert_refusal_payload(refused_set.json(), "memory")
+    assert refused_list.status_code == 409
+    assert refused_forget.status_code == 409
+    # Preservation: bob's refused writes/reads/forgets never touched the store.
+    assert [p.content for p in store.get_preferences(MemoryScope.USER)] == ["always use uv"]

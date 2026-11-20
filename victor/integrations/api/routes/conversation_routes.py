@@ -27,6 +27,7 @@ from victor.integrations.api.change_tracker_ops import (
     redo_last_change,
     undo_last_change,
 )
+from victor.integrations.api.operator_posture import posture_json_response, request_principal
 
 if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
@@ -43,11 +44,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         and export address the ONE server-wide conversation with no owner in
         the lookup, so under the multi-credential posture a second credential
         must never reach them (sticky first-principal claim)."""
-        refusal = server.claim_shared_state(getattr(http_request.state, "client_id", None), surface)
-        if refusal is None:
-            return None
-        logger.info("Shared-state surface refused (%s)", surface)
-        return JSONResponse(refusal, status_code=409)
+        return posture_json_response(
+            server.claim_shared_state(request_principal(http_request), surface), surface
+        )
 
     @router.post("/conversation/reset", tags=["Conversation"])
     async def reset_conversation(http_request: Request) -> JSONResponse:
