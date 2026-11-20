@@ -241,3 +241,45 @@ class TestDangerouslyUnsandboxedFlag:
 
         params = inspect.signature(app.registered_callback.callback).parameters
         assert "dangerously_unsandboxed" in params
+
+
+class TestPolicyResolutionTriState:
+    """Codex finding 20: policy resolution is tri-state — a fault INSIDE
+    effective-policy evaluation is UNKNOWN, and unknown refuses BEFORE
+    launch. The historical behavior returned an inactive, non-refusing
+    decision, which a faulty resolver turned into permission to proceed."""
+
+    class _BrokenSettings:
+        """Settings whose policy field faults on read (the settings OBJECT
+        loads fine — this is not the settings-load failure path)."""
+
+        @property
+        def sandbox_policy(self):
+            raise RuntimeError("unreadable policy field")
+
+    def test_resolve_effective_policy_reports_unknown_on_fault(self):
+        resolution = sb.resolve_effective_policy(self._BrokenSettings())
+        assert resolution.unknown
+        assert not resolution.known
+        assert resolution.policy == ""
+
+    def test_resolve_effective_policy_reports_known_policies(self, no_env):
+        for policy in ("disabled", "preferred", "required"):
+            resolution = sb.resolve_effective_policy(SimpleNamespace(sandbox_policy=policy))
+            assert resolution.known
+            assert resolution.policy == policy
+
+    def test_raising_accessor_refuses_required_launch(self):
+        decision = sb.resolve_required_launch(self._BrokenSettings())
+        assert decision.refuse
+        assert decision.required_active is False
+        assert decision.backend is None
+        assert "policy" in decision.reason.lower()
+
+    def test_explicit_disabled_is_known_and_non_refusing(self):
+        """The third state: an explicit, successfully-read opt-out keeps its
+        historical non-active semantics (a negative control — the fail-closed
+        flip above must not swallow legitimate disabled mode)."""
+        decision = sb.resolve_required_launch(SimpleNamespace(sandbox_policy="disabled"))
+        assert decision.refuse is False
+        assert decision.required_active is False

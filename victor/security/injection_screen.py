@@ -360,19 +360,32 @@ def _normalize_char(ch: str) -> str:
 
 
 def normalize_for_matching(text: str) -> Tuple[str, Tuple[Tuple[int, int], ...]]:
-    """Normalized COPY of ``text`` plus a per-char index map into the original.
+    """Normalized copy of ``text`` plus a per-emitted-char index map.
 
     Returns ``(normalized, index_map)`` where ``index_map[i]`` is the
     ``(start, end)`` span of the ORIGINAL character that produced normalized
     character ``i``. Patterns run on ``normalized`` for DETECTION; spans are
     mapped back with :func:`_map_span` so highlighting references the original
-    text exactly (no whole-line approximation, no misaligned offsets). ASCII
-    input short-circuits to the identity map. Per-character NFKC deliberately
-    does NOT compose combining sequences across characters — irrelevant to the
-    single-char substitution class this defends against.
+    text exactly (no whole-line approximation, no misaligned offsets).
+
+    Memory contract (Codex review finding 17):
+
+    * ASCII input short-circuits to ``(text, ())`` — the ORIGINAL string is
+      returned unchanged with an EMPTY map and zero per-character
+      allocation; :func:`_map_span` treats an empty map as identity. The
+      historical per-character ``(i, i+1)`` tuple cost ~4.2MB traced for a
+      32,768-character tool output for no mapping benefit.
+    * Non-ASCII input records ONE map entry PER EMITTED normalized
+      character, not per original character. An expansion (e.g. the ``ﬁ``
+      ligature -> ``fi``) emits two normalized characters from one original
+      character, so the map stays aligned with the normalized text — regex
+      match spans from a LATER pattern can never index past the map or
+      clamp onto the wrong source position. Per-character NFKC deliberately
+      does NOT compose combining sequences across characters — irrelevant
+      to the single-char substitution class this defends against.
     """
     if text.isascii():
-        return text, tuple((i, i + 1) for i in range(len(text)))
+        return text, ()  # identity: no copy, no per-character map allocation
     norm_chars: List[str] = []
     index_map: List[Tuple[int, int]] = []
     for i, ch in enumerate(text):
@@ -380,14 +393,23 @@ def normalize_for_matching(text: str) -> Tuple[str, Tuple[Tuple[int, int], ...]]
         if not repl:
             continue  # character vanishes in normalization: invisible to matching
         norm_chars.append(repl)
-        index_map.append((i, i + 1))
+        # One entry per EMITTED normalized character keeps len(index_map) ==
+        # len(normalized), so every regex match span has an exact map entry.
+        index_map.extend((i, i + 1) for _ in repl)
     return "".join(norm_chars), tuple(index_map)
 
 
 def _map_span(index_map: Tuple[Tuple[int, int], ...], start: int, end: int) -> Tuple[int, int]:
-    """Map a normalized-text span back to original-text coordinates."""
-    if not index_map or end <= start:
-        return 0, 0
+    """Map a normalized-text span back to original-text coordinates.
+
+    An empty map is IDENTITY (the ASCII fast path allocates no map). A
+    mapless non-ASCII text normalized to nothing, so no match can reach
+    that branch with a real span.
+    """
+    if not index_map:
+        return start, end
+    if end <= start:
+        return start, start
     start = min(start, len(index_map) - 1)
     end = min(end, len(index_map))
     return index_map[start][0], index_map[end - 1][1]

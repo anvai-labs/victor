@@ -517,3 +517,83 @@ def test_tool_context_exposes_current_admitted_snapshot():
         context = AgentOrchestrator._get_tool_context(owner)
 
     assert context["run_policy_snapshot"] is snapshot
+
+
+# ---------------------------------------------------------------------------
+# Codex finding 20: a fault INSIDE effective-policy evaluation refuses
+# before launch (inert launcher), independently of the settings-load and
+# missing-backend tests above.
+# ---------------------------------------------------------------------------
+
+
+class TestPolicyEvalFaultRefusesBeforeLaunch:
+    """The settings object LOADS fine; the policy FIELD faults on read. The
+    historical code caught this inside ``resolve_required_launch`` and
+    returned an inactive, non-refusing decision, letting the executor fall
+    through to the passthrough backend. Unknown policy must refuse instead."""
+
+    class _FaultyPolicySettings:
+        @property
+        def sandbox_policy(self):
+            raise RuntimeError("unreadable policy field")
+
+    def _install_faulty_policy(self, monkeypatch) -> None:
+        from types import SimpleNamespace
+
+        import victor.config.settings as cs
+
+        monkeypatch.setattr(
+            cs, "get_settings", lambda: SimpleNamespace(sandbox=self._FaultyPolicySettings())
+        )
+
+    def test_run_command_refuses_with_inert_launcher(self, monkeypatch):
+        import subprocess
+
+        self._install_faulty_policy(monkeypatch)
+
+        def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+            raise AssertionError("child spawned despite unknown sandbox policy")
+
+        monkeypatch.setattr(subprocess, "run", _no_spawn)
+        result = run_command("echo hi", shell=True)
+        assert result.success is False
+        assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+        assert "policy" in result.error_message.lower()
+
+    async def test_run_command_async_refuses_with_inert_launcher(self, monkeypatch):
+        import victor.tools.subprocess_executor as se
+
+        self._install_faulty_policy(monkeypatch)
+
+        async def _no_spawn(*args, **kwargs):  # pragma: no cover - trap
+            raise AssertionError("child spawned despite unknown sandbox policy")
+
+        monkeypatch.setattr(se, "run_managed_process", _no_spawn)
+        result = await run_command_async("echo hi")
+        assert result.success is False
+        assert result.error_type == CommandErrorType.SANDBOX_REQUIRED
+
+    def test_resolver_failure_type_is_typed_resolver_error(self, monkeypatch):
+        from victor.tools.sandbox import SandboxRequiredUnavailableError
+        from victor.tools.subprocess_executor import _resolve_default_sandbox
+
+        self._install_faulty_policy(monkeypatch)
+        with pytest.raises(SandboxRequiredUnavailableError) as excinfo:
+            _resolve_default_sandbox()
+        assert excinfo.value.reason == "resolver_error"
+
+    def test_explicit_disabled_policy_still_executes(self, monkeypatch):
+        """Negative control: the same executor with a KNOWN explicit disabled
+        policy keeps working — the fail-closed flip only covers UNKNOWN."""
+        from types import SimpleNamespace
+
+        import victor.config.settings as cs
+        from victor.config.sandbox_settings import SandboxSettings
+
+        monkeypatch.setattr(
+            cs,
+            "get_settings",
+            lambda: SimpleNamespace(sandbox=SandboxSettings(sandbox_policy="disabled")),
+        )
+        result = run_command("echo hi", shell=True)
+        assert result.success is True

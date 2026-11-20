@@ -95,10 +95,30 @@ class TestDegradedMode:
     def test_degraded_lifecycle_is_inert(self):
         with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
             with ContainerSandbox() as sandbox:
-                sandbox.put_files(["/nonexistent"])  # no-op, no raise
+                # Local-path validation happens BEFORE any Docker contact.
+                with pytest.raises(FileNotFoundError):
+                    sandbox.put_files(["/nonexistent"])
                 assert sandbox.get_file("/app/x") == b""
             sandbox.dispose()
         assert sandbox.container is None
+
+    def test_upload_without_daemon_is_a_typed_failure_not_success(self, tmp_path):
+        """Codex finding 18 (negative): the historical silent return let
+        upload_files format a no-op as success. Without a daemon the upload
+        must fail with a typed reason."""
+        src = tmp_path / "real.py"
+        src.write_text("x = 1")
+        with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
+            sandbox = ContainerSandbox()
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                sandbox.put_files([str(src)])
+        assert excinfo.value.reason == "binary_missing"
+        assert sandbox.container is None
+        # The async helper surfaces the failure as an error, never as
+        # "Successfully uploaded".
+        result = asyncio.run(cs.upload_files(sandbox, [str(src)]))
+        assert "Successfully uploaded" not in result
+        assert "Error uploading files" in result
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +231,20 @@ class TestRunInvocationQualityBar:
         assert kwargs["mem_limit"] == "256m"
         assert kwargs["cpu_shares"] == 128
 
+    def test_cpu_shares_alone_is_a_weight_never_a_quota(self, docker_env):
+        """Codex finding 18: cpu_shares is a relative scheduler weight. With
+        no explicit quota configured, NO hard CPU limit is promised — no
+        quota must reach the run invocation."""
+        ContainerSandbox().start()
+        assert "cpu_quota" not in docker_env.client.containers.run.call_args.kwargs
+
+    def test_explicit_cpu_quota_reaches_the_run_invocation(self, docker_env):
+        """Codex finding 18 (positive): a promised hard CPU limit is enforced
+        with an explicit CFS quota on the container-run invocation."""
+        ContainerSandbox(cpu_quota=50000).start()  # 0.5 CPU
+        kwargs = docker_env.client.containers.run.call_args.kwargs
+        assert kwargs["cpu_quota"] == 50000
+
     def test_cap_defaults_match_the_settings_defaults(self, docker_env):
         ContainerSandbox().start()
         kwargs = docker_env.client.containers.run.call_args.kwargs
@@ -282,6 +316,40 @@ class TestOwnership:
         assert sandbox.execute("print(1)")["exit_code"] == 0
         assert len(docker_env.created) == 2
         docker_env.created[0].remove.assert_not_called()  # already gone; finalizer detached
+
+    def test_transient_reload_error_retains_ownership(self, docker_env):
+        """Codex finding 18: an ambiguous daemon error (transient reload
+        failure) must NOT detach the finalizer or spawn a replacement — the
+        container may still be alive, and dropping ownership would leak it
+        until TTL."""
+
+        def _transient_error(*_args):  # fresh instance per call: no lingering
+            raise RuntimeError("connection reset by peer")  # traceback handles
+
+        sandbox = ContainerSandbox()
+        sandbox.start()
+        container = docker_env.created[0]
+        container.reload.side_effect = _transient_error
+
+        result = sandbox.execute("print(1)")
+        assert result["exit_code"] == 1  # degraded, retryable — no execution
+        container.remove.assert_not_called()
+        assert sandbox.container is container  # ownership retained
+        assert len(docker_env.created) == 1  # no duplicate replacement spawned
+
+        # The zero-leak guarantee survives the ambiguous error: the finalizer
+        # was never detached (peek returns the registered (obj, func, args,
+        # kwargs) tuple while attached) and it still targets THIS container,
+        # so an explicit stop removes the possibly-live container.
+        # (GC-based firing is pinned by
+        # test_abandoned_sandbox_is_removed_by_the_finalizer on the clean
+        # path; it is environment-sensitive after a caught exception.)
+        registry = sandbox._finalizer.peek()
+        assert registry is not None
+        assert registry[0] is sandbox
+        assert registry[2] == (container,)
+        sandbox.stop()
+        container.remove.assert_called_once_with(force=True)
 
     def test_failed_start_degrades_and_retries_next_use(self, docker_env):
         docker_env.client.containers.run.side_effect = [RuntimeError("no space"), _mock_container()]
@@ -371,6 +439,7 @@ class _ExecutorSettings:
             code_executor_network_disabled=kw.get("code_executor_network_disabled", True),
             code_executor_memory_limit=kw.get("code_executor_memory_limit", "512m"),
             code_executor_cpu_shares=kw.get("code_executor_cpu_shares", 256),
+            code_executor_cpu_quota=kw.get("code_executor_cpu_quota", None),
             code_executor_idle_ttl_seconds=kw.get("code_executor_idle_ttl_seconds", 900),
         )
 
@@ -425,6 +494,32 @@ class TestCapabilityGating:
         assert sandbox.memory_limit == "1g"
         assert sandbox.cpu_shares == 512
         assert sandbox.idle_ttl_seconds == 60
+
+    def test_cpu_quota_setting_reaches_the_resolved_sandbox(self, docker_env):
+        """Codex finding 18: the explicit hard-CPU-limit knob threads through
+        the settings cascade to the sandbox (and then to the run invocation)."""
+        sandbox = resolve_container_sandbox(_ExecutorSettings(code_executor_cpu_quota=100000))
+        assert sandbox.cpu_quota == 100000
+        sandbox.start()
+        assert docker_env.client.containers.run.call_args.kwargs["cpu_quota"] == 100000
+
+    def test_no_daemon_upload_is_a_typed_failure(self, tmp_path):
+        """Codex finding 18 (negative): with the docker package present but
+        the daemon unreachable, upload must fail with a typed
+        daemon_unreachable reason — never a silent no-op success."""
+        from docker.errors import DockerException
+
+        src = tmp_path / "m.py"
+        src.write_text("x = 1")
+        with (
+            patch(f"{MODULE}.DOCKER_AVAILABLE", True),
+            patch(f"{MODULE}.docker") as mock_docker,
+        ):
+            mock_docker.from_env.side_effect = DockerException("daemon down mid-session")
+            sandbox = ContainerSandbox()
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                sandbox.put_files([str(src)])
+        assert excinfo.value.reason == "daemon_unreachable"
 
     def test_daemon_available_false_without_docker_package(self):
         with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
