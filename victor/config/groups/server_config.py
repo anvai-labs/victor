@@ -52,6 +52,9 @@ class ServerSettings(BaseModel):
       the web UI server.
     - ``server_ws_delivery_queue_size`` / ``server_ws_send_deadline_seconds``
       — ENFORCED: bounded per-client delivery (VAS-06/10, TD-03).
+    - ``auth_principals_path`` — ENFORCED (FOU-A4 D4): resolved at server
+      startup, placement-checked against the sandbox writable surfaces
+      (typed refusal otherwise) and loaded as the principals registry.
     """
 
     # Server Security (FastAPI/WebSocket layer)
@@ -87,6 +90,15 @@ class ServerSettings(BaseModel):
     # Per-send deadline for a client's sender task: a socket wedged past
     # this bound is disconnected instead of stalling delivery forever.
     server_ws_send_deadline_seconds: float = 10.0
+
+    # FOU-A4 / Decision D4 (owner-blessed): operator-managed API principals
+    # registry (versioned YAML). When unset, the system default
+    # /etc/victor/api_principals.yaml is used if it exists; otherwise the
+    # registry is disabled and all keys synthesize legacy principals. The
+    # resolved path must live OUTSIDE every sandbox-writable surface — the
+    # server refuses to start (typed error) otherwise, because the agent
+    # must not be able to rewrite its own principal identity.
+    auth_principals_path: Optional[str] = None
 
     @field_validator("server_max_sessions")
     @classmethod

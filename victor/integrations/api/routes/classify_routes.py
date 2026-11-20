@@ -37,7 +37,6 @@ from victor.core.model_parameters import ReasoningEffort
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from victor.core.context import bind_attribution
 from victor.core.errors import ProviderPolicyError
 from victor.observability.request_correlation import request_correlation_id
 
@@ -244,8 +243,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
     @router.get("/v1/classify/schema", include_in_schema=False)
     async def classify_schema(http_request: Request) -> dict[str, Any]:
-        """Expose only the pinned request contract to an authenticated consumer."""
-        await server._verify_api_key(http_request)
+        """Expose only the pinned request contract to an authenticated consumer.
+
+        Auth is owned by the server-wide auth dependency (FOU-A4a)."""
         return ClassifyRequest.model_json_schema(by_alias=True)
 
     @router.post("/v1/classify", response_model=ClassifyResponse, tags=["Classify"])
@@ -253,12 +253,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         """FEP-0037: one structured completion — no agent loop, no tools, no session.
 
         Contract is frozen by tests/unit/integrations/api/test_classify_routes.py
-        (conformance guard) and additive-only within /v1.
+        (conformance guard) and additive-only within /v1. Auth and the FEP-0020
+        attribution join are owned by the server-wide auth dependency
+        (FOU-A4a/A4b) — no per-route re-verification or binding here.
         """
         start = time.perf_counter()
         request_id = _new_classify_request_id()
         response.headers["X-Victor-Request-Id"] = request_id
-        client_id = await server._verify_api_key(http_request)
 
         if not request.input.strip():
             return JSONResponse(
@@ -342,7 +343,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             )
 
         try:
-            with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
+            with request_correlation_id(request_id):
                 for attempt in (0, 1):
                     try:
                         completion = await asyncio.wait_for(

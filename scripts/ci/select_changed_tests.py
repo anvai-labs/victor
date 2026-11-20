@@ -1164,11 +1164,28 @@ RELATED_TESTS = {
         "tests/unit/providers/test_failure_taxonomy.py",
         "tests/unit/providers/test_stream_setup_config.py",
     ),
-    # Chat routes: the wire-stream contract and the auth/attribution seam.
+    # Chat routes: the wire-stream contract, the auth/attribution seam and
+    # the enforced single-trusted-operator posture.
     "victor/integrations/api/routes/chat_routes.py": (
         "tests/unit/integrations/api/test_fastapi_chat_wire_stream.py",
         "tests/unit/integrations/api/test_fastapi_chat_attribution.py",
+        "tests/unit/integrations/api/test_principal_attribution.py",
         "tests/unit/integrations/api/test_multi_principal_refusal.py",
+    ),
+    # Auth principal package (FOU-A4a/A4b): VerifiedPrincipal resolution,
+    # the principals registry and the centralized attribution binding are
+    # pinned by the principal attribution suite; the WS auth gate suite
+    # pins the guards it extends.
+    "victor/integrations/api/auth/principal.py": (
+        "tests/unit/integrations/api/test_principal_attribution.py",
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+        "tests/unit/integrations/api/test_api_auth_boundary.py",
+    ),
+    # /v1/classify: the frozen FEP-0037 contract (incl. the attribution
+    # binding now owned by the auth dependency) is pinned by its suite.
+    "victor/integrations/api/routes/classify_routes.py": (
+        "tests/unit/integrations/api/test_classify_routes.py",
+        "tests/unit/integrations/api/test_principal_attribution.py",
     ),
     # Conversation routes: reset/export address the shared server-wide
     # conversation; the multi-principal refusal suite pins the enforced
@@ -1203,6 +1220,8 @@ RELATED_TESTS = {
         "tests/unit/integrations/api/test_fastapi_server.py",
         "tests/unit/integrations/api/test_event_bridge_owner_binding.py",
         "tests/unit/integrations/api/test_server_effective_posture.py",
+        "tests/unit/integrations/api/test_principal_attribution.py",
+        "tests/unit/integrations/api/test_fastapi_chat_attribution.py",
     ),
     # Server settings group: WebSocket delivery knobs are validated positive
     # by the WS delivery bounds suite; the effective-posture suite pins the

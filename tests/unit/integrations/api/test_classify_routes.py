@@ -292,18 +292,23 @@ async def test_classify_managed_provider_override_is_closed(monkeypatch, tmp_pat
 
 @pytest.mark.asyncio
 async def test_classify_binds_authenticated_subject(monkeypatch, tmp_path):
-    """FEP-0020 attribution join: the auth subject reaches the usage record."""
+    """FEP-0020 attribution join: the auth subject reaches the usage record.
+
+    Binding lives in the server-wide auth dependency (FOU-A4a/A4b), so the
+    spy targets the dependency's binding seam — the route no longer binds."""
     captured: dict = {}
 
     import victor.core.context as context_mod
+    import victor.integrations.api.auth.principal as principal_mod
 
-    original = context_mod.bind_attribution
+    original = principal_mod.bind_attribution
 
-    def spy(subject_id):
+    def spy(subject_id=None, group_id=None):
         captured["subject"] = subject_id
-        return original(subject_id)
+        captured["group"] = group_id
+        return original(subject_id=subject_id, group_id=group_id)
 
-    monkeypatch.setattr("victor.integrations.api.routes.classify_routes.bind_attribution", spy)
+    monkeypatch.setattr(principal_mod, "bind_attribution", spy)
     provider = _FakeProvider([json.dumps(_TRIAGE_RESULT)])
     server = _make_server(monkeypatch, tmp_path, provider, api_keys={"sk-hub": "hub"})
     async with _client(server) as client:
@@ -314,6 +319,14 @@ async def test_classify_binds_authenticated_subject(monkeypatch, tmp_path):
         )
     assert response.status_code == 200
     assert captured["subject"] == "hub"
+    assert captured["group"] is None
+
+    # The route module itself no longer binds (dedup removal, FOU-A4b).
+    assert not hasattr(
+        __import__("victor.integrations.api.routes.classify_routes", fromlist=["x"]),
+        "bind_attribution",
+    )
+    assert context_mod.bind_attribution is original
 
 
 @pytest.mark.asyncio
