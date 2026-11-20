@@ -233,3 +233,44 @@ class TestHardFailWiring:
         )
         assert result.results[0].skipped is False
         executor.execute.assert_awaited()
+
+
+class TestHardFailContainmentFailClosed:
+    """Finding 2 (Codex review fix wave 1): with the hard-fail flag ON, a
+    throwing flagged-content checker refuses dispatch with a typed
+    no-execution result instead of silently allowing it."""
+
+    async def test_throwing_checker_refuses_dispatch_when_flag_on(self, monkeypatch):
+        pipeline, _, executor = _make_pipeline()
+        _hard_fail_on(monkeypatch)
+        record_flagged_families((IMPERSONATION_FAMILY,))
+
+        def _explode(value, families, _path=""):
+            raise RuntimeError("flagged-content checker failure")
+
+        monkeypatch.setattr("victor.agent.tool_pipeline.find_flagged_content_in_value", _explode)
+        result = await pipeline.execute_tool_calls(
+            [{"name": "shell", "arguments": {"command": "ls -la"}}]
+        )
+        call = result.results[0]
+        assert call.skipped is True
+        assert call.success is False
+        assert call.outcome_kind == "containment_failure"
+        assert call.block_source == "containment"
+        assert call.retryable is False
+        executor.execute.assert_not_awaited()
+
+    async def test_throwing_checker_is_dormant_when_flag_off(self, monkeypatch):
+        """Default OFF: a checker failure only logs — zero behavior change."""
+        pipeline, _, executor = _make_pipeline()
+        record_flagged_families((IMPERSONATION_FAMILY,))
+
+        def _explode(value, families, _path=""):
+            raise RuntimeError("flagged-content checker failure")
+
+        monkeypatch.setattr("victor.agent.tool_pipeline.find_flagged_content_in_value", _explode)
+        result = await pipeline.execute_tool_calls(
+            [{"name": "shell", "arguments": {"command": "ls -la"}}]
+        )
+        assert result.results[0].skipped is False
+        executor.execute.assert_awaited()

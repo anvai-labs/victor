@@ -527,8 +527,26 @@ def screen_and_highlight(text: str) -> Tuple[str, ScreenVerdict]:
 # instruction), the call hard-fails through the same containment gate as the
 # canary floor. Recording is inert by itself — blocking happens only when
 # ``ToolSettings.untrusted_content_hard_fail`` is on (default OFF per the
-# ADR-036 graduation policy; the flip is a field-data decision). Same
-# context-scoped session-state pattern as the canary binding.
+# ADR-036 graduation policy; the flip is a field-data decision).
+#
+# Evidence lifetime (Codex review fix wave 1, finding 16): flagged-family
+# evidence is owned by the session, not the task. When the session owner has
+# bound a ``SessionContainmentState`` (the production turn path), recording
+# writes through to that owner state — bounded by
+# ``containment.MAX_FLAGGED_FAMILIES`` — and every turn rebinds it, so a
+# fresh request task recovers the session's evidence and a different session
+# sees none. Bindings are restored on turn exit, so a long-lived task cannot
+# carry evidence across sessions. The ContextVar below is the fallback
+# transport for direct callers and tests without a bound owner.
+#
+# Family-overlap semantics, stated honestly: a hard-fail hit requires a
+# classifier match on the argument text AND overlap with a family flagged
+# earlier in the SAME session. That overlap is a NECESSARY signal, not proof:
+# it establishes neither an exact echo of the flagged span nor that the prior
+# injected instruction caused the action — benign text in the same family
+# (e.g. security documentation quoting an imperative) can still hard-fail
+# when the flag is on. This residual ambiguity is precisely why hard-fail
+# ships dormant (default OFF) behind the ADR-036 evidence policy.
 _session_flagged_families: ContextVar[frozenset] = ContextVar(
     "victor_session_flagged_families", default=frozenset()
 )
@@ -538,16 +556,32 @@ def record_flagged_families(families: Tuple[str, ...]) -> None:
     """Record injection families the screen flagged in this session's output."""
     if not families:
         return
+    from victor.security.containment import current_containment_state
+
+    state = current_containment_state()
+    if state is not None:
+        state.record_flagged_families(families)
+        return
     _session_flagged_families.set(_session_flagged_families.get() | frozenset(families))
 
 
 def current_flagged_families() -> frozenset:
     """Families flagged in tool output so far this session (empty when none)."""
+    from victor.security.containment import current_containment_state
+
+    state = current_containment_state()
+    if state is not None:
+        return state.flagged_families
     return _session_flagged_families.get()
 
 
 def reset_flagged_families() -> None:
-    """Clear the session flagged-family memory."""
+    """Clear the session flagged-family memory (transport fallback and owner)."""
+    from victor.security.containment import current_containment_state
+
+    state = current_containment_state()
+    if state is not None:
+        state.clear_flagged_families()
     _session_flagged_families.set(frozenset())
 
 
@@ -572,6 +606,11 @@ def find_flagged_content_in_value(
     if isinstance(value, dict):
         for key, item in value.items():
             child = f"{_path}.{key}" if _path else str(key)
+            # Keys are part of the serialized argument structure too.
+            key_text = key if isinstance(key, str) else str(key)
+            key_verdict = screen_untrusted_content(key_text)
+            if key_verdict.flagged and set(key_verdict.families) & set(families):
+                return f"{_path}.<key>" if _path else "<key>"
             hit = find_flagged_content_in_value(item, families, child)
             if hit is not None:
                 return hit

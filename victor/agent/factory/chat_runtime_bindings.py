@@ -12,6 +12,7 @@ import weakref
 from victor.agent.runtime.context import AgentRuntimeContext, RuntimeIdentity
 from victor.agent.services.chat_delivery import ChatDelivery
 from victor.agent.services.chat_planning import ChatPlanning
+from victor.security.containment import SessionContainmentState
 
 from victor.agent.services.chat_runtime_services import (
     ChatCompletion,
@@ -82,6 +83,10 @@ class _ChatTurnStateView(_WeakOwner):
     def resolve_runtime_context(self) -> AgentRuntimeContext:
         identity: RuntimeIdentity = self._owner()._runtime_identity
         return identity.resolve()
+
+    def resolve_containment_state(self) -> "SessionContainmentState":
+        identity: RuntimeIdentity = self._owner()._runtime_identity
+        return identity.containment_state()
 
     @property
     def provider_name(self) -> str:

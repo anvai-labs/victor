@@ -63,3 +63,42 @@ class TestToolOutputEnvelope:
             tool_name="shell", arguments={}, output="Traceback: permission denied"
         )
         assert llm_output.startswith("<untrusted ")
+
+
+class TestEnvelopeFailClosed:
+    """Finding 2b: an envelope failure must never silently publish untrusted
+    text outside the provenance boundary when enforcement is configured."""
+
+    def test_envelope_failure_publishes_inert_placeholder(self, monkeypatch):
+        from victor.security import containment
+
+        def _explode(content, **kwargs):
+            raise RuntimeError("envelope infrastructure failure")
+
+        monkeypatch.setattr(containment, "wrap_untrusted", _explode)
+        preview, llm_output, _, _, _ = format_and_prune_tool_output(
+            tool_name="read",
+            arguments={"path": "/tmp/x"},
+            output="SECRET untrusted body",
+        )
+        assert llm_output == containment.CONTAINMENT_FAILURE_PLACEHOLDER
+        # The raw content never reaches model context.
+        assert "SECRET untrusted body" not in llm_output
+
+    def test_envelopes_disabled_delivers_content_unenveloped(self, monkeypatch):
+        """Negative: enforcement explicitly OFF — content is delivered raw."""
+        from unittest.mock import patch
+
+        from victor.config.tool_settings import ToolSettings
+        from victor.security import containment
+
+        settings = ToolSettings(untrusted_content_envelopes=False)
+        with patch("victor.config.tool_settings.get_tool_settings", return_value=settings):
+            _, llm_output, _, _, _ = format_and_prune_tool_output(
+                tool_name="read",
+                arguments={"path": "/tmp/x"},
+                output="plain body",
+            )
+        assert "<untrusted" not in llm_output
+        assert "plain body" in llm_output
+        assert containment.CONTAINMENT_FAILURE_PLACEHOLDER not in llm_output
