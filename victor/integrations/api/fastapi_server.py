@@ -27,6 +27,7 @@ Features:
 """
 
 import asyncio
+import json
 from collections import deque
 from dataclasses import dataclass
 from victor import __version__
@@ -205,6 +206,9 @@ class StatusResponse(BaseModel):
     workspace: str
     capabilities: List[str] = Field(default_factory=list)
     sandbox_posture: str = "unknown"
+    # Effective-posture surface (Codex finding 22): what the running server
+    # actually enforces per advertised setting.
+    effective_posture: Optional[Dict[str, Any]] = None
 
 
 class ChatMessage(BaseModel):
@@ -591,6 +595,23 @@ class VictorFastAPIServer:
         self.workspace_root = workspace_root or str(Path.cwd())
         self.rate_limit_rpm = rate_limit_rpm
         self.api_keys = api_keys or {}
+        # Wire the advertised singular server key at its actual owner (Codex
+        # finding 22): ``settings.server.server_api_key`` is a credential for
+        # the FastAPI auth gate, so a configured value joins the credential
+        # map instead of being validated-then-ignored. Sources are tracked
+        # for the effective-posture surface.
+        from victor.config.settings import load_settings
+
+        self._settings = load_settings()
+        self._api_key_sources: List[str] = ["parameter"] if api_keys else []
+        _server_settings = getattr(self._settings, "server", None)
+        _configured_key = getattr(_server_settings, "server_api_key", None)
+        _configured_key_value = (
+            _configured_key.get_secret_value() if _configured_key is not None else None
+        )
+        if _configured_key_value:
+            self._api_key_sources.append("settings.server.server_api_key")
+            self.api_keys.setdefault(_configured_key_value, "server")
         env_single_operator = os.environ.get("VICTOR_SINGLE_OPERATOR_MODE", "").lower() in (
             "1",
             "true",
@@ -635,7 +656,6 @@ class VictorFastAPIServer:
 
         self._allow_unauthenticated = allow_unauthenticated
 
-        from victor.config.settings import load_settings
         from victor.core.bootstrap import ensure_bootstrapped
         from victor.framework.session_config import SessionConfig
         from victor.framework.session_runner import (
@@ -643,7 +663,6 @@ class VictorFastAPIServer:
             create_victor_client,
         )
 
-        self._settings = load_settings()
         self._session_config = session_config or SessionConfig()
         self._container = ensure_bootstrapped(self._settings)
         self._session_runner = FrameworkSessionRunner(
@@ -680,6 +699,12 @@ class VictorFastAPIServer:
                 "server_ws_send_deadline_seconds",
                 DEFAULT_WS_SEND_DEADLINE_SECONDS,
             )
+        )
+        # Inbound WebSocket payload cap (Codex finding 22: the advertised
+        # ``server.server_max_message_bytes`` control is now enforced at its
+        # actual owner — the /ws and /ws/events receive paths).
+        self._ws_max_message_bytes = int(
+            getattr(server_settings, "server_max_message_bytes", 0) or 0
         )
         # Seconds a /ws socket may sit unauthenticated on a keyed server
         # before the route closes it (VAS-05h bounded handshake).
@@ -812,6 +837,74 @@ class VictorFastAPIServer:
     # _handle_ws_message); HITL keeps its own optional token auth.
     AUTH_EXEMPT_PATHS = frozenset({"/health", "/status"})
 
+    def effective_posture(self) -> Dict[str, Any]:
+        """What THIS running server actually enforces per advertised setting.
+
+        Codex finding 22: operators could configure convincing-looking
+        controls (a singular server key, a generated session secret, session
+        TTL/max-session caps, a rate limit) that no serving path consumed.
+        This surface reports the enforced state of every advertised control
+        — logged at startup (see ``_lifespan``) and attached to ``/status``
+        — so a dead control cannot masquerade as protection.
+
+        Returns:
+            Mapping with ``auth``, ``websocket`` and
+            ``declared_but_not_enforced`` sections.
+        """
+        enforced_session_keys = [
+            "server_ws_delivery_queue_size",
+            "server_ws_send_deadline_seconds",
+            "server_max_message_bytes",
+        ]
+        # Session-token controls (Codex finding 22 correction): the web UI
+        # serving path (web/server/main.py) consumes the session secret
+        # (HMAC token signing), TTL and max-session cap. An auto-generated
+        # secret is a per-process dev/test default — visible here so a
+        # multi-worker deployment cannot silently fail token verification
+        # across workers.
+        _server_settings = getattr(self._settings, "server", None)
+        secret_auto = bool(getattr(_server_settings, "server_session_secret_auto_generated", False))
+        return {
+            "auth": {
+                "enforced": bool(self.api_keys),
+                "credentials": len(self.api_keys),
+                "sources": self._api_key_sources,
+                "single_operator_mode": self.single_operator_mode,
+                "multi_principal_refusal_active": is_multi_principal(
+                    self.api_keys, self.single_operator_mode
+                ),
+            },
+            "websocket": {
+                "delivery_queue_size": self._ws_delivery_queue_size,
+                "send_deadline_seconds": self._ws_send_deadline,
+                "auth_deadline_seconds": self._ws_auth_deadline,
+                "inbound_max_message_bytes": self._ws_max_message_bytes,
+                "enforced_settings": enforced_session_keys,
+            },
+            "session_token": {
+                "enforced_by": "web UI serving path (web/server/main.py)",
+                "secret_configured": bool(getattr(_server_settings, "server_session_secret", None)),
+                "secret_source": (
+                    "auto-generated per-process (set server.server_session_secret "
+                    "for multi-worker deployments; tokens will not verify across "
+                    "workers)"
+                    if secret_auto
+                    else "explicit operator configuration"
+                ),
+                "ttl_seconds": getattr(_server_settings, "server_session_ttl_seconds", None),
+                "max_sessions": getattr(_server_settings, "server_max_sessions", None),
+            },
+            "declared_but_not_enforced": {
+                "rate_limit_rpm": (
+                    f"configured to {self.rate_limit_rpm} but the FastAPI server "
+                    "mounts no rate limiter (the aiohttp RateLimiter is deprecated "
+                    "and unmounted)"
+                    if self.rate_limit_rpm
+                    else "not configured"
+                ),
+            },
+        }
+
     def _make_auth_dependency(self):
         """Build the HTTP-route auth dependency (closure over this server)."""
 
@@ -839,17 +932,39 @@ class VictorFastAPIServer:
             """Auth gate for websocket routes: Bearer header or ?api_key=
             query parameter. The /ws chat socket is exempt (message-level
             auth); this guards event streams (/ws/events, workflow streams,
-            GraphQL subscriptions)."""
+            GraphQL subscriptions).
+
+            On success the resolved principal is stamped onto
+            ``websocket.state`` so the event transports can bind it as the
+            verified owner of the connection's subscription records (Codex
+            finding 9): authenticating the KEY must also identify the
+            PRINCIPAL, or every authenticated user shares one broadcast.
+            """
             if not self.api_keys:
                 return
             header = websocket.headers.get("Authorization", "")
-            if header.startswith("Bearer ") and header[7:] in self.api_keys:
-                return
-            if websocket.query_params.get("api_key") in self.api_keys:
-                return
-            # In websocket scope FastAPI closes the connection when a
-            # dependency raises HTTPException.
-            raise HTTPException(status_code=403, detail="Not authenticated")
+            matched = None
+            if header.startswith("Bearer "):
+                candidate = header[7:]
+                matched = next(
+                    (k for k in self.api_keys if secrets.compare_digest(k, candidate)),
+                    None,
+                )
+            if matched is None:
+                query_key = websocket.query_params.get("api_key")
+                if query_key is not None:
+                    matched = next(
+                        (k for k in self.api_keys if secrets.compare_digest(k, query_key)),
+                        None,
+                    )
+            if matched is None:
+                # In websocket scope FastAPI closes the connection when a
+                # dependency raises HTTPException.
+                raise HTTPException(status_code=403, detail="Not authenticated")
+            if not hasattr(websocket, "state"):
+                websocket.state = type("State", (), {})()
+            websocket.state.authenticated = True
+            websocket.state.client_id = self.api_keys[matched]
 
         return _enforce_ws_auth
 
@@ -906,6 +1021,16 @@ class VictorFastAPIServer:
     async def _lifespan(self, app: FastAPI) -> AsyncIterator[None]:
         """Manage server lifespan."""
         logger.info(f"Starting Victor FastAPI server on {self.host}:{self.port}")
+        # Effective-posture check (Codex finding 22): log what this running
+        # server ACTUALLY enforces per advertised setting, so a configured
+        # control that no serving path consumes is visible at startup.
+        try:
+            logger.info(
+                "Effective server posture: %s",
+                json.dumps(self.effective_posture(), default=str),
+            )
+        except Exception as e:  # pragma: no cover - posture logging must not block startup
+            logger.debug("Effective-posture logging failed: %s", e)
 
         # Initialize EventBridge for real-time event streaming
         event_bus = get_observability_bus()
@@ -1220,6 +1345,24 @@ class VictorFastAPIServer:
         a broadcast enqueued before a pong is delivered before it.
         """
         msg_type = data.get("type", "")
+
+        # Inbound payload cap (Codex finding 22): the advertised
+        # ``server.server_max_message_bytes`` control is enforced here —
+        # oversized frames are refused with a typed error, not processed.
+        if self._ws_max_message_bytes:
+            payload_bytes = len(json.dumps(data, separators=(",", ":")).encode("utf-8"))
+            if payload_bytes > self._ws_max_message_bytes:
+                await self._send_ws_frame(
+                    ws,
+                    {
+                        "type": "error",
+                        "message": (
+                            f"Message exceeds server_max_message_bytes "
+                            f"({payload_bytes} > {self._ws_max_message_bytes})"
+                        ),
+                    },
+                )
+                return
 
         if msg_type == "chat":
             messages = data.get("messages", [])

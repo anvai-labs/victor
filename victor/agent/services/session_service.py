@@ -103,6 +103,8 @@ class SessionService:
         self._current_session: Optional[SessionInfoImpl] = None
         self._memory_session_id: Optional[str] = None
         self._session_ledger: Optional[List[Any]] = None
+        self._owner_client_id: Optional[str] = None
+        self._consolidated_session_id: Optional[str] = None
         self._logger = logging.getLogger(f"{__name__}.{id(self)}")
 
     def set_lifecycle_manager(self, lifecycle_manager: Any) -> None:
@@ -121,6 +123,7 @@ class SessionService:
         cost_tracker: Optional[Any] = _UNSET,
         memory_session_id: Optional[str] = _UNSET,
         memory_consolidator: Optional[Any] = _UNSET,
+        owner_client_id: Optional[str] = _UNSET,
     ) -> None:
         """Bind live runtime collaborators after bootstrap."""
         if lifecycle_manager is not _UNSET:
@@ -135,6 +138,8 @@ class SessionService:
             self._memory_session_id = memory_session_id
         if memory_consolidator is not _UNSET:
             self._memory_consolidator = memory_consolidator
+        if owner_client_id is not _UNSET:
+            self._owner_client_id = owner_client_id
 
     async def create_session(
         self,
@@ -406,10 +411,36 @@ class SessionService:
 
         The chat loop owns the message history, so it hands the ledger to
         the session service here (a shallow reference; entries are read at
-        consolidation time). With no ledger registered, consolidation is a
-        no-op that stores nothing.
+        consolidation time). With no ledger registered, the consolidation
+        hook falls back to the LIVE conversation source — the bound memory
+        manager's context messages for this session (Codex finding 15:
+        the registration method previously had only test callers, so the
+        stock session-end capture silently proposed from nothing).
         """
         self._session_ledger = session_ledger
+
+    def _conversation_ledger(self) -> List[Any]:
+        """The actual conversation source for end-of-session proposals.
+
+        Preference order: an explicitly registered ledger (the chat loop's
+        history reference), otherwise the bound memory manager's context
+        messages for the live session (provider-format dicts with
+        ``role``/``content``). An empty list means the consolidation hook
+        has nothing to propose from.
+        """
+        if self._session_ledger is not None:
+            return list(self._session_ledger)
+        if self._memory_manager is not None and self._memory_session_id:
+            try:
+                messages = self._memory_manager.get_context_messages(
+                    self._memory_session_id,
+                    include_system=False,
+                )
+                if isinstance(messages, list):
+                    return messages
+            except Exception as e:
+                self._logger.warning(f"Failed to read conversation source: {e}")
+        return []
 
     async def consolidate_memory(self) -> Dict[str, Any]:
         """Run the end-of-session consolidation hook.
@@ -419,6 +450,9 @@ class SessionService:
         ``commit_memory_proposals``/``discard_memory_proposals`` decide what
         survives. With auto-capture opted in, the proposals are committed
         immediately.
+
+        Proposals carry the session's membership (id + owner principal), so
+        the shared process-wide consolidator keeps sessions isolated.
 
         Returns:
             Report dict: ``enabled``, ``proposed``, ``stored``, ``staged``.
@@ -433,8 +467,17 @@ class SessionService:
         if consolidator is None:
             return report
 
-        ledger = self._session_ledger or []
-        result = consolidator.run(ledger)
+        ledger = self._conversation_ledger()
+        result = consolidator.run(
+            ledger,
+            session_id=self.get_current_session_id() or "",
+            owner_client_id=self._owner_client_id,
+        )
+        # Membership for the confirm/discard paths (Codex finding 15): this
+        # service commits/discards ITS session's proposals, not another
+        # session's pending state on the shared consolidator. Kept after
+        # end_session clears the current session pointer.
+        self._consolidated_session_id = self.get_current_session_id() or ""
         report["enabled"] = True
         report["proposed"] = len(result.proposed)
         report["stored"] = len(result.stored)
@@ -458,19 +501,43 @@ class SessionService:
             return []
         return self._memory_consolidator.staged_proposals()
 
+    def _proposal_session_scope(self) -> Optional[str]:
+        """The session whose proposals this service owns.
+
+        The live session while it is active; afterwards the session that
+        last ran the consolidation hook (end_session clears the current
+        session pointer before the confirm surface runs). When a NEW
+        session has started since the hook ran, the pending proposals
+        still belong to the consolidated session — scoping to the new
+        session would silently commit nothing.
+        """
+        current = self.get_current_session_id()
+        last = getattr(self, "_consolidated_session_id", None)
+        if current and last and current != last:
+            consolidator = self._memory_consolidator
+            if consolidator is not None and consolidator.staged_proposals(session_id=last):
+                return last
+        if current:
+            return current
+        return last or None
+
     def commit_memory_proposals(self) -> List[Any]:
-        """Confirm path: store the staged proposals as episodes."""
+        """Confirm path: store THIS session's staged proposals as episodes.
+
+        Session-scoped (Codex finding 15): the shared consolidator holds
+        proposals from many sessions; committing through this service must
+        not consume another session's pending state."""
         if self._memory_consolidator is None:
             return []
-        stored = self._memory_consolidator.commit_staged()
+        stored = self._memory_consolidator.commit_staged(session_id=self._proposal_session_scope())
         self._logger.info(f"Memory confirm path stored {len(stored)} episodes")
         return stored
 
     def discard_memory_proposals(self) -> int:
-        """Discard path: drop the staged proposals without writing."""
+        """Discard path: drop THIS session's staged proposals without writing."""
         if self._memory_consolidator is None:
             return 0
-        return self._memory_consolidator.discard_staged()
+        return self._memory_consolidator.discard_staged(session_id=self._proposal_session_scope())
 
     async def reset_session(self) -> None:
         """Reset the current session state.
