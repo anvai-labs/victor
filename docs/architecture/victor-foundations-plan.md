@@ -756,18 +756,29 @@ candidate Codex review (`~/code/victor-review-findings.md`), branch
   Evidence: `test_memory_consolidation_sessions.py` (14).
 - **Finding 22 (MEDIUM) — dormancy cleanup**: external compatibility
   audit found ZERO consumers of the aiohttp-era middleware names in core,
-  vscode-victor, web/server, docs or tests — shims kept, every access
-  emits `DeprecationWarning`; the session-secret AUTO-GENERATION is
-  removed (fabricated a per-process secret no serving path read;
-  Phase-1A tests re-pinned); `server_api_key` WIRED at its actual owner
-  (merged into the auth credential map; precedence pinned);
-  `server_max_message_bytes` WIRED on the /ws + /ws/events receive paths
-  (typed refusal; normal-frame negative guard); the session-token trio +
-  `rate_limit_rpm` declared-but-not-enforced with disposition notes;
+  vscode-victor, web/, docs or tests — shims kept, every access emits
+  `DeprecationWarning`. CORRECTION (post-CI): the session-token settings
+  are NOT dead — the web UI serving path (`web/server/main.py`) consumes
+  `server_session_secret` (HMAC token signing/verification),
+  `server_session_ttl_seconds`, `server_max_sessions` and
+  `server_max_message_bytes`; the initial audit scope (victor/ +
+  vscode-victor) missed `web/`, and the first commit's autogeneration
+  removal broke the web server's fail-fast (caught by
+  test_vscode_extension_contract on CI). Disposition as merged:
+  autogeneration RESTORED as a visible dev/test default — generation is
+  recorded on `server_session_secret_auto_generated`, the web server
+  warns loudly at startup when the secret is auto-generated (tokens will
+  not verify across workers), and the posture reports the secret's
+  provenance; a multi-worker production deployment must set it
+  explicitly (per the D6 direction). `server_api_key` WIRED at its
+  actual owner (merged into the FastAPI auth credential map; precedence
+  pinned); `server_max_message_bytes` WIRED on the /ws + /ws/events
+  receive paths (typed refusal; normal-frame negative guard);
+  `rate_limit_rpm` declared-but-not-enforced with a disposition note;
   NEW effective-posture surface: `VictorFastAPIServer.effective_posture()`
   reports enforced vs declared-not-enforced for EVERY advertised control,
   logged at lifespan startup and attached to `/status`
-  (Evidence: `test_server_effective_posture.py` (13)).
+  (Evidence: `test_server_effective_posture.py` (14)).
 - RELATED_TESTS entries added for `event_bridge.py`, `middleware.py`,
   `websocket_routes.py`, `fastapi_server.py`, `server_config.py`,
   `system_routes.py`, `memory_consolidation.py`, `session_service.py`.

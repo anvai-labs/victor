@@ -856,6 +856,14 @@ class VictorFastAPIServer:
             "server_ws_send_deadline_seconds",
             "server_max_message_bytes",
         ]
+        # Session-token controls (Codex finding 22 correction): the web UI
+        # serving path (web/server/main.py) consumes the session secret
+        # (HMAC token signing), TTL and max-session cap. An auto-generated
+        # secret is a per-process dev/test default — visible here so a
+        # multi-worker deployment cannot silently fail token verification
+        # across workers.
+        _server_settings = getattr(self._settings, "server", None)
+        secret_auto = bool(getattr(_server_settings, "server_session_secret_auto_generated", False))
         return {
             "auth": {
                 "enforced": bool(self.api_keys),
@@ -873,20 +881,20 @@ class VictorFastAPIServer:
                 "inbound_max_message_bytes": self._ws_max_message_bytes,
                 "enforced_settings": enforced_session_keys,
             },
+            "session_token": {
+                "enforced_by": "web UI serving path (web/server/main.py)",
+                "secret_configured": bool(getattr(_server_settings, "server_session_secret", None)),
+                "secret_source": (
+                    "auto-generated per-process (set server.server_session_secret "
+                    "for multi-worker deployments; tokens will not verify across "
+                    "workers)"
+                    if secret_auto
+                    else "explicit operator configuration"
+                ),
+                "ttl_seconds": getattr(_server_settings, "server_session_ttl_seconds", None),
+                "max_sessions": getattr(_server_settings, "server_max_sessions", None),
+            },
             "declared_but_not_enforced": {
-                "server.server_session_secret": (
-                    "deprecated aiohttp-era session-token secret; no serving-path "
-                    "consumer (auto-generation removed). Retire with the VAS-06 "
-                    "session contract."
-                ),
-                "server.server_max_sessions": (
-                    "deprecated aiohttp-era session cap; no session registry "
-                    "consumer. Retire with the VAS-06 session contract."
-                ),
-                "server.server_session_ttl_seconds": (
-                    "deprecated aiohttp-era session TTL; no session-token "
-                    "consumer. Retire with the VAS-06 session contract."
-                ),
                 "rate_limit_rpm": (
                     f"configured to {self.rate_limit_rpm} but the FastAPI server "
                     "mounts no rate limiter (the aiohttp RateLimiter is deprecated "

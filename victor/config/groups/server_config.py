@@ -18,9 +18,9 @@ Extracted from victor/config/settings.py to improve maintainability.
 Contains configuration for API server, WebSocket, and diagram rendering.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, SecretStr, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 
 class ServerSettings(BaseModel):
@@ -33,36 +33,43 @@ class ServerSettings(BaseModel):
     effective-posture surface on the server reports the enforced state of
     each at startup and via ``/status``):
 
-    - ``server_api_key`` — ENFORCED: merged into the server's credential
-      map at startup (its actual owner is the FastAPI auth gate).
+    - ``server_api_key`` — ENFORCED: merged into the FastAPI server's
+      credential map at startup (its actual owner is the FastAPI auth
+      gate) AND honored by the web UI server (``web/server/main.py``).
+    - ``server_session_secret`` — ENFORCED by the web UI serving path
+      (``web/server/main.py``): HMAC session-token signing/verification.
+      The validator AUTO-GENERATES a per-process secret when unconfigured
+      (dev/test convenience; ``server_session_secret_auto_generated``
+      records that it happened) — a multi-worker PRODUCTION deployment
+      MUST set it explicitly, or session tokens will not verify across
+      processes; the web server warns loudly and the effective posture
+      reports the source at startup.
+    - ``server_max_sessions`` / ``server_session_ttl_seconds`` — ENFORCED
+      by the web UI serving path: the in-memory session store cap and the
+      session-token expiry.
     - ``server_max_message_bytes`` — ENFORCED: inbound WebSocket payload
-      cap applied by the ``/ws`` and ``/ws/events`` routes.
+      cap applied by the ``/ws`` and ``/ws/events`` routes (FastAPI) and
+      the web UI server.
     - ``server_ws_delivery_queue_size`` / ``server_ws_send_deadline_seconds``
       — ENFORCED: bounded per-client delivery (VAS-06/10, TD-03).
-    - ``server_session_secret`` — DECLARED, NOT ENFORCED (deprecated):
-      aiohttp-era session-token layer; no serving-path consumer. The
-      former auto-generation validator was REMOVED — it fabricated a
-      secret nothing read, which made the dead control look alive. Kept
-      declared so existing configs keep loading; scheduled for retirement
-      with the VAS-06 session contract.
-    - ``server_max_sessions`` / ``server_session_ttl_seconds`` — DECLARED,
-      NOT ENFORCED (deprecated): same aiohttp-era session-token layer; no
-      session registry or expiry consumer exists. Kept declared for config
-      compatibility; scheduled for retirement with VAS-06.
     """
 
     # Server Security (FastAPI/WebSocket layer)
     # When set, API key is required for HTTP + WebSocket requests (Authorization: Bearer <token>)
     server_api_key: Optional[SecretStr] = None
-    # DEPRECATED, not enforced: aiohttp-era session-token HMAC secret with
-    # no serving-path consumer (see class docstring). Defaults to None —
-    # the previous validator fabricated an unused secret per process.
-    server_session_secret: Optional[SecretStr] = None
-    # DEPRECATED, not enforced: aiohttp-era session cap with no consumer.
+    # HMAC secret for session-token signing in the web UI serving path.
+    # Auto-generated per process when unconfigured (dev/test); production
+    # multi-worker deployments must set it explicitly (see class docstring).
+    server_session_secret: Optional[SecretStr] = Field(default=None, validate_default=True)
+    # True only when the validator generated the session secret above —
+    # the honest marker that a real deployment is NOT using an operator-
+    # supplied secret (surfaced by the web server warning + posture).
+    server_session_secret_auto_generated: bool = False
+    # Hard cap on simultaneous sessions (web UI session store).
     server_max_sessions: int = 100
     # Maximum inbound message payload size (bytes) for WebSocket messages
     server_max_message_bytes: int = 32768
-    # DEPRECATED, not enforced: aiohttp-era session-token TTL with no consumer.
+    # Session token time-to-live in seconds (web UI session tokens).
     server_session_ttl_seconds: int = 86400
 
     # Diagram rendering limits
@@ -170,3 +177,24 @@ class ServerSettings(BaseModel):
         if v <= 0:
             raise ValueError("server_ws_send_deadline_seconds must be positive")
         return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _autogenerate_session_secret(cls, data: Any) -> Any:
+        """Auto-generate a per-process session secret when unconfigured.
+
+        This is the DEV/TEST fallback that keeps single-process runs (and
+        the web UI server's fail-fast) working without configuration. It
+        is deliberately VISIBLE: the generation is recorded on
+        ``server_session_secret_auto_generated`` so the web server can
+        warn and the effective posture can report that an operator has
+        NOT supplied the secret. A multi-worker production deployment
+        MUST set ``server.server_session_secret`` explicitly — per-
+        process secrets cannot verify tokens issued by another worker.
+        """
+        if isinstance(data, dict) and data.get("server_session_secret") is None:
+            import secrets as _secrets
+
+            data["server_session_secret"] = SecretStr(_secrets.token_urlsafe(32))
+            data["server_session_secret_auto_generated"] = True
+        return data

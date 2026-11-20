@@ -14,26 +14,27 @@ from victor.agent.session_id import (
 )
 
 # ---------------------------------------------------------------------------
-# Phase 1A: server_session_secret (RETIRED auto-generation, Codex finding 22)
+# Phase 1A: server_session_secret auto-generation (restored as a VISIBLE
+# dev/test default, Codex finding 22 correction)
 #
-# The aiohttp-era session-token layer that consumed this secret no longer
-# exists; the auto-generation validator fabricated a per-process secret
-# that NO serving path read (the dead control masquerading as protection).
-# The setting is now a declared, deprecated no-consumer field: default
-# None, explicit values preserved, and the server's effective-posture
-# surface reports it as not enforced.
+# The secret is NOT dead: the web UI serving path (web/server/main.py)
+# signs/verifies HMAC session tokens with it and fail-fasts when unset.
+# The auto-generation validator is restored, but now HONEST: generation
+# is recorded on `server_session_secret_auto_generated` so the web server
+# warns and the effective posture reports that an operator did NOT supply
+# the secret (multi-worker deployments must set it explicitly).
 # ---------------------------------------------------------------------------
 
 
-class TestServerSessionSecretRetiredAutoGeneration:
-    """server_session_secret no longer fabricates an unconsumed secret."""
+class TestServerSessionSecretAutoGeneration:
+    """Settings auto-generates a session secret — visibly, not silently."""
 
-    def test_settings_default_secret_is_none(self):
-        """Settings() must NOT fabricate a secret nothing consumes."""
+    def test_settings_creates_non_none_secret(self):
+        """Settings() always produces a non-None server_session_secret."""
         from victor.config.settings import Settings
 
         settings = Settings()
-        assert settings.server.server_session_secret is None
+        assert settings.server.server_session_secret is not None
 
     def test_explicit_secret_is_preserved(self):
         """An explicitly supplied SecretStr must not be overwritten."""
@@ -42,13 +43,37 @@ class TestServerSessionSecretRetiredAutoGeneration:
         server = ServerSettings(server_session_secret=SecretStr("custom"))
         assert server.server_session_secret.get_secret_value() == "custom"
 
-    def test_two_settings_instances_do_not_share_a_fabricated_secret(self):
-        """Negative gate: no hidden per-process generation, hence no stale
-        secret reuse between instances."""
+    def test_generated_secret_has_sufficient_length(self):
+        """Auto-generated secret should be at least 32 characters."""
         from victor.config.settings import Settings
 
-        assert Settings().server.server_session_secret is None
-        assert Settings().server.server_session_secret is None
+        settings = Settings()
+        secret_value = settings.server.server_session_secret.get_secret_value()
+        assert len(secret_value) >= 32
+
+    def test_auto_generation_is_marked_not_silent(self):
+        """Positive: an auto-generated secret records its provenance."""
+        from victor.config.groups.server_config import ServerSettings
+
+        server = ServerSettings()
+        assert server.server_session_secret is not None
+        assert server.server_session_secret_auto_generated is True
+
+    def test_explicit_secret_is_not_marked_auto_generated(self):
+        """Negative: an operator-supplied secret must NOT be flagged as
+        auto-generated (the marker drives the production warning)."""
+        from victor.config.groups.server_config import ServerSettings
+
+        server = ServerSettings(server_session_secret=SecretStr("custom"))
+        assert server.server_session_secret_auto_generated is False
+
+    def test_two_settings_instances_do_not_share_a_generated_secret(self):
+        """Per-process generation: distinct instances get distinct secrets."""
+        from victor.config.settings import Settings
+
+        first = Settings().server.server_session_secret.get_secret_value()
+        second = Settings().server.server_session_secret.get_secret_value()
+        assert first != second
 
 
 # ---------------------------------------------------------------------------

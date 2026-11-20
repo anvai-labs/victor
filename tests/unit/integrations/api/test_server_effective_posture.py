@@ -91,22 +91,27 @@ def test_non_deprecated_lazy_exports_do_not_warn():
 
 
 # =============================================================================
-# The dead session-secret no longer masquerades as protection
+# The session secret is enforced by the web UI serving path — visibly
 # =============================================================================
 
 
-def test_server_session_secret_defaults_to_none():
-    """The auto-generation validator fabricated a per-process secret that no
-    serving path read (the exact 'generated secrets are easy to miss' trap);
-    removal means an unconsumed control no longer looks alive."""
-    assert ServerSettings().server_session_secret is None
+def test_server_session_secret_defaults_to_marked_autogeneration():
+    """The web UI server (web/server/main.py) signs HMAC session tokens with
+    this secret and fail-fasts when unset. The per-process default is
+    restored for dev/test, but it is MARKED: an operator can always tell
+    that the running secret was not supplied by configuration."""
+    settings = ServerSettings()
+    assert settings.server_session_secret is not None
+    assert settings.server_session_secret_auto_generated is True
 
 
-def test_explicit_server_session_secret_still_parses():
-    """Config compatibility: existing configs keep loading (field kept,
-    declared-but-not-enforced per the docstring disposition)."""
+def test_explicit_server_session_secret_is_not_marked_generated():
+    """Config compatibility: explicitly configured secrets keep loading and
+    are NOT flagged as auto-generated (the marker drives the production
+    warning and the posture's secret_source)."""
     settings = ServerSettings(server_session_secret=SecretStr("explicit"))
     assert settings.server_session_secret.get_secret_value() == "explicit"
+    assert settings.server_session_secret_auto_generated is False
 
 
 # =============================================================================
@@ -198,18 +203,48 @@ def test_effective_posture_covers_every_advertised_control(monkeypatch, tmp_path
     assert posture["websocket"]["send_deadline_seconds"] > 0
     assert "server_max_message_bytes" in posture["websocket"]["enforced_settings"]
 
-    # Declared-but-not-enforced: the aiohttp-era session-token trio.
+    # Session-token controls: enforced by the web UI serving path, with the
+    # secret's provenance visible (Codex finding 22 correction).
+    session_token = posture["session_token"]
+    assert session_token["enforced_by"].startswith("web UI serving path")
+    assert session_token["secret_configured"] is True
+    assert (
+        "auto-generated" in session_token["secret_source"]
+        or "explicit" in session_token["secret_source"]
+    )
+    assert session_token["ttl_seconds"] and session_token["max_sessions"]
+
+    # Declared-but-not-enforced: only the unmounted rate limiter.
     dead = posture["declared_but_not_enforced"]
-    assert set(dead) == {
-        "server.server_session_secret",
-        "server.server_max_sessions",
-        "server.server_session_ttl_seconds",
-        "rate_limit_rpm",
-    }
+    assert set(dead) == {"rate_limit_rpm"}
     assert all(dead.values())  # every entry carries a disposition note
 
     # The posture must be JSON-serializable for the startup log.
     json.dumps(posture, default=str)
+
+
+def test_effective_posture_reports_explicit_secret_as_explicit(monkeypatch, tmp_path):
+    """When the operator configured the secret, the posture says so."""
+    from victor.config import settings as settings_module
+
+    real_settings = settings_module.load_settings()
+    monkeypatch.setattr(real_settings.server, "server_session_secret", SecretStr("operator-secret"))
+    monkeypatch.setattr(real_settings.server, "server_session_secret_auto_generated", False)
+    monkeypatch.setattr(settings_module, "load_settings", lambda fresh=False: real_settings)
+
+    monkeypatch.setattr(
+        fastapi_server,
+        "load_fastapi_router_registrations",
+        lambda *, workspace_root: [],
+    )
+    server = fastapi_server.VictorFastAPIServer(
+        workspace_root=str(tmp_path),
+        enable_graphql=False,
+        allow_unauthenticated=True,
+    )
+
+    source = server.effective_posture()["session_token"]["secret_source"]
+    assert source == "explicit operator configuration"
 
 
 def test_effective_posture_flags_configured_but_unmounted_rate_limit(monkeypatch, tmp_path):
