@@ -42,8 +42,7 @@ def test_canonical_gateway_qualification_tracks_current_pin():
         encoding="utf-8"
     )
     assert (
-        "Victor's 0.32.0 promotion candidate is the release carrier for published\n"
-        "`sandhi-gateway==0.22.1`."
+        "Victor's consumer candidate pins the prepared Sandhi release\n" "`sandhi-gateway==0.23.0`."
     ) in document
 
 

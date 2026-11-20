@@ -301,7 +301,7 @@ async def test_openai_oauth_explicitly_selects_responses_and_refreshes_before_ha
     # in the native body (openai_responses_typed.rs), so victor no longer dual-writes
     # it into the extensions bucket.
     assert request["thinking"] == {"enabled": True, "effort": "high"}
-    assert request["extensions"] == {"openai_responses": {}}
+    assert "extensions" not in request
 
 
 def test_resolver_fails_closed_when_binding_is_missing(monkeypatch):
@@ -1515,7 +1515,7 @@ def test_reasoning_effort_promoted_to_typed_field(monkeypatch):
 def test_thinking_normalized_from_victor_shape(monkeypatch):
     monkeypatch.setattr(st, "_wire_contract_checked", True)
     request = st._typed_request_from_openai_payload(
-        _openai_payload(thinking={"type": "enabled", "budget_tokens": 2048})
+        _openai_payload(thinking={"enabled": True, "budget_tokens": 2048})
     )
     assert request["thinking"] == {"enabled": True, "budget_tokens": 2048}
 
@@ -1534,7 +1534,8 @@ def test_internal_kwargs_never_reach_extensions(monkeypatch):
 
 def test_normalize_thinking_shapes():
     assert st._normalize_thinking(True) == {"enabled": True}
-    assert st._normalize_thinking({"type": "disabled"}) == {"enabled": False}
+    assert st._normalize_thinking({"enabled": False}) == {"enabled": False}
+    assert st._normalize_thinking({"type": "disabled"}) is None
     assert st._normalize_thinking({"enabled": True, "budget_tokens": 100}) == {
         "enabled": True,
         "budget_tokens": 100,
@@ -1542,7 +1543,7 @@ def test_normalize_thinking_shapes():
     assert st._normalize_thinking("nonsense") is None
 
 
-def test_neutral_mixin_drops_bucket_for_native_encoder_families(monkeypatch):
+def test_neutral_mixin_rejects_native_options_without_a_portable_mapping(monkeypatch):
     """W3d/G7 D3: gemini/cohere/ollama encoders clone extensions[<slug>] as the
     base body, so an OpenAI-shaped bucket must NOT be re-labeled to their key."""
     from victor.providers.base import Message
@@ -1557,15 +1558,13 @@ def test_neutral_mixin_drops_bucket_for_native_encoder_families(monkeypatch):
             return self._slug
 
     msgs = [Message(role="user", content="hi")]
-    # Gemini: native encoder → bucket dropped even with a passthrough param.
-    gemini_req = _Stub("gemini")._neutral_request(msgs, "g", 0.7, 100, None, top_p=0.9)
-    assert "extensions" not in gemini_req
-    # An openai-compat local (lmstudio): bucket re-labeled, not dropped.
-    local_req = _Stub("lmstudio")._neutral_request(msgs, "m", 0.7, 100, None, top_p=0.9)
-    assert local_req.get("extensions", {}).get("lmstudio", {}).get("top_p") == 0.9
+    with pytest.raises(ValueError, match="portable Sandhi representation"):
+        _Stub("gemini")._neutral_request(msgs, "g", 0.7, 100, None, top_p=0.9)
+    with pytest.raises(ValueError, match="portable Sandhi representation"):
+        _Stub("lmstudio")._neutral_request(msgs, "m", 0.7, 100, None, top_p=0.9)
 
 
-def test_neutral_mixin_maps_disabled_thinking_to_native_ollama_switch(monkeypatch):
+def test_neutral_mixin_leaves_disabled_thinking_encoding_to_sandhi(monkeypatch):
     from victor.providers.base import Message
 
     monkeypatch.setattr(st, "_wire_contract_checked", True)
@@ -1583,7 +1582,7 @@ def test_neutral_mixin_maps_disabled_thinking_to_native_ollama_switch(monkeypatc
         thinking=False,
     )
     assert request["thinking"] == {"enabled": False}
-    assert request["extensions"] == {"ollama": {"think": False}}
+    assert "extensions" not in request
 
 
 # =============================================================================

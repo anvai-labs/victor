@@ -2,8 +2,8 @@
 
 ## Coordinated execution-contract migration
 
-Victor's 0.32.0 promotion candidate is the release carrier for published
-`sandhi-gateway==0.22.1`. This consumer pin does not imply a service upgrade.
+Victor's consumer candidate pins the prepared Sandhi release
+`sandhi-gateway==0.23.0`. Publication of the matching wheel is required for rollout.
 The user authorized a coordinated migration because Victor is the sole client;
 there is no requirement to retain a permissive Sandhi legacy mode.
 
@@ -38,7 +38,7 @@ Victor consumer remains subject to independent review, public-hosted CI and its
 own release gate. Deployment is a separate decision.
 
 The root, API and CPU-embeddings deployment locks carry the same exact Sandhi
-pin. The mandatory dependency resolves from the official PyPI 0.22.1 release.
+pin. Local validation installs the wheel built from the matching Sandhi source.
 The 0.20.0 consumer qualification remains the latest comprehensive public record;
 0.21.0 retained its generated Python contract and wire/chat contract versions;
 the 0.32.0 candidate repeats the binding, semantic-thinking and provider checks
@@ -617,27 +617,18 @@ profiles:
     reasoning_effort: high
 ```
 
-The profile value reaches the orchestrator and both buffered and streaming
-requests when the provider reports reasoning support. An explicit per-request
-value takes precedence; explicit `None` suppresses the profile default. Leaving
-it unset preserves the upstream default. GPT-6 models are recognized by the
-OpenAI capability check. The profile schema accepts a cross-provider vocabulary;
-the selected upstream model remains authoritative for the supported subset.
+A per-request effort value takes precedence over the profile default. Explicit
+`None` suppresses the default. Victor passes the resulting `ThinkingRequestV1`
+to Sandhi in both buffered and streaming calls. Direct Sandhi handles check
+exact model facts. In gateway mode the selected server backend owns model
+capability and grant admission. Model discovery remains available for selecting
+profile defaults. An explicit request requires no discovery in the transport.
 
-[OpenAI documents GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol)
-with `none`, `low`, `medium` (default), `high`, `xhigh`, and `max`. Values such as
-`minimal` or `ultra` used by other models are not claimed to work with Sol.
-Reasoning effort controls model deliberation, not tool permissions or policy.
-
-Sandhi already preserves the typed request's `reasoning_effort` and maps it to
-`reasoning.effort` for the subscription Responses backend. No gateway-wide
-effort default or override is introduced: Victor selects the default, Sandhi
-forwards it, and admission still enforces identity, model grants and budgets.
-This route uses Responses upstream, including when Victor supplies tools.
-
-TDD reproduced dropped profile values, omitted streaming defaults, missing
-GPT-6 capability recognition and unvalidated labels. Regression coverage also
-checks unsupported providers and per-request overrides (including `None`).
+One neutral request path serves Victor's Sandhi-backed providers. Sandhi owns
+provider encoding, including Messages cache marker placement and sampling
+constraints. A portable request refuses options that require a native SDK dialect. A selected gateway dialect must be able to express a requested
+control for it to reach the server. The prepared binding qualifies adaptive
+thinking for Claude Sonnet 4.6 and thinking levels for Gemini 3 Flash Preview.
 
 ## Streaming body-budget preflight (2026-11-17)
 

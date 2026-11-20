@@ -149,7 +149,7 @@ def test_native_thinking_argument_retains_effort(monkeypatch):
         {
             "model": "m",
             "messages": [{"role": "user", "content": "hi"}],
-            "thinking": {"type": "enabled", "effort": "medium", "budget_tokens": 2048},
+            "thinking": {"enabled": True, "effort": "medium", "budget_tokens": 2048},
         }
     )
     assert request["thinking"] == {
@@ -357,7 +357,7 @@ def test_gateway_discovery_rejects_malformed_model_pages(body):
 
 
 @pytest.mark.asyncio
-async def test_gateway_chat_strips_unadvertised_reasoning_effort():
+async def test_gateway_chat_leaves_explicit_effort_admission_to_sandhi():
     model = gateway_provider()
     model._store_gateway_model_capabilities(
         ("http://127.0.0.1:8080", "vk-synthetic"),
@@ -395,7 +395,7 @@ async def test_gateway_chat_strips_unadvertised_reasoning_effort():
     await model.chat(
         [Message(role="user", content="hi")], model="qwen3.7-plus", reasoning_effort="high"
     )
-    assert "thinking" not in captured
+    assert captured["thinking"] == {"enabled": True, "effort": "high"}
 
 
 def _cached_low_effort_gateway() -> SandhiOpenAIProvider:
@@ -442,14 +442,14 @@ async def test_gateway_omitted_or_disabled_effort_performs_no_discovery():
         [Message(role="user", content="hi")], model="qwen3.7-plus", reasoning_effort=None
     )
     async for _ in model.stream(
-        [Message(role="user", content="hi")], model="qwen3.7-plus", thinking={"type": "disabled"}
+        [Message(role="user", content="hi")], model="qwen3.7-plus", thinking={"enabled": False}
     ):
         pass
     model._refresh_gateway_model_capabilities.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_gateway_buffers_and_stream_strip_unadvertised_effort_value():
+async def test_gateway_buffer_and_stream_leave_explicit_effort_admission_to_sandhi():
     from victor.providers.base import Message
 
     model = _cached_low_effort_gateway()
@@ -474,17 +474,18 @@ async def test_gateway_buffers_and_stream_strip_unadvertised_effort_value():
         [Message(role="user", content="hi")], model="qwen3.7-plus", reasoning_effort="high"
     ):
         pass
-    assert complete_capture.get("thinking") is None
-    assert stream_capture.get("thinking") is None
+    assert complete_capture["thinking"] == {"enabled": True, "effort": "high"}
+    assert stream_capture["thinking"] == {"enabled": True, "effort": "high"}
 
     await model.chat(
         [Message(role="user", content="hi")], model="qwen3.7-plus", reasoning_effort="low"
     )
     assert complete_capture["thinking"] == {"enabled": True, "effort": "low"}
+    model._refresh_gateway_model_capabilities.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_anthropic_gateway_buffers_and_stream_admit_exact_thinking_metadata():
+async def test_anthropic_gateway_buffer_and_stream_send_portable_thinking():
     from victor.providers.base import Message
 
     model = st.SandhiAnthropicProvider.__new__(st.SandhiAnthropicProvider)
@@ -522,8 +523,10 @@ async def test_anthropic_gateway_buffers_and_stream_admit_exact_thinking_metadat
         [Message(role="user", content="hi")], model="claude-test", reasoning_effort="high"
     )
     async for _ in model.stream(
-        [Message(role="user", content="hi")], model="claude-test", thinking={"type": "enabled"}
+        [Message(role="user", content="hi")],
+        model="claude-test",
+        thinking={"enabled": True, "budget_tokens": 2048},
     ):
         pass
-    assert complete_capture.get("thinking") is None
-    assert stream_capture.get("thinking") is None
+    assert complete_capture["thinking"] == {"enabled": True, "effort": "high"}
+    assert stream_capture["thinking"] == {"enabled": True, "budget_tokens": 2048}

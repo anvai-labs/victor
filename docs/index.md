@@ -9,7 +9,7 @@
     multi-agent coordination across local and cloud providers.
 
     **Prepared co-design candidate:** Victor AI 0.32.0 (2026-11-20), pinning the
-    published `sandhi-gateway==0.22.1` binding. **Published baseline:** Victor AI
+    prepared `sandhi-gateway==0.23.0` binding. **Published baseline:** Victor AI
     0.31.0 (2026-11-18), which pinned `sandhi-gateway==0.20.0`.
 
 **Version**: {{ victor_version }} | **License**: Apache-2.0 | **Python**: 3.12+
@@ -75,7 +75,7 @@ flowchart TB
 | Surface | Current 0.32.0 co-design-candidate state | Remaining work |
 | --- | --- | --- |
 | Release and artifacts | Victor AI/native 0.31.0 artifacts are published; 0.32.0 source metadata is prepared for the Sandhi thinking-contract alignment | Protected release workflow, registry verification and installed-artifact smoke remain open. |
-| Execution contract | Current source pins the official `sandhi-gateway==0.22.1` binding | No managed-service upgrade, live provider call or unattended operation is claimed. |
+| Execution contract | Current source pins the prepared `sandhi-gateway==0.23.0` binding | No managed-service upgrade, live provider call or unattended operation is claimed. |
 | Tool supply and teams | Unified turn pipeline, expanded formations, isolation and usage guards are included | Acceptance gaps remain tracked; this release does not certify every live formation. |
 | Runtime structure | Service-owned turn frame, lifecycle-owned retry, durable graph checkpoints and StateGraph deadline/verification/streaming parity are present | Broader runtime inversion, general client routing, broader graph continuation and retained safety gaps remain open. |
 | RL measurement and sessions | Outcome-category schema v10, structured shell/graph diagnostics and server-owned scoped session admission are included | Broader learner/provider-routing optimization remains data-gated. |
