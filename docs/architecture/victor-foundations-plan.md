@@ -653,7 +653,7 @@ launchers now go through the shared `victor/tools/sandbox/launch.py` seam
 (`prepare_launch` + `run_launch`/`run_launch_async`), so under the fail-closed
 required posture each carries its seccomp filter descriptor and no parent
 descriptor leaks. Branch `fix/w2-seccomp-residual` off `origin/develop` @
-`fcb1f8f3a`. PR: #<PR>.
+`fcb1f8f3a`. PR: #1988.
 
 Converted sites (behavioral parity where the site was correct: `None`/none
 backend → raw argv, zero descriptors; refusal paths unchanged, pre-wrap):
