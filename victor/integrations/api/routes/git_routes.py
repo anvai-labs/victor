@@ -80,22 +80,22 @@ def _git_spawn(server: "VictorFastAPIServer", argv: list, **kwargs):
     """Run a git argv through the canonical required-launch decision.
 
     Under a required policy with an enforcing backend the argv is wrapped by
-    the backend launcher (the actual launch carries containment); an
-    unenforceable required policy raises :class:`GitPolicyRefusal` before any
-    spawn. Other policies keep the historical raw exec. Read helpers are
-    gated too: a fixed argv is not proof of containment (``git diff`` can
-    execute repo-configured drivers).
+    the backend launcher through the shared :func:`prepare_launch` seam —
+    the launch carries BOTH the wrapped argv and the backend's inherited
+    descriptors (bwrap's seccomp filter), and the owned descriptors are
+    closed after spawn; an unenforceable required policy raises
+    :class:`GitPolicyRefusal` before any spawn. Other policies keep the
+    historical raw exec. Read helpers are gated too: a fixed argv is not
+    proof of containment (``git diff`` can execute repo-configured drivers).
     """
-    from pathlib import Path
+    from victor.tools.sandbox import prepare_launch, run_launch
 
     decision = _resolve_git_launch()
     if decision.refuse:
         raise GitPolicyRefusal(decision.reason)
-    if decision.required_active and decision.backend is not None:
-        argv = decision.backend.wrap_argv(list(argv), Path(server.workspace_root))
-    import subprocess
-
-    return subprocess.run(argv, **kwargs)
+    backend = decision.backend if decision.required_active else None
+    launch = prepare_launch(backend, list(argv), server.workspace_root)
+    return run_launch(launch, **kwargs)
 
 
 def create_router(server: "VictorFastAPIServer") -> APIRouter:

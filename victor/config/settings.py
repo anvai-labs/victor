@@ -893,7 +893,12 @@ class Settings(BaseSettings):
             "codebase_dimension": "search.codebase_dimension",
             "codebase_batch_size": "search.codebase_batch_size",
             "codebase_structural_indexing_enabled": "search.codebase_structural_indexing_enabled",
-            "codebase_intent_indexing_enabled": "search.codebase_intent_indexing_enabled",
+            # FEP-0049: the ONE effective intent field is
+            # search.graph.codebase_intent_indexing_enabled — the runtime
+            # (graph_flag) and the graph CLI read the nested graph group.
+            # The group mirrors (search/codebase/embedding spellings) are
+            # migrated explicitly by _migrate_intent_indexing_spellings.
+            "codebase_intent_indexing_enabled": "search.graph.codebase_intent_indexing_enabled",
             "codebase_chunking_strategy": "search.codebase_chunking_strategy",
             "codebase_chunk_size": "search.codebase_chunk_size",
             "codebase_chunk_overlap": "search.codebase_chunk_overlap",
@@ -1132,6 +1137,84 @@ class Settings(BaseSettings):
                 if isinstance(current, dict):
                     current[parts[-1]] = value
 
+        return cls._migrate_intent_indexing_spellings(data)
+
+    @classmethod
+    def _migrate_intent_indexing_spellings(cls, data: Any) -> Any:
+        """Route every supported intent-flag spelling to its ONE effective field.
+
+        The FEP-0049 intent switch is effective at
+        ``search.graph.codebase_intent_indexing_enabled`` (that is what
+        :func:`graph_flag` reads at runtime and what the graph CLI resolves
+        ``--intent`` from). The syntactically valid-looking mirrors —
+        ``search.codebase_intent_indexing_enabled``,
+        ``codebase.codebase_intent_indexing_enabled`` and
+        ``embedding.codebase_intent_indexing_enabled`` — used to land on
+        dead fields and silently leave the leg disabled. Each supported
+        spelling is migrated onto the effective field; two spellings with
+        conflicting values are REJECTED rather than silently resolved.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        intent_key = "codebase_intent_indexing_enabled"
+        sources: list[tuple[str, Any]] = []
+        for group in ("search", "codebase", "embedding"):
+            group_data = data.get(group)
+            if isinstance(group_data, dict) and intent_key in group_data:
+                sources.append((f"{group}.{intent_key}", group_data.pop(intent_key)))
+
+        if not sources:
+            return data
+
+        effective = data.get("search")
+        if not isinstance(effective, dict):
+            effective = {}
+            data["search"] = effective
+        graph = effective.get("graph")
+        if not isinstance(graph, dict):
+            graph = {}
+            effective["graph"] = graph
+
+        def _as_bool(spellings: str, value: Any) -> bool:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)) and value in (0, 1):
+                return bool(value)
+            if isinstance(value, str) and value.lower() in ("true", "false"):
+                return value.lower() == "true"
+            raise ValueError(
+                f"codebase_intent_indexing_enabled spelling {spellings!r} must be "
+                f"a boolean, got {value!r}"
+            )
+
+        first_name, first_value = sources[0]
+        resolved = _as_bool(first_name, first_value)
+        for name, value in sources[1:]:
+            other = _as_bool(name, value)
+            if other != resolved:
+                raise ValueError(
+                    "Conflicting codebase_intent_indexing_enabled spellings "
+                    f"({first_name}={resolved}, {name}={other}); set only "
+                    "search.graph.codebase_intent_indexing_enabled (or make "
+                    "the mirrors agree)."
+                )
+
+        # The effective field itself (already routed here by the flat-key
+        # migration) wins over the mirrors; a mirror that disagrees with it
+        # is a configuration conflict, not a silent override.
+        existing = graph.get(intent_key)
+        if existing is not None:
+            effective_value = _as_bool("search.graph." + intent_key, existing)
+            if effective_value != resolved:
+                raise ValueError(
+                    "Conflicting codebase_intent_indexing_enabled spellings "
+                    f"(search.graph.{intent_key}={effective_value}, "
+                    f"{first_name}={resolved}); make the spellings agree."
+                )
+            return data
+
+        graph[intent_key] = resolved
         return data
 
     @model_validator(mode="before")

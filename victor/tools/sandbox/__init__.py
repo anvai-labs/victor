@@ -53,6 +53,13 @@ from victor.tools.sandbox.container_sandbox import (
     sandbox_kwargs_from_settings,
     watchdog_command,
 )
+from victor.tools.sandbox.launch import (
+    SandboxLaunch,
+    close_pass_fds,
+    prepare_launch,
+    run_launch,
+    run_launch_async,
+)
 
 __all__ = [
     "SandboxBackend",
@@ -63,6 +70,11 @@ __all__ = [
     "SandboxRequiredUnavailableError",
     "RequiredLaunchDecision",
     "_effective_policy_from_settings",
+    "SandboxLaunch",
+    "close_pass_fds",
+    "prepare_launch",
+    "run_launch",
+    "run_launch_async",
     "build_seccomp_deny_program",
     "current_sandbox_posture",
     "effective_sandbox_policy",
