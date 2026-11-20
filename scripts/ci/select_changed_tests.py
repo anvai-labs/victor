@@ -104,10 +104,37 @@ RELATED_TESTS = {
     ),
     "victor/tools/sandbox/launch.py": (
         "tests/unit/tools/sandbox/test_launch_helper.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
         "tests/unit/tools/sandbox/test_backends_qualification.py",
         "tests/unit/integrations/api/test_git_routes.py",
         "tests/unit/integrations/api/test_search_routes.py",
         "tests/unit/integrations/api/test_terminal_routes.py",
+    ),
+    # Finding-8 residual wave: every converted wrap-then-spawn site is
+    # pinned by the per-site launch seam regressions.
+    "victor/tools/bash.py": (
+        "tests/unit/tools/test_bash_tool.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/tools/filesystem.py": (
+        "tests/unit/tools/test_filesystem_tool.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/tools/lsp_write_enhancer.py": (
+        "tests/unit/tools/test_lsp_write_enhancer.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/tools/verification/temporal_analyzer.py": (
+        "tests/unit/tools/verification/test_temporal_analyzer.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/workflows/sandbox_executor.py": (
+        "tests/unit/workflows/test_sandbox_executor.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/processing/merge/manager.py": (
+        "tests/unit/processing/merge/test_manager_policy.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
     ),
     "victor/tools/graph_query_tool.py": (
         "tests/unit/tools/test_graph_query_tool.py",

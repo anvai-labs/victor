@@ -121,7 +121,7 @@ async def test_mcp_keeps_sandbox_for_initial_and_reconnected_processes(reconnect
         try:
             ok = await client._try_reconnect() if reconnect else await client.connect(["server"])
             assert ok is not fails
-            wrapper.start.assert_awaited_once_with(["server"])
+            wrapper.start.assert_awaited_once_with(["server"], pass_fds=())
             plain.assert_not_called()
             if fails:
                 client.initialize.assert_not_awaited()

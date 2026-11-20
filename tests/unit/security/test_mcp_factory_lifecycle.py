@@ -32,7 +32,7 @@ async def test_factory_preserves_policy_and_cleans_failed_connections(reconnect,
         ok = await client._try_reconnect() if reconnect else await client.connect(["server"])
         assert ok is (failure is None)
         factory.assert_called_once_with(config)
-        wrapper.start.assert_awaited_once_with(["server"])
+        wrapper.start.assert_awaited_once_with(["server"], pass_fds=())
         plain.assert_not_called()
         if failure:
             wrapper.terminate_all.assert_awaited_once()

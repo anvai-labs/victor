@@ -481,16 +481,18 @@ class SandboxedExecutor:
             input_data: Stdin data
             backend: Optional enforcing backend; when provided (required
                 policy), the command argv is wrapped by the backend launcher
-                so the actual launch carries OS containment, not just
-                resource limits (HB-03).
+                through :func:`prepare_launch` so the actual launch carries
+                OS containment AND the backend-owned descriptors (bwrap's
+                seccomp filter fd), not just resource limits (HB-03).
 
         Returns:
             SandboxExecutionResult
         """
         from victor.integrations.mcp.sandbox import SandboxConfig, SandboxedProcess
+        from victor.tools.sandbox import close_pass_fds, prepare_launch
 
-        if backend is not None:
-            command = backend.wrap_argv(list(command), Path(working_dir) if working_dir else None)
+        launch = prepare_launch(backend, list(command), Path(working_dir) if working_dir else None)
+        command = list(launch.argv)
 
         # Convert isolation config to sandbox config
         limits = isolation.resource_limits or ResourceLimits()
@@ -516,6 +518,7 @@ class SandboxedExecutor:
                 command=command,
                 cwd=working_dir or isolation.working_directory,
                 env=exec_env,
+                pass_fds=launch.pass_fds,
             )
 
             # The MCP backend owns text I/O and its configured timeout.
@@ -543,6 +546,7 @@ class SandboxedExecutor:
                 sandbox_type="process",
             )
         finally:
+            close_pass_fds(launch.pass_fds)
             if process is not None:
                 await sandbox.terminate(process)
 

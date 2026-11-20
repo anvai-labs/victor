@@ -221,11 +221,18 @@ class FileSnapshotStore:
 
     def _run_git(self, args: List[str], *, decision: Any) -> subprocess.CompletedProcess:
         """Run one fixed git child through an admitted launch decision."""
-        command = ["git", *args]
-        if decision.required_active and decision.backend is not None:
-            command = decision.backend.wrap_argv(command, self.workspace_root)
-        return subprocess.run(
-            command,
+        # The wrap and the launch travel together through the shared seam:
+        # the backend's owned descriptors (bwrap's seccomp filter fd) are
+        # forwarded to the spawn and closed on every exit.
+        from victor.tools.sandbox import prepare_launch, run_launch
+
+        launch = prepare_launch(
+            decision.backend if decision.required_active else None,
+            ["git", *args],
+            self.workspace_root,
+        )
+        return run_launch(
+            launch,
             capture_output=True,
             text=True,
             timeout=10,

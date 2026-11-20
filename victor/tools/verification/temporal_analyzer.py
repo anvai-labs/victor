@@ -172,13 +172,20 @@ class GitHistoryAnalyzer:
             logger.debug("Temporal git launch refused: %s", decision.reason)
             return ""
 
-        argv = ["git"] + args
-        if decision.required_active and decision.backend is not None:
-            argv = decision.backend.wrap_argv(argv, self._project_root)
+        # The wrap and the launch travel together through the shared seam:
+        # the backend's owned descriptors (bwrap's seccomp filter fd) are
+        # forwarded to the spawn and closed on every exit.
+        from victor.tools.sandbox import prepare_launch, run_launch
+
+        launch = prepare_launch(
+            decision.backend if decision.required_active else None,
+            ["git"] + args,
+            self._project_root,
+        )
 
         try:
-            result = subprocess.run(
-                argv,
+            result = run_launch(
+                launch,
                 cwd=self._project_root,
                 capture_output=True,
                 text=True,
