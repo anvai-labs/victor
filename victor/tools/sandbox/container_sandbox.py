@@ -39,9 +39,12 @@ sandbox containers cannot accumulate:
   files do not survive expiry).
 - **Network-disabled by default**: containers are created with
   ``network_disabled=True``; egress is an explicit opt-in.
-- **Capped**: ``mem_limit`` and ``cpu_shares`` ride the container-run
+- **Capped**: ``mem_limit`` and the CPU controls ride the container-run
   invocation itself, so the caps hold regardless of what the executed code
-  does.
+  does. ``cpu_shares`` is a RELATIVE scheduler weight, not a ceiling; when a
+  hard CPU limit is intended, set ``cpu_quota`` (microseconds per 100ms
+  period — ``50000`` caps the container at 0.5 CPU), which Docker enforces
+  via CFS bandwidth control.
 - **Reapable**: containers carry owner labels (host boot id, pid, process
   start time). :func:`reap_orphaned_sandboxes` removes only containers whose
   owner on this host is dead, never a live sandbox of another process.
@@ -259,6 +262,7 @@ class ContainerSandbox:
         network_disabled: bool = True,
         memory_limit: Optional[str] = _UNSET,
         cpu_shares: Optional[int] = None,
+        cpu_quota: Optional[int] = None,
         idle_ttl_seconds: int = DEFAULT_IDLE_TTL_SECONDS,
     ):
         self.docker_image = docker_image
@@ -278,6 +282,17 @@ class ContainerSandbox:
             )
         except ValueError:
             self.cpu_shares = None
+        # Explicit hard CPU ceiling (CFS quota, microseconds per 100ms
+        # period). None = no quota — shares alone are only a weight, never a
+        # cap, so a hard limit must be configured explicitly.
+        try:
+            self.cpu_quota = (
+                int(os.getenv("VICTOR_CODE_EXECUTOR_CPU_QUOTA", "0")) or None
+                if cpu_quota is None
+                else cpu_quota
+            )
+        except ValueError:
+            self.cpu_quota = None
         self.idle_ttl_seconds = max(1, int(idle_ttl_seconds))
         self._lock = threading.RLock()
         self._client: Any = None
@@ -354,25 +369,45 @@ class ContainerSandbox:
             if self.container is not None:
                 try:
                     self.container.reload()
+                except NotFound:
+                    # CONFIRMED deletion (idle TTL + auto_remove): the finalizer
+                    # would target a gone container — detach and fall through to
+                    # the replacement acquisition below.
+                    self._forget_container()
+                except Exception as exc:  # noqa: BLE001 - ambiguous daemon error
+                    # Codex finding 18: a transient/unreachable daemon is NOT
+                    # evidence the container died. Detaching the finalizer here
+                    # would leave a live container unowned until its TTL (a
+                    # leak); replacing could also duplicate sandboxes. Keep
+                    # ownership and surface the error — the next use retries.
+                    logger.warning(
+                        "Sandbox container state unknown after daemon error (%s); "
+                        "retaining ownership and retrying on next use.",
+                        exc,
+                    )
+                    raise
+                else:
                     if self.container.status in ("created", "running", "restarting"):
                         return self.container
-                except Exception:  # noqa: BLE001 - expired and auto-removed
-                    pass
-                self._forget_container()
+                    self._forget_container()  # reload confirmed dead/exited: replace
             _reap_once(client)
             self._ensure_image(client)
-            container = client.containers.run(
-                self.docker_image,
-                command=watchdog_command(self.idle_ttl_seconds),
-                detach=True,
-                auto_remove=True,
-                init=True,
-                working_dir=self.working_dir,
-                network_disabled=self.network_disabled,
-                mem_limit=self.memory_limit,
-                cpu_shares=self.cpu_shares,
-                labels=self._labels(),
-            )
+            run_kwargs: Dict[str, Any] = {
+                "command": watchdog_command(self.idle_ttl_seconds),
+                "detach": True,
+                "auto_remove": True,
+                "init": True,
+                "working_dir": self.working_dir,
+                "network_disabled": self.network_disabled,
+                "mem_limit": self.memory_limit,
+                "cpu_shares": self.cpu_shares,
+                "labels": self._labels(),
+            }
+            if self.cpu_quota is not None:
+                # Hard CPU ceiling: CFS quota over the default 100000us period
+                # (docker-py leaves cpu_period at the kernel default when unset).
+                run_kwargs["cpu_quota"] = int(self.cpu_quota)
+            container = client.containers.run(self.docker_image, **run_kwargs)
             self.container = container
             self._finalizer = weakref.finalize(self, _remove_container, container)
             logger.debug("Acquired sandbox container: %s", container.short_id)
@@ -438,11 +473,18 @@ class ContainerSandbox:
         return {"exit_code": exec_result.exit_code, "stdout": stdout, "stderr": stderr}
 
     def put_files(self, file_paths: List[str]) -> None:
-        """Copy local files into the sandbox working directory."""
-        container = self._ensure_container()
-        if container is None:
-            return
+        """Copy local files into the sandbox working directory.
 
+        Local paths are validated and the tar stream built BEFORE any Docker
+        contact. Raises:
+
+        * :class:`FileNotFoundError` — a local path does not exist.
+        * :class:`ContainerSandboxUnavailableError` — no container can be
+          acquired (typed upload failure, Codex finding 18). The historical
+          silent ``return`` let callers proceed believing files existed
+          inside the container; the async :func:`upload_files` helper then
+          formatted the no-op as success. Fail-closed instead.
+        """
         tar_stream = io.BytesIO()
         with tarfile.open(fileobj=tar_stream, mode="w") as tar:
             for file_path in file_paths:
@@ -451,6 +493,14 @@ class ContainerSandbox:
                     raise FileNotFoundError(f"Local file not found: {file_path}")
                 tar.add(str(p), arcname=p.name)
 
+        container = self._ensure_container()
+        if container is None:
+            raise ContainerSandboxUnavailableError(
+                "daemon_unreachable" if DOCKER_AVAILABLE else "binary_missing",
+                "Cannot upload files: the Docker container sandbox is unavailable; "
+                "refusing the upload instead of reporting success (fail-closed). "
+                "Verify: docker ps.",
+            )
         tar_stream.seek(0)
         container.put_archive(self.working_dir, tar_stream)
         container.exec_run(["touch", LEASE_PATH])
@@ -512,6 +562,7 @@ def sandbox_kwargs_from_settings(settings: Any) -> Dict[str, Any]:
         "network_disabled": bool(_setting("code_executor_network_disabled", True)),
         "memory_limit": _setting("code_executor_memory_limit", "512m"),
         "cpu_shares": _setting("code_executor_cpu_shares", 256),
+        "cpu_quota": _setting("code_executor_cpu_quota", None),
         "idle_ttl_seconds": int(
             _setting("code_executor_idle_ttl_seconds", DEFAULT_IDLE_TTL_SECONDS)
         ),

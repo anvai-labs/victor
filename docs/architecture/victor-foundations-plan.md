@@ -775,3 +775,75 @@ candidate Codex review (`~/code/victor-review-findings.md`), branch
   tests/unit/agent/services + tests/unit/config 2643 passed (only 9
   failures = pre-existing `ANTHROPIC_API_KEY` env noise, byte-identical
   on the untouched baseline tree); collect-only clean (42,133).
+
+## Codex review fix wave 2 — containment/sandbox mediums (2026-11-20)
+
+Fixes Codex v0.32-candidate review findings 17, 18 and 20 (MEDIUM,
+containment/sandbox) in one PR (#1985, `fix/w2-containment-mediums` off
+`origin/develop` @ `fcb1f8f3a`), each with positive + negative tests:
+
+- **Finding 17 — homoglyph normalization offset map**
+  (`victor/security/injection_screen.py`): the ASCII fast path allocates
+  a pair of offsets per character (4,205,808 traced bytes peak for a
+  32,768-char tool output) and the non-ASCII path records one pair per
+  ORIGINAL character even when normalization emits several, so later
+  annotations can point at wrong source text. Fix: ASCII short-circuits
+  to `(text, ())` — identity, no map allocation, `_map_span` treats an
+  empty map as identity; non-ASCII records ONE entry PER EMITTED
+  normalized character so `len(index_map) == len(normalized)` and any
+  match after an expansion (ligature → two chars) maps onto the exact
+  source text. Measured and recorded in-test (tracemalloc +
+  perf_counter): ASCII 32,768 peak 48 bytes (<100K bound); 512KB
+  realistic ASCII full screen ~90 ms (<2 s bound); 32,768-char
+  typography-heavy non-ASCII normalize peaked ~4.34 MB with an aligned
+  per-emitted-char map (<8 MB bound, linear by construction).
+- **Finding 18 — container daemon-error ownership**
+  (`victor/tools/sandbox/container_sandbox.py`): any Docker reload
+  error detached the existing finalizer and permitted replacement
+  (live container unowned until TTL, duplicate-sandbox risk); upload to
+  an unavailable container returned normally and the async helper
+  formatted it as success; `cpu_shares` is a relative weight, not a
+  ceiling. Fix: reload distinguishes CONFIRMED deletion (`NotFound` →
+  detach + replace) from AMBIGUOUS daemon errors (retain ownership +
+  raise, retry next use — #1563 zero-leak guarantees preserved);
+  `put_files` validates local paths before any Docker contact and
+  raises the typed `ContainerSandboxUnavailableError`
+  (`binary_missing`/`daemon_unreachable`) when no container can be
+  acquired; explicit hard CPU ceiling `cpu_quota` (CFS microseconds per
+  100 ms period) reaches the container-run invocation only when
+  configured, threaded through `sandbox_kwargs_from_settings` +
+  `code_executor_cpu_quota` (subprocess/security settings groups +
+  flat alias + configuration docs, default None = no quota promised).
+- **Finding 20 — policy-eval fail-open** (`victor/tools/sandbox/backends.py`
+  + `victor/tools/subprocess_executor.py`): an exception INSIDE
+  effective-policy evaluation returned an inactive, non-refusing
+  decision (the settings-LOAD failure was already handled correctly —
+  this is the eval-time gap), and the canonical executor's remaining
+  fallback could return the passthrough backend. Fix: tri-state policy
+  resolution — `resolve_effective_policy` → `PolicyResolution`
+  (known | unknown; the `required` default applies only on a successful
+  read); `resolve_required_launch` REFUSES on unknown before launch
+  (typed reason); `_resolve_default_sandbox` drops the final
+  `except: NoneSandbox()` fallback — a backend-selection fault under a
+  known non-required policy raises the typed
+  `PolicyUnavailable("backend_selection_failed")`. Independently
+  tested: settings object loads, policy FIELD faults, inert launcher
+  (spawn trap) — separate from the existing settings-load and
+  missing-backend tests (`TestPolicyEvalFaultRefusesBeforeLaunch`,
+  `TestPolicyResolutionTriState`).
+
+Tests: `TestNormalizationOffsetMap` (6, incl. the typography-before-a-
+later-match span-exactness positive and the map/emitted-length
+misalignment negative), container sandbox +6 (ownership retention with
+the finalizer still targeting the container, typed upload failure via
+`put_files` AND the `upload_files` helper, quota-present/absent run
+kwargs, settings threading; `test_degraded_lifecycle_is_inert` updated
+to the typed-failure contract), executor + posture tri-state +8. All
+#1976 lifecycle/gating/reaper tests unchanged and green. RELATED_TESTS
+entries added for `backends.py`, `subprocess_executor.py`,
+`subprocess_config.py`, `security_settings.py` (+ the two config suites
+onto the `settings.py` entry). Gates: security + sandbox + tools 1084
+passed (16 skipped); no new env-noise vs origin/develop (9 known
+`tests/unit/config` account-credentials failures verified pre-existing
+on a pristine develop worktree); collect-only 42,116 clean; black
+26.10.1 + ruff clean on changed files.

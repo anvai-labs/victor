@@ -34,6 +34,10 @@ class SubprocessSettings(BaseModel):
     code_executor_network_disabled: bool = True
     code_executor_memory_limit: Optional[str] = "512m"
     code_executor_cpu_shares: Optional[int] = 256
+    # Hard CPU ceiling for the sandbox container (CFS quota, microseconds per
+    # 100ms period: 50000 = 0.5 CPU). None = no quota; cpu_shares alone is a
+    # relative scheduler weight, never a cap.
+    code_executor_cpu_quota: Optional[int] = None
     code_executor_image: str = "python:3.11-slim"
     # Seconds without use after which the sandbox container removes itself
     # (bounds any leak, including a SIGKILLed owner).
