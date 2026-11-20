@@ -19,12 +19,13 @@ and external tool access.
 
 Components:
 - VictorFastAPIServer: The single canonical FastAPI-based server (requires fastapi)
-- APIMiddlewareStack: Authentication, rate limiting, and CORS middleware
 - EventBridge: Real-time event streaming to WebSocket clients
 - Router plugins: Entry-point based FastAPI router extensions
 
 The legacy aiohttp-based ``VictorAPIServer`` was removed; FastAPI is now the sole HTTP
 server and its routers (``victor/integrations/api/routes/``) own the full API surface.
+The aiohttp-era middleware names (``APIMiddlewareStack`` & co.) are deprecated
+re-export shims (Codex finding 22): the FastAPI server does not mount them.
 """
 
 from typing import TYPE_CHECKING
@@ -32,12 +33,6 @@ from typing import TYPE_CHECKING
 # Lazy imports for optional dependencies
 if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
-    from victor.integrations.api.middleware import (
-        APIMiddlewareStack,
-        RateLimitConfig,
-        AuthConfig,
-        TokenBucket,
-    )
     from victor.integrations.api.event_bridge import (
         EventBroadcaster,
         BridgeEvent,
@@ -49,6 +44,13 @@ if TYPE_CHECKING:
         load_fastapi_router_registrations,
     )
 
+# Deprecated aiohttp-era middleware shims (kept for external compatibility;
+# each access emits a DeprecationWarning — Codex finding 22 external audit
+# found no remaining Victor-core, extension or docs consumers).
+_DEPRECATED_MIDDLEWARE_NAMES = frozenset(
+    {"APIMiddlewareStack", "RateLimitConfig", "AuthConfig", "TokenBucket"}
+)
+
 
 def __getattr__(name: str):
     """Lazy import for optional dependencies."""
@@ -56,9 +58,18 @@ def __getattr__(name: str):
         from victor.integrations.api.fastapi_server import VictorFastAPIServer
 
         return VictorFastAPIServer
-    elif name in ("APIMiddlewareStack", "RateLimitConfig", "AuthConfig", "TokenBucket"):
+    elif name in _DEPRECATED_MIDDLEWARE_NAMES:
+        import warnings
+
         from victor.integrations.api import middleware
 
+        warnings.warn(
+            f"victor.integrations.api.{name} is the deprecated aiohttp-era "
+            "middleware stack; the FastAPI server (VictorFastAPIServer) never "
+            "mounts it. It will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return getattr(middleware, name)
     elif name in ("EventBroadcaster", "BridgeEvent", "BridgeEventType"):
         from victor.integrations.api import event_bridge
@@ -78,7 +89,7 @@ def __getattr__(name: str):
 __all__ = [
     # Server
     "VictorFastAPIServer",
-    # Middleware
+    # Middleware (DEPRECATED aiohttp-era shims; access warns)
     "APIMiddlewareStack",
     "RateLimitConfig",
     "AuthConfig",

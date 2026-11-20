@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from typing import TYPE_CHECKING
@@ -100,10 +101,19 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
     @router.websocket("/ws/events")
     async def events_websocket_handler(websocket: WebSocket) -> None:
-        """Handle EventBridge WebSocket connections for real-time events."""
+        """Handle EventBridge WebSocket connections for real-time events.
+
+        Owner binding (Codex finding 9): the WS auth dependency resolved
+        the connecting principal onto ``websocket.state.client_id``; that
+        verified owner is bound to the subscription record so protected
+        events (a stored resource owner) are delivered only to the owning
+        principal. Keyless servers bind ``None`` — an unbound record is
+        never admitted to a protected event (fail closed).
+        """
         await websocket.accept()
         server._event_clients.append(websocket)
         client_id = uuid.uuid4().hex[:12]
+        owner_client_id = getattr(getattr(websocket, "state", None), "client_id", None)
         logger.info(
             f"EventBridge client {client_id} connected. " f"Total: {len(server._event_clients)}"
         )
@@ -115,12 +125,35 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 pass
 
         if server._event_bridge:
-            server._event_bridge._broadcaster.add_client(client_id, send_event)
+            server._event_bridge._broadcaster.add_client(
+                client_id,
+                send_event,
+                owner_client_id=owner_client_id,
+            )
 
         try:
             while True:
                 data = await websocket.receive_json()
                 msg_type = data.get("type", "")
+
+                # Inbound payload cap (Codex finding 22): the advertised
+                # ``server.server_max_message_bytes`` control is enforced on
+                # this transport too — oversized frames are refused, not
+                # processed.
+                max_message_bytes = int(getattr(server, "_ws_max_message_bytes", 0) or 0)
+                if max_message_bytes:
+                    payload_bytes = len(json.dumps(data, separators=(",", ":")).encode("utf-8"))
+                    if payload_bytes > max_message_bytes:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": (
+                                    f"Message exceeds server_max_message_bytes "
+                                    f"({payload_bytes} > {max_message_bytes})"
+                                ),
+                            }
+                        )
+                        continue
 
                 if msg_type == "subscribe":
                     categories = data.get("categories", ["all"])

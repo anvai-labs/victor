@@ -14,19 +14,26 @@ from victor.agent.session_id import (
 )
 
 # ---------------------------------------------------------------------------
-# Phase 1A: server_session_secret auto-generation
+# Phase 1A: server_session_secret (RETIRED auto-generation, Codex finding 22)
+#
+# The aiohttp-era session-token layer that consumed this secret no longer
+# exists; the auto-generation validator fabricated a per-process secret
+# that NO serving path read (the dead control masquerading as protection).
+# The setting is now a declared, deprecated no-consumer field: default
+# None, explicit values preserved, and the server's effective-posture
+# surface reports it as not enforced.
 # ---------------------------------------------------------------------------
 
 
-class TestServerSessionSecretAutoGeneration:
-    """Verify that Settings auto-generates a session secret when not provided."""
+class TestServerSessionSecretRetiredAutoGeneration:
+    """server_session_secret no longer fabricates an unconsumed secret."""
 
-    def test_settings_creates_non_none_secret(self):
-        """Settings() should always produce a non-None server_session_secret."""
+    def test_settings_default_secret_is_none(self):
+        """Settings() must NOT fabricate a secret nothing consumes."""
         from victor.config.settings import Settings
 
         settings = Settings()
-        assert settings.server.server_session_secret is not None
+        assert settings.server.server_session_secret is None
 
     def test_explicit_secret_is_preserved(self):
         """An explicitly supplied SecretStr must not be overwritten."""
@@ -35,13 +42,13 @@ class TestServerSessionSecretAutoGeneration:
         server = ServerSettings(server_session_secret=SecretStr("custom"))
         assert server.server_session_secret.get_secret_value() == "custom"
 
-    def test_generated_secret_has_sufficient_length(self):
-        """Auto-generated secret should be at least 32 characters."""
+    def test_two_settings_instances_do_not_share_a_fabricated_secret(self):
+        """Negative gate: no hidden per-process generation, hence no stale
+        secret reuse between instances."""
         from victor.config.settings import Settings
 
-        settings = Settings()
-        secret_value = settings.server.server_session_secret.get_secret_value()
-        assert len(secret_value) >= 32
+        assert Settings().server.server_session_secret is None
+        assert Settings().server.server_session_secret is None
 
 
 # ---------------------------------------------------------------------------

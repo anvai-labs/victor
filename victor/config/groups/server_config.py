@@ -20,7 +20,7 @@ Contains configuration for API server, WebSocket, and diagram rendering.
 
 from typing import Optional
 
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, SecretStr, field_validator
 
 
 class ServerSettings(BaseModel):
@@ -28,18 +28,41 @@ class ServerSettings(BaseModel):
 
     Includes FastAPI/WebSocket security, session management,
     and diagram rendering limits.
+
+    Disposition of every advertised control (Codex finding 22 — the
+    effective-posture surface on the server reports the enforced state of
+    each at startup and via ``/status``):
+
+    - ``server_api_key`` — ENFORCED: merged into the server's credential
+      map at startup (its actual owner is the FastAPI auth gate).
+    - ``server_max_message_bytes`` — ENFORCED: inbound WebSocket payload
+      cap applied by the ``/ws`` and ``/ws/events`` routes.
+    - ``server_ws_delivery_queue_size`` / ``server_ws_send_deadline_seconds``
+      — ENFORCED: bounded per-client delivery (VAS-06/10, TD-03).
+    - ``server_session_secret`` — DECLARED, NOT ENFORCED (deprecated):
+      aiohttp-era session-token layer; no serving-path consumer. The
+      former auto-generation validator was REMOVED — it fabricated a
+      secret nothing read, which made the dead control look alive. Kept
+      declared so existing configs keep loading; scheduled for retirement
+      with the VAS-06 session contract.
+    - ``server_max_sessions`` / ``server_session_ttl_seconds`` — DECLARED,
+      NOT ENFORCED (deprecated): same aiohttp-era session-token layer; no
+      session registry or expiry consumer exists. Kept declared for config
+      compatibility; scheduled for retirement with VAS-06.
     """
 
     # Server Security (FastAPI/WebSocket layer)
     # When set, API key is required for HTTP + WebSocket requests (Authorization: Bearer <token>)
     server_api_key: Optional[SecretStr] = None
-    # HMAC secret for issuing/verifying session tokens (defaults to random per-process secret)
-    server_session_secret: Optional[SecretStr] = Field(default=None, validate_default=True)
-    # Hard cap on simultaneous sessions to avoid resource exhaustion
+    # DEPRECATED, not enforced: aiohttp-era session-token HMAC secret with
+    # no serving-path consumer (see class docstring). Defaults to None —
+    # the previous validator fabricated an unused secret per process.
+    server_session_secret: Optional[SecretStr] = None
+    # DEPRECATED, not enforced: aiohttp-era session cap with no consumer.
     server_max_sessions: int = 100
     # Maximum inbound message payload size (bytes) for WebSocket messages
     server_max_message_bytes: int = 32768
-    # Session token time-to-live in seconds
+    # DEPRECATED, not enforced: aiohttp-era session-token TTL with no consumer.
     server_session_ttl_seconds: int = 86400
 
     # Diagram rendering limits
@@ -146,25 +169,4 @@ class ServerSettings(BaseModel):
         """
         if v <= 0:
             raise ValueError("server_ws_send_deadline_seconds must be positive")
-        return v
-
-    @field_validator("server_session_secret", mode="before")
-    @classmethod
-    def _autogenerate_session_secret(
-        cls,
-        v: Optional[SecretStr],
-    ) -> Optional[SecretStr]:
-        """Auto-generate a cryptographically secure session secret when None.
-
-        Args:
-            v: Session secret value (may be None)
-
-        Returns:
-            SecretStr with generated secret if input was None, otherwise original value
-
-        """
-        if v is None:
-            import secrets as _secrets
-
-            return SecretStr(_secrets.token_urlsafe(32))
         return v
