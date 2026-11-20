@@ -339,6 +339,89 @@ class TestOverflowPolicy:
 
 
 # ---------------------------------------------------------------------------
+# Background-agent terminal events must survive overflow (TD-03, review fix)
+# ---------------------------------------------------------------------------
+
+
+class TestAgentTerminalEventsPreserved:
+    async def test_agent_completed_sheds_progress_not_final_state(self, monkeypatch, tmp_path):
+        """agent_completed (BackgroundAgentManager terminal variant) riding a
+        full queue of progress events must evict progress — never be the
+        dropped side (regression: the closed terminal whitelist shed it)."""
+        server = _create_server(monkeypatch, tmp_path)
+        server._ws_delivery_queue_size = 2
+        slow = _FakeSocket(block_forever=True)
+        delivery = _register(server, slow)
+        await server._broadcast_ws({"type": "agent_event", "event": "agent_started"})
+        await _wait_for(lambda: slow._release is not None)
+        # Fill the frozen queue to capacity with sheddable progress.
+        delivery.queue.put({"type": "agent_event", "event": "agent_progress"})
+        delivery.queue.put({"type": "agent_event", "event": "agent_progress"})
+        assert delivery.queue.full()
+
+        await server._broadcast_ws({"type": "agent_event", "event": "agent_completed"})
+
+        queued = delivery.queue.snapshot()
+        assert queued[-1]["event"] == "agent_completed"
+        assert delivery.dropped_nonessential >= 1
+        assert slow in server._ws_deliveries
+
+    async def test_agent_error_cannot_fit_all_essential_disconnects(self, monkeypatch, tmp_path):
+        server = _create_server(monkeypatch, tmp_path)
+        server._ws_delivery_queue_size = 1
+        slow = _FakeSocket(block_forever=True)
+        delivery = _register(server, slow)
+        await server._broadcast_ws({"type": "agent_event", "event": "agent_completed"})
+        await _wait_for(lambda: slow._release is not None)
+        delivery.queue.put({"type": "agent_event", "event": "agent_cancelled"})
+        assert delivery.queue.full()
+
+        await server._broadcast_ws({"type": "agent_event", "event": "agent_error"})
+
+        assert server._ws_delivery_gaps == 1
+        assert await _wait_for(lambda: slow not in server._ws_deliveries)
+
+
+# ---------------------------------------------------------------------------
+# Single-writer invariant: ALL frames flow through the per-client queue
+# ---------------------------------------------------------------------------
+
+
+class TestSingleWriter:
+    async def test_response_frames_enqueue_instead_of_direct_send(self, monkeypatch, tmp_path):
+        """The socket's sender task must be its ONLY writer (uvicorn raises
+        on overlapping sends; a direct pong colliding with a queued broadcast
+        would tear down a healthy client mid-chat). Right after the handler
+        returns, the frame is in the queue and nothing has touched the wire."""
+        server = _create_server(monkeypatch, tmp_path)
+        ws = _FakeSocket()
+        delivery = _register(server, ws)
+
+        await server._handle_ws_message(ws, {"type": "ping"})
+
+        assert ws.sent == [], "pong must not bypass the per-client queue"
+        assert delivery.queue.snapshot() == [{"type": "pong"}]
+        # The sender task drains it: the client still receives the frame.
+        assert await _wait_for(lambda: ws.sent == [{"type": "pong"}])
+
+    async def test_broadcast_enqueued_before_pong_is_delivered_before_pong(
+        self, monkeypatch, tmp_path
+    ):
+        """FIFO through one queue makes the ordering that the ws auth gate's
+        positive control asserts (broadcast before pong) guaranteed rather
+        than scheduler-dependent."""
+        server = _create_server(monkeypatch, tmp_path)
+        ws = _FakeSocket()
+        delivery = _register(server, ws)
+
+        await server._broadcast_ws(_progress(1))
+        await server._handle_ws_message(ws, {"type": "ping"})
+
+        assert delivery.queue.snapshot() == [_progress(1), {"type": "pong"}]
+        assert await _wait_for(lambda: ws.sent == [_progress(1), {"type": "pong"}])
+
+
+# ---------------------------------------------------------------------------
 # Configuration knobs
 # ---------------------------------------------------------------------------
 
@@ -362,6 +445,21 @@ class TestConfigKnobs:
         server = _create_server(monkeypatch, tmp_path)
         assert 0 < server._ws_delivery_queue_size <= 10_000
         assert 0 < server._ws_send_deadline <= 60.0
+
+    def test_flat_env_knobs_reach_the_server(self, monkeypatch, tmp_path):
+        """VICTOR_SERVER_WS_DELIVERY_QUEUE_SIZE / _SEND_DEADLINE_SECONDS must
+        map like every sibling server knob (LEGACY_ENV_MAPPINGS)."""
+        from victor.config.settings import reset_settings_cache
+
+        monkeypatch.setenv("VICTOR_SERVER_WS_DELIVERY_QUEUE_SIZE", "13")
+        monkeypatch.setenv("VICTOR_SERVER_WS_SEND_DEADLINE_SECONDS", "2.5")
+        reset_settings_cache()
+        server = _create_server(monkeypatch, tmp_path)
+        try:
+            assert server._ws_delivery_queue_size == 13
+            assert server._ws_send_deadline == 2.5
+        finally:
+            reset_settings_cache()
 
     def test_settings_reject_nonpositive_queue_size(self):
         from victor.config.groups.server_config import ServerSettings
@@ -388,9 +486,15 @@ class TestEssentialClassification:
         for event in (
             "workflow_failed",
             "workflow_cancelled",
+            "workflow_paused",
             "team_completed",
             "team_failed",
             "team_cancelled",
+            # BackgroundAgentManager terminal variants (TD-03: final state
+            # must never be shed).
+            "agent_completed",
+            "agent_error",
+            "agent_cancelled",
         ):
             message = {"type": "agent_event", "event": event, "data": {}}
             assert not fastapi_server._is_nonessential_progress(message), event
@@ -401,13 +505,26 @@ class TestEssentialClassification:
             {"type": "agent_event", "event": "workflow_started", "data": {}},
             {"type": "agent_event", "event": "team_started", "data": {}},
             {"type": "agent_event", "event": "team_created", "data": {}},
-            {"type": "agent_event"},
-            {"type": "agent_event", "event": "future_event", "data": {}},
+            {"type": "agent_event", "event": "agent_started", "data": {}},
+            {"type": "agent_event", "event": "agent_progress", "data": {}},
+            {"type": "agent_event", "event": "agent_tool_call", "data": {}},
+            {"type": "agent_event", "event": "agent_tool_result", "data": {}},
         ):
             assert fastapi_server._is_nonessential_progress(message), message
 
+    def test_unknown_agent_events_default_to_essential(self):
+        """Inverted default (TD-03): agent_event is essential unless its
+        event name is in the declared progress allowlist — a closed progress
+        whitelist cannot silently shed future terminal variants."""
+        for message in (
+            {"type": "agent_event", "event": "future_event", "data": {}},
+            {"type": "agent_event"},
+            {"type": "agent_event", "event": None},
+        ):
+            assert not fastapi_server._is_nonessential_progress(message), message
+
     def test_unknown_broadcast_types_default_to_essential(self):
-        """Only agent_event progress is coalescible; unknown future broadcast
+        """Only declared agent_event progress is coalescible; other broadcast
         types are conservatively essential (never silently shed)."""
         for message in (
             {"type": "tool_cancelled", "approval_id": "x"},
@@ -451,3 +568,23 @@ class TestRouteLifecycle:
             )
         assert removed, "delivery state leaked after disconnect"
         assert server._ws_clients == []
+
+    def test_keyed_server_defers_delivery_until_auth(self, monkeypatch, tmp_path):
+        """Unauthenticated sockets on a keyed server are excluded from
+        broadcast admission (VAS-05h), so they must not hold queue+sender
+        resources either: registration happens at auth success."""
+        from fastapi.testclient import TestClient
+
+        server = _create_server(monkeypatch, tmp_path, api_keys={"sk-alice": "alice"})
+
+        with TestClient(server.app) as client:
+            with client.websocket_connect("/ws") as ws:
+                assert len(server._ws_deliveries) == 0, "unauth socket got delivery state"
+
+                ws.send_json({"type": "ping"})
+                assert ws.receive_json()["type"] == "pong"
+                assert len(server._ws_deliveries) == 0
+
+                ws.send_json({"type": "auth", "api_key": "sk-alice"})
+                assert ws.receive_json()["type"] == "auth_success"
+                assert len(server._ws_deliveries) == 1, "auth did not register delivery"

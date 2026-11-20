@@ -73,19 +73,25 @@ if TYPE_CHECKING:
 DEFAULT_WS_DELIVERY_QUEUE_SIZE = 256
 DEFAULT_WS_SEND_DEADLINE_SECONDS = 10.0
 
-# agent_event variants that carry FINAL state. Everything else of type
-# agent_event is declared nonessential progress and is coalescible under
-# queue pressure (TD-03: "coalesce only declared nonessential progress").
-# Any non-agent_event broadcast (tool_approval_resolved, tool_cancelled,
-# future types) is essential: clients MUST see it.
-_TERMINAL_AGENT_EVENTS = frozenset(
+# The only agent_event variants declared coalescible under queue pressure
+# (TD-03: "coalesce only DECLARED nonessential progress"). The default for
+# any agent_event not listed here — including the terminal variants emitted
+# by BackgroundAgentManager (agent_completed/agent_error/agent_cancelled),
+# workflow/team completion, and any FUTURE event type — is ESSENTIAL: a
+# closed progress allowlist cannot silently shed final state. Non-agent_event
+# broadcasts (tool_approval_resolved, tool_cancelled, request/response
+# frames) are essential unconditionally.
+_NONESSENTIAL_AGENT_EVENTS = frozenset(
     {
-        "workflow_completed",
-        "workflow_failed",
-        "workflow_cancelled",
-        "team_completed",
-        "team_failed",
-        "team_cancelled",
+        "agent_started",
+        "agent_progress",
+        "agent_running",
+        "agent_tool_call",
+        "agent_tool_result",
+        "task_update",
+        "workflow_started",
+        "team_created",
+        "team_started",
     }
 )
 
@@ -93,13 +99,13 @@ _TERMINAL_AGENT_EVENTS = frozenset(
 def _is_nonessential_progress(message: Dict[str, Any]) -> bool:
     """True when *message* is declared-coalescible progress (TD-03).
 
-    Only ``agent_event`` broadcasts whose ``event`` is not a terminal variant
-    may be shed from a full outbound queue; approval and terminal state must
-    survive every overflow policy.
+    Only ``agent_event`` broadcasts whose ``event`` is in the declared
+    progress allowlist may be shed from a full outbound queue; terminal,
+    approval and unknown future state must survive every overflow policy.
     """
     if message.get("type") != "agent_event":
         return False
-    return message.get("event") not in _TERMINAL_AGENT_EVENTS
+    return message.get("event") in _NONESSENTIAL_AGENT_EVENTS
 
 
 class _ClientOutboundQueue:
@@ -137,12 +143,14 @@ class _ClientOutboundQueue:
     def evict_oldest_nonessential(self) -> bool:
         """Remove the oldest declared-nonessential progress event.
 
-        Returns True when something was shed (making room), False when the
-        queue holds only essential state.
+        Eviction is by POSITION (``del``), not ``deque.remove`` by value:
+        two value-equal dicts would otherwise make remove() ambiguous, and
+        position is what "oldest" means. Returns True when something was
+        shed (making room), False when the queue holds only essential state.
         """
-        for item in self._items:
+        for index, item in enumerate(self._items):
             if _is_nonessential_progress(item):
-                self._items.remove(item)
+                del self._items[index]
                 return True
         return False
 
@@ -1126,13 +1134,22 @@ class VictorFastAPIServer:
             logger.debug(f"RL feedback recording skipped: {e}")
 
     async def _handle_ws_message(self, ws: WebSocket, data: Dict[str, Any]) -> None:
-        """Handle incoming WebSocket messages."""
+        """Handle incoming WebSocket messages.
+
+        All response frames flow through :meth:`_send_ws_frame` — for a
+        route-registered socket that means the per-client bounded queue, so
+        the socket's sender task is its ONLY writer. Direct ``send_json``
+        here would overlap a queued broadcast send on the same connection
+        (uvicorn raises on concurrent sends; the sender task would tear the
+        healthy client down mid-chat). It also makes frame ordering FIFO:
+        a broadcast enqueued before a pong is delivered before it.
+        """
         msg_type = data.get("type", "")
 
         if msg_type == "chat":
             messages = data.get("messages", [])
             if not messages:
-                await ws.send_json({"type": "error", "message": "No messages"})
+                await self._send_ws_frame(ws, {"type": "error", "message": "No messages"})
                 return
 
             # Auth gate: when API keys are configured, chat turns require a
@@ -1140,7 +1157,7 @@ class VictorFastAPIServer:
             # but never enforced — an unauthenticated WS client got full
             # agent execution (co-design review U7-F1).
             if self.api_keys and not getattr(getattr(ws, "state", None), "authenticated", False):
-                await ws.send_json({"type": "error", "message": "Not authenticated"})
+                await self._send_ws_frame(ws, {"type": "error", "message": "Not authenticated"})
                 return
 
             client = await self._get_victor_client()
@@ -1158,25 +1175,26 @@ class VictorFastAPIServer:
                         content = getattr(chunk, "content", "")
                         metadata = getattr(chunk, "metadata", {}) or {}
                         if content:
-                            await ws.send_json({"type": "content", "content": content})
+                            await self._send_ws_frame(ws, {"type": "content", "content": content})
                         elif "tool_start" in metadata:
-                            await ws.send_json(
-                                {"type": "tool_call", "tool_call": metadata["tool_start"]}
+                            await self._send_ws_frame(
+                                ws, {"type": "tool_call", "tool_call": metadata["tool_start"]}
                             )
                         elif "tool_result" in metadata:
-                            await ws.send_json(
+                            await self._send_ws_frame(
+                                ws,
                                 {
                                     "type": "tool_result",
                                     "tool_result": metadata["tool_result"],
-                                }
+                                },
                             )
 
-                await ws.send_json({"type": "done"})
+                await self._send_ws_frame(ws, {"type": "done"})
             except Exception as e:
-                await ws.send_json({"type": "error", "message": str(e)})
+                await self._send_ws_frame(ws, {"type": "error", "message": str(e)})
 
         elif msg_type == "ping":
-            await ws.send_json({"type": "pong"})
+            await self._send_ws_frame(ws, {"type": "pong"})
 
         elif msg_type == "auth":
             api_key = data.get("api_key", "")
@@ -1191,17 +1209,48 @@ class VictorFastAPIServer:
                     ws.state.authenticated = True
                     ws.state.client_id = self.api_keys[matched]
                     logger.debug("WebSocket client authenticated via message")
-                    await ws.send_json({"type": "auth_success"})
+                    # Keyed servers deferred delivery registration to the
+                    # handshake: an authenticated socket can now receive
+                    # broadcasts, so it needs its bounded queue + sender task.
+                    self._ensure_ws_delivery(ws)
+                    await self._send_ws_frame(ws, {"type": "auth_success"})
                 else:
-                    await ws.send_json({"type": "auth_failed", "message": "Invalid API key"})
+                    await self._send_ws_frame(
+                        ws, {"type": "auth_failed", "message": "Invalid API key"}
+                    )
             elif not self.api_keys:
-                await ws.send_json({"type": "auth_success"})
+                await self._send_ws_frame(ws, {"type": "auth_success"})
             else:
-                await ws.send_json({"type": "auth_failed", "message": "No API key provided"})
+                await self._send_ws_frame(
+                    ws, {"type": "auth_failed", "message": "No API key provided"}
+                )
 
         elif msg_type == "subscribe":
             channel = data.get("channel", "")
-            await ws.send_json({"type": "subscribed", "channel": channel})
+            await self._send_ws_frame(ws, {"type": "subscribed", "channel": channel})
+
+    async def _send_ws_frame(self, ws: Any, message: Dict[str, Any]) -> None:
+        """Send a request/response frame to a /ws socket.
+
+        Route-registered sockets carry a bounded delivery queue and ALL
+        their writes flow through it (VAS-06/10, TD-03): the per-client
+        sender task is the socket's only writer, so chat/pong/auth frames
+        can never overlap a queued broadcast send. Frames that are not
+        declared-coalescible progress are essential — a full queue
+        disconnects the slow client instead of dropping the frame.
+        """
+        delivery = self._ws_deliveries.get(ws)
+        if delivery is not None:
+            self._enqueue_ws_delivery(delivery, message, nonessential=False)
+            return
+        # No per-client delivery (keyed-unauthenticated socket, whose only
+        # outbound frames are the auth handshake and one error): bounded
+        # direct send. No sender task exists for this socket, so nothing
+        # can overlap this write.
+        try:
+            await asyncio.wait_for(ws.send_json(message), timeout=self._ws_send_deadline)
+        except Exception:
+            pass
 
     def _owner_authorized(self, resource_owner: Optional[str], principal: Optional[str]) -> bool:
         """Whether ``principal`` may access a resource stored with
@@ -1273,11 +1322,11 @@ class VictorFastAPIServer:
         socket. Each route-registered client owns a bounded outbound queue
         drained by its own sender task (send deadline enforced), so a client
         that never reads cannot block the broadcast loop for every
-        recipient. Overflow sheds the oldest declared-nonessential progress
-        event; terminal/approval state is never dropped — if an essential
-        event cannot enqueue, the slow client is disconnected and the gap is
-        recorded (see ``_ws_delivery_gaps``; cursor-based replay is the
-        VAS-10 contract).
+        recipient. Overflow sheds only DECLARED nonessential progress events
+        (agent_event allowlist); terminal/approval state is never dropped —
+        if an essential event cannot enqueue, the slow client is
+        disconnected and the gap is recorded (see ``_ws_delivery_gaps``;
+        cursor-based replay is the VAS-10 contract).
         """
         nonessential = _is_nonessential_progress(message)
         for ws in list(self._ws_clients):
@@ -1292,20 +1341,29 @@ class VictorFastAPIServer:
                     continue
             delivery = self._ws_deliveries.get(ws)
             if delivery is None:
-                # Socket registered outside the /ws route (no per-client
-                # delivery): keep delivery working with a bounded direct
-                # send so even this path cannot wedge indefinitely.
+                # Socket without per-client delivery (custom registration,
+                # or the tiny window before teardown removes it): keep
+                # delivery working via a SCHEDULED bounded send — the
+                # producer never awaits a slow socket, even here (TD-03).
                 try:
-                    await asyncio.wait_for(ws.send_json(message), timeout=self._ws_send_deadline)
-                except Exception:
+                    asyncio.get_running_loop().create_task(self._bounded_direct_send(ws, message))
+                except RuntimeError:
                     pass
                 continue
             self._enqueue_ws_delivery(delivery, message, nonessential=nonessential)
 
+    async def _bounded_direct_send(self, ws: Any, message: Dict[str, Any]) -> None:
+        """Best-effort send for sockets without per-client delivery."""
+        try:
+            await asyncio.wait_for(ws.send_json(message), timeout=self._ws_send_deadline)
+        except Exception:
+            pass
+
     def _register_ws_delivery(self, ws: Any) -> "_WSClientDelivery":
         """Create the bounded delivery state + sender task for a /ws socket.
 
-        Called by the route on accept, on the running loop.
+        Called by the route on accept (keyless) or on auth success (keyed),
+        on the running loop.
         """
         delivery = _WSClientDelivery(
             ws=ws, queue=_ClientOutboundQueue(self._ws_delivery_queue_size)
@@ -1314,6 +1372,13 @@ class VictorFastAPIServer:
             self._ws_sender_loop(delivery)
         )
         self._ws_deliveries[ws] = delivery
+        return delivery
+
+    def _ensure_ws_delivery(self, ws: Any) -> "_WSClientDelivery":
+        """Return the socket's delivery state, creating it if absent."""
+        delivery = self._ws_deliveries.get(ws)
+        if delivery is None:
+            delivery = self._register_ws_delivery(ws)
         return delivery
 
     def _teardown_ws_delivery(self, ws: Any, reason: str) -> None:
@@ -1330,7 +1395,9 @@ class VictorFastAPIServer:
             self._ws_clients.remove(ws)
         # Make the disconnect visible to the client (1013 try_again_later):
         # bounded-deadline disconnects must not look like a silent halt.
-        # Scheduled, not awaited: teardown also runs on producer paths.
+        # Scheduled, not awaited: teardown also runs on producer paths, and
+        # during shutdown a task scheduled onto a dying loop is harmless —
+        # _close_ws_quietly swallows the resulting failure.
         try:
             asyncio.get_running_loop().create_task(
                 self._close_ws_quietly(ws, code=1013, reason=reason)

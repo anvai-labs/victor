@@ -44,8 +44,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         server._ws_clients.append(websocket)
         # Bounded per-client delivery (VAS-06/10, TD-03): this socket's
         # broadcasts flow through its own bounded queue + sender task; the
-        # broadcast producer never awaits this socket directly.
-        server._register_ws_delivery(websocket)
+        # broadcast producer never awaits this socket directly. Keyed
+        # servers defer registration until the auth handshake succeeds —
+        # unauthenticated sockets are excluded from broadcast admission
+        # anyway (VAS-05h), so they don't need queue+task resources for the
+        # bounded handshake window.
+        if not server.api_keys:
+            server._ensure_ws_delivery(websocket)
         logger.info(f"WebSocket client connected. Total: {len(server._ws_clients)}")
 
         # Bounded handshake (VAS-05h): on a keyed server an unauthenticated

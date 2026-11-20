@@ -929,6 +929,8 @@ class Settings(BaseSettings):
             "render_max_payload_bytes": "server.render_max_payload_bytes",
             "render_timeout_seconds": "server.render_timeout_seconds",
             "render_max_concurrency": "server.render_max_concurrency",
+            "server_ws_delivery_queue_size": "server.server_ws_delivery_queue_size",
+            "server_ws_send_deadline_seconds": "server.server_ws_send_deadline_seconds",
             # Subprocess Configuration
             "code_executor_network_disabled": "subprocess.code_executor_network_disabled",
             "code_executor_memory_limit": "subprocess.code_executor_memory_limit",
