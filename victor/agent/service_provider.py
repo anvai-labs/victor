@@ -619,16 +619,20 @@ class OrchestratorServiceProvider:
     def _create_code_execution_manager(self) -> "CodeExecutionManagerProtocol":
         """Create the code-execution sandbox handle (no Docker contact here).
 
-        ``CodeSandbox`` acquires its container lazily on first use, under a
-        bounded Docker connect budget (``VICTOR_CODE_EXEC_START_TIMEOUT``), and
-        the container is owned, finalized and self-expiring. Bootstrap therefore
-        stays fast and starts no containers, even when Docker is down. Building
-        the handle eagerly used to start one container per container bootstrap,
-        which leaked thousands across test runs.
+        FOU-S2 (ADR-035 item 5): the container sandbox quality bar is owned by
+        core (:class:`victor.tools.sandbox.container_sandbox.ContainerSandbox`),
+        so Docker-available installs get container isolation without the
+        victor-coding vertical. The handle acquires its container lazily on
+        first use, under a bounded Docker connect budget
+        (``VICTOR_CODE_EXEC_START_TIMEOUT``), and the container is owned,
+        finalized and self-expiring. Bootstrap therefore stays fast and starts
+        no containers, even when Docker is down. Building the handle eagerly
+        used to start one container per container bootstrap, which leaked
+        thousands across test runs.
         """
 
         class _UnavailableExecutionManager:
-            """Degraded manager: victor-coding (the sandbox owner) is not installed."""
+            """Degraded manager: the container sandbox could not be constructed."""
 
             def start(self) -> None:
                 pass
@@ -641,31 +645,22 @@ class OrchestratorServiceProvider:
 
             def __getattr__(self, name: str) -> Any:
                 raise RuntimeError(
-                    "Code execution sandbox is unavailable: the victor-coding "
-                    "vertical is not installed."
+                    "Code execution sandbox is unavailable: no container runtime "
+                    "(Docker) could be constructed this session."
                 )
 
         try:
-            from victor.core.utils.capability_loader import load_code_executor_module
-
-            module = load_code_executor_module()
+            from victor.tools.sandbox.container_sandbox import (
+                ContainerSandbox,
+                sandbox_kwargs_from_settings,
+            )
         except ImportError:
             return _UnavailableExecutionManager()
 
         settings = getattr(self, "_settings", None)
-        sub = getattr(settings, "subprocess", None)
-
-        def _setting(name: str, default: Any) -> Any:
-            return getattr(sub, name, getattr(settings, name, default))
 
         try:
-            return module.CodeSandbox(
-                docker_image=_setting("code_executor_image", "python:3.11-slim"),
-                network_disabled=_setting("code_executor_network_disabled", True),
-                memory_limit=_setting("code_executor_memory_limit", "512m"),
-                cpu_shares=_setting("code_executor_cpu_shares", 256),
-                idle_ttl_seconds=_setting("code_executor_idle_ttl_seconds", 900),
-            )
+            return ContainerSandbox(**sandbox_kwargs_from_settings(settings))
         except Exception as exc:  # noqa: BLE001 - degraded mode covers all
             logger.warning(
                 "Code execution sandbox unavailable this session (failed: %s); "
