@@ -51,7 +51,11 @@ class EmbeddingSettings(BaseModel):
     codebase_dimension: int = 384  # Embedding dimension
     codebase_batch_size: int = 32  # Batch size for embedding generation
     codebase_structural_indexing_enabled: bool = False
-    codebase_intent_indexing_enabled: bool = False  # FEP-0049
+    # FEP-0049 DEPRECATED mirror: NOT effective here — the ONE effective
+    # field is search.graph.codebase_intent_indexing_enabled; this spelling
+    # is migrated onto it by Settings._migrate_intent_indexing_spellings
+    # (conflicts rejected).
+    codebase_intent_indexing_enabled: bool = False
     codebase_chunking_strategy: str = "victor_codegraph"
     codebase_chunk_size: int = 500
     codebase_chunk_overlap: int = 50

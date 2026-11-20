@@ -48,6 +48,7 @@ async def _run_index(
     settings,
     stats,
     *,
+    intent=None,
     precise=None,
     precise_timeout=None,
     parse_workers=None,
@@ -72,6 +73,7 @@ async def _run_index(
             str(path or tmp_path),
             True,
             False,
+            intent=intent,
             precise=precise,
             precise_timeout=precise_timeout,
             parse_workers=parse_workers,
@@ -489,3 +491,71 @@ def test_graph_index_applies_the_logging_priority_chain(
     for handler in logging.getLogger().handlers:
         handler.flush()
     assert "index-run-marker" in log_file.read_text(encoding="utf-8")
+
+
+# ── intent-flag spelling migration (Codex finding 21) ───────────────────────
+#
+# The intent switch is effective at exactly ONE field —
+# search.graph.codebase_intent_indexing_enabled. The graph CLI resolves
+# --intent from it via graph_flag; the mirror spellings that used to land on
+# dead fields (search./codebase./embedding. groups and the flat legacy key)
+# must reach it too, and conflicting spellings must be rejected at load.
+
+
+@pytest.mark.parametrize(
+    ("yaml_body", "spelling"),
+    [
+        ("search:\n  graph:\n    codebase_intent_indexing_enabled: true\n", "canonical"),
+        ("codebase_intent_indexing_enabled: true\n", "flat-legacy"),
+        ("search:\n  codebase_intent_indexing_enabled: true\n", "search-mirror"),
+        ("codebase:\n  codebase_intent_indexing_enabled: true\n", "codebase-mirror"),
+        ("embedding:\n  codebase_intent_indexing_enabled: true\n", "embedding-mirror"),
+    ],
+)
+async def test_every_intent_spelling_reaches_the_cli_config(tmp_path, yaml_body, spelling):
+    """Each supported spelling must flip the intent leg the CLI resolves."""
+    from victor.core.graph_rag.indexing import GraphIndexStats
+
+    settings = _settings_from_yaml(tmp_path, yaml_body)
+    assert settings.search.graph.codebase_intent_indexing_enabled is True, spelling
+
+    ok, config, _ = await _run_index(
+        tmp_path, settings, GraphIndexStats(files_processed=1), own_store=True
+    )
+
+    assert ok
+    assert config.codebase_intent_indexing_enabled is True, spelling
+
+
+async def test_cli_intent_flag_default_off_and_explicit_override(tmp_path):
+    """No setting -> the intent leg stays off; --intent overrides the flag."""
+    from victor.core.graph_rag.indexing import GraphIndexStats
+
+    settings = _settings_from_yaml(tmp_path, "search:\n  graph: {}\n")
+    ok, config, _ = await _run_index(
+        tmp_path, settings, GraphIndexStats(files_processed=1), own_store=True
+    )
+    assert ok
+    assert config.codebase_intent_indexing_enabled is False
+
+    ok, config, _ = await _run_index(
+        tmp_path,
+        settings,
+        GraphIndexStats(files_processed=1),
+        intent=True,
+        own_store=True,
+    )
+    assert ok
+    assert config.codebase_intent_indexing_enabled is True
+
+
+def test_conflicting_intent_spellings_rejected_at_yaml_load(tmp_path):
+    """Two spellings that disagree are a configuration error, not a winner."""
+    import pydantic
+
+    with pytest.raises((pydantic.ValidationError, ValueError), match="Conflicting"):
+        _settings_from_yaml(
+            tmp_path,
+            "codebase:\n  codebase_intent_indexing_enabled: true\n"
+            "embedding:\n  codebase_intent_indexing_enabled: false\n",
+        )

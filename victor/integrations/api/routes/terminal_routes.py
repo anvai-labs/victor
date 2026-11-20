@@ -192,12 +192,18 @@ Respond with just the command to run."""
                 requires_approval=False,
             )
         cmd_parts = shlex.split(request.command)
-        if launch_decision.required_active:
-            cmd_parts = launch_decision.backend.wrap_argv(cmd_parts, resolved_dir)
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd_parts,
+            # Shared launch seam: a wrapped argv travels with its backend-owned
+            # descriptors (bwrap's seccomp filter) and those descriptors are
+            # closed once the child is running — forwarding the argv alone left
+            # bwrap without its filter and leaked one fd per launch.
+            from victor.tools.sandbox import prepare_launch, run_launch_async
+
+            backend = launch_decision.backend if launch_decision.required_active else None
+            launch = prepare_launch(backend, cmd_parts, resolved_dir)
+            proc = await run_launch_async(
+                launch,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=working_dir,

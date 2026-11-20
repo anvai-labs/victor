@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
@@ -67,19 +65,26 @@ def _admit_search_policy():
 
 
 def _search_spawn(server: "VictorFastAPIServer", argv: list[str], **kwargs):
-    """Run a search argv through the canonical required-launch decision."""
+    """Run a search argv through the canonical required-launch decision.
+
+    The launch goes through the shared :func:`prepare_launch` /
+    :func:`run_launch` seam so a wrapped argv carries its backend-owned
+    descriptors (bwrap's seccomp filter) and those descriptors are closed
+    after spawn — forwarding the argv alone left bwrap without its filter
+    and leaked one open descriptor per launch in the parent.
+    """
     from victor.runtime.policy_snapshot import run_policy_context
-    from victor.tools.sandbox import resolve_required_launch
+    from victor.tools.sandbox import prepare_launch, resolve_required_launch, run_launch
 
     admitted_policy = _admit_search_policy()
     decision = resolve_required_launch(admitted_policy.to_sandbox_settings())
     if decision.refuse:
         raise SearchPolicyRefusal(decision.reason)
-    if decision.required_active and decision.backend is not None:
-        argv = decision.backend.wrap_argv(list(argv), Path(server.workspace_root))
+    backend = decision.backend if decision.required_active else None
+    launch = prepare_launch(backend, list(argv), server.workspace_root)
 
     with run_policy_context(admitted_policy):
-        return subprocess.run(argv, **kwargs)
+        return run_launch(launch, **kwargs)
 
 
 def create_router(server: "VictorFastAPIServer") -> APIRouter:
