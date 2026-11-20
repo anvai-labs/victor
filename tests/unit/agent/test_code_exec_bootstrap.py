@@ -72,6 +72,7 @@ def test_settings_reach_the_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
         code_executor_network_disabled=False,
         code_executor_memory_limit="1g",
         code_executor_cpu_shares=512,
+        code_executor_cpu_quota=50000,
         code_executor_idle_ttl_seconds=60,
     )
     manager = _make_provider(SimpleNamespace(subprocess=sub))._create_code_execution_manager()
@@ -80,6 +81,7 @@ def test_settings_reach_the_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
         "network_disabled": False,
         "memory_limit": "1g",
         "cpu_shares": 512,
+        "cpu_quota": 50000,
         "idle_ttl_seconds": 60,
     }
 

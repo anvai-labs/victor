@@ -727,6 +727,49 @@ def resolve_sandbox_backend(sandbox_settings: Any) -> SandboxBackend:
 
 
 @dataclass(frozen=True)
+class PolicyResolution:
+    """Tri-state sandbox-policy resolution (NEXT-01, Codex finding 20).
+
+    * ``known`` — the effective policy resolved to one of the three
+      configured values; ``policy`` is valid.
+    * ``unknown`` — evaluation raised (unreadable policy field, faulty
+      accessor). Unknown is NOT affirmative disabled mode: launch owners
+      must REFUSE before launch, never fall through to a passthrough
+      backend.
+    """
+
+    state: str  # "known" | "unknown"
+    policy: str = ""
+
+    @property
+    def known(self) -> bool:
+        return self.state == "known"
+
+    @property
+    def unknown(self) -> bool:
+        return self.state == "unknown"
+
+
+def resolve_effective_policy(sandbox_settings: Any) -> PolicyResolution:
+    """Evaluate the effective policy WITHOUT inventing a default on failure.
+
+    :func:`effective_sandbox_policy` (which this wraps) returns the
+    fail-closed ``required`` default only for a SUCCESSFUL read; a raising
+    settings accessor must surface as ``unknown`` — an unknowable policy is
+    not permission to proceed.
+    """
+    try:
+        return PolicyResolution(state="known", policy=effective_sandbox_policy(sandbox_settings))
+    except Exception as exc:  # noqa: BLE001 - any evaluation fault is "unknown"
+        _warn_once(
+            "policy_unknown",
+            f"Sandbox policy evaluation failed ({exc}); policy is UNKNOWN — "
+            "governed launches must refuse (fail-closed).",
+        )
+        return PolicyResolution(state="unknown")
+
+
+@dataclass(frozen=True)
 class RequiredLaunchDecision:
     """Resolved decision for a required-policy launch (HB-02/03, ADR-L02).
 
@@ -734,6 +777,9 @@ class RequiredLaunchDecision:
     ``refuse`` marks a required policy that cannot be enforced (typed
     resolver failures and generic resolver/configuration errors alike) —
     callers must refuse before any spawn and never degrade to no sandbox.
+    ``refuse`` ALSO marks an UNKNOWN policy (evaluation fault): unknowable
+    policy refuses before launch instead of returning an inactive,
+    non-refusing decision (Codex finding 20).
     """
 
     required_active: bool = False
@@ -746,15 +792,24 @@ def resolve_required_launch(sandbox_settings: Any) -> RequiredLaunchDecision:
     """Resolve whether a required policy can reach an enforcing launch.
 
     Consolidates the fail-closed rule shared by the canonical subprocess
-    executor, the workflow sandbox executor and direct-spawn routes: under a
-    KNOWN required policy, any resolver or configuration failure refuses
-    (never degrades); other policies return a non-active decision and keep
-    their historical semantics.
+    executor, the workflow sandbox executor and direct-spawn routes:
+
+    * UNKNOWN policy (evaluation raised) — refuse before launch.
+    * KNOWN ``required`` policy — any resolver or configuration failure
+      refuses (never degrades).
+    * KNOWN non-required policy (explicit ``disabled`` / ``preferred``) —
+      non-active decision with the historical semantics.
     """
-    try:
-        policy = effective_sandbox_policy(sandbox_settings)
-    except Exception:
-        return RequiredLaunchDecision()
+    resolution = resolve_effective_policy(sandbox_settings)
+    if resolution.unknown:
+        return RequiredLaunchDecision(
+            refuse=True,
+            reason=(
+                "Sandbox policy could not be established (policy evaluation "
+                "failed); refusing execution before launch (fail-closed)."
+            ),
+        )
+    policy = resolution.policy
     if policy != "required":
         return RequiredLaunchDecision()
     try:
@@ -835,12 +890,14 @@ __all__ = [
     "SeatbeltSandbox",
     "SandboxRequiredUnavailableError",
     "PolicyUnavailable",
+    "PolicyResolution",
     "RequiredLaunchDecision",
     "build_seccomp_deny_program",
     "_effective_policy_from_settings",
     "current_sandbox_posture",
     "force_unsandboxed_for_session",
     "effective_sandbox_policy",
+    "resolve_effective_policy",
     "resolve_required_launch",
     "resolve_sandbox_backend",
 ]
