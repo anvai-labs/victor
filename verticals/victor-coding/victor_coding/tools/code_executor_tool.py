@@ -30,7 +30,6 @@ command, evaluation reaper).
 
 from typing import Any, Dict, List
 
-from victor.core.errors import ToolExecutionError
 from victor.tools.base import AccessMode, DangerLevel, Priority
 from victor.tools.decorators import tool
 from victor.tools.sandbox.container_sandbox import (
@@ -71,21 +70,24 @@ _execute_code = execute_code
 _upload_files = upload_files
 
 
-def _sandbox_failure(message: str, recovery_hint: str) -> ToolExecutionError:
-    """Build the typed failure the @tool adapter converts to a failed result.
+def _sandbox_failure(message: str, recovery_hint: str) -> Dict[str, Any]:
+    """Build the typed failure dict the @tool adapter converts to a failed
+    ``ToolResult``.
 
     Codex review (code executor context contract): the tool used to return
     "Error: ..." STRINGS on missing context, which the function-tool adapter
     wrapped as ``ToolResult(success=True)`` — a success-shaped report with
-    zero sandbox work done. Every refusal below is now a typed
-    :class:`ToolExecutionError` (category ``tool_execution`` + recovery hint)
-    so the adapter publishes ``success=False``.
+    zero sandbox work done. Every refusal below is now a structured failure
+    dict (``success=False`` + ``category`` + ``recovery_hint``, the same
+    vertical convention as ``graph_tool``) so the adapter publishes
+    ``success=False`` with typed metadata.
     """
-    return ToolExecutionError(
-        message,
-        tool_name="sandbox",
-        recovery_hint=recovery_hint,
-    )
+    return {
+        "success": False,
+        "error": message,
+        "category": "tool_execution",
+        "recovery_hint": recovery_hint,
+    }
 
 
 @tool(
@@ -119,16 +121,16 @@ async def sandbox(
             by the model.
 
     Returns:
-        Operation result string.
-
-    Raises:
-        ToolExecutionError: Typed failure when the execution context or the
-            session sandbox handle is missing, or an operation argument is
-            invalid — never a success-shaped error string.
+        Operation result string, or a structured failure dict
+        (``success=False`` + ``category`` + ``recovery_hint``) when the
+        execution context or session sandbox handle is missing or an
+        operation argument is invalid — never a success-shaped error
+        string. The function-tool adapter converts the dict to a failed
+        ``ToolResult``.
     """
     context = _exec_ctx
     if not isinstance(context, dict):
-        raise _sandbox_failure(
+        return _sandbox_failure(
             "sandbox requires the runtime execution context (injected by the "
             "tool executor as _exec_ctx), which was missing on this dispatch.",
             recovery_hint=(
@@ -139,7 +141,7 @@ async def sandbox(
 
     sandbox_instance: CodeSandbox = context.get("code_manager")
     if not sandbox_instance:
-        raise _sandbox_failure(
+        return _sandbox_failure(
             "sandbox is unavailable: no code-execution sandbox handle "
             "('code_manager') in this session's execution context.",
             recovery_hint=(
@@ -152,7 +154,7 @@ async def sandbox(
 
     if op == "execute":
         if not code:
-            raise _sandbox_failure(
+            return _sandbox_failure(
                 "'code' parameter required for execute operation.",
                 recovery_hint="Pass the Python source to run in the 'code' argument.",
             )
@@ -160,14 +162,14 @@ async def sandbox(
 
     elif op == "upload":
         if not file_paths:
-            raise _sandbox_failure(
+            return _sandbox_failure(
                 "'file_paths' parameter required for upload operation.",
                 recovery_hint="Pass the local paths to copy in 'file_paths'.",
             )
         return await _upload_files(sandbox_instance, file_paths)
 
     else:
-        raise _sandbox_failure(
+        return _sandbox_failure(
             f"Unknown operation '{operation}'. Use 'execute' or 'upload'.",
             recovery_hint="Retry with operation='execute' or operation='upload'.",
         )

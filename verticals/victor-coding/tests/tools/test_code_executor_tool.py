@@ -236,22 +236,29 @@ class TestSandboxTool:
         assert "code_manager" in result.error
         assert result.metadata["category"] == "tool_execution"
 
-    def test_raw_function_raises_typed_error_without_context(self):
-        with pytest.raises(cet.ToolExecutionError) as excinfo:
-            asyncio.run(cet.sandbox(operation="execute", code="print(1)", _exec_ctx=None))
-        assert excinfo.value.details.get("tool_name") == "sandbox"
+    def test_raw_function_returns_typed_failure_without_context(self):
+        """Raw (undecorated-path) calls report the structured failure dict —
+        the vertical's sanctioned failure contract, never a bare string."""
+        result = asyncio.run(cet.sandbox(operation="execute", code="print(1)", _exec_ctx=None))
+        assert result["success"] is False
+        assert result["category"] == "tool_execution"
+        assert "recovery_hint" in result
 
     # -- argument validation is typed too -----------------------------------
 
     def test_execute_requires_code(self):
-        with pytest.raises(cet.ToolExecutionError, match="required"):
-            asyncio.run(
-                cet.sandbox(operation="execute", code="", _exec_ctx=self._make_ctx(MagicMock()))
-            )
+        result = asyncio.run(
+            cet.sandbox(operation="execute", code="", _exec_ctx=self._make_ctx(MagicMock()))
+        )
+        assert result["success"] is False
+        assert "required" in result["error"].lower()
 
     def test_unknown_operation(self):
-        with pytest.raises(cet.ToolExecutionError, match="Unknown operation"):
-            asyncio.run(cet.sandbox(operation="frobnicate", _exec_ctx=self._make_ctx(MagicMock())))
+        result = asyncio.run(
+            cet.sandbox(operation="frobnicate", _exec_ctx=self._make_ctx(MagicMock()))
+        )
+        assert result["success"] is False
+        assert "Unknown operation" in result["error"]
 
     def test_schema_does_not_advertise_context_to_the_model(self):
         """The reserved context parameter is framework-internal: it must not
