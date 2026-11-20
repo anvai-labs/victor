@@ -846,3 +846,27 @@ passed (16 skipped); no new env-noise vs origin/develop (9 known
 `tests/unit/config` account-credentials failures verified pre-existing
 on a pristine develop worktree); collect-only 42,116 clean; black
 26.10.1 + ruff clean on changed files.
+
+**Residual follow-up (#1989, `fix/container-getfile-typed-failure` off
+`origin/develop` @ `0950fc861`)**: the documented `get_file` residual of
+finding 18 — the download side still returned the historical silent
+`b""` when no container could be acquired, the same
+silent-empty-as-success shape the upload fix closed. Fix: `get_file`
+raises the typed `ContainerSandboxUnavailableError` with the matching
+reason (`binary_missing`/`daemon_unreachable`), never `b""` as success;
+the success path is unchanged. No production caller consumed the
+`b""` (grep: zero `get_file` call sites on the sandbox in `victor/` +
+`verticals/`); the caller contract is pinned by a structured-error test
+(typed refusal → `{ok: false, reason, error}`, no `data` field, not a
+crash). Tests RED-first mirroring the `put_files` typed-failure pair:
+no-docker → `binary_missing`, daemon-unreachable → `daemon_unreachable`,
+caller handling, success path re-pinned unchanged;
+`test_degraded_lifecycle_is_inert` moved to the typed contract; the
+`test_docker_availability.py` integration battery (via the vertical's
+`CodeSandbox` alias) updated — its `put_files` sibling had been stale
+since #1985 (asserted a silent early return). RELATED_TESTS
+`container_sandbox.py` entry extended with the docker-availability
+integration file. Gates: sandbox unit suite 180 passed / 9 skipped;
+selector-mapped suites green; collect-only 42,119 clean; docker-
+availability degraded battery 10 passed with the vertical on
+PYTHONPATH; black 26.10.1 + ruff clean on changed files.
