@@ -1117,6 +1117,19 @@ RELATED_TESTS = {
     "victor/integrations/api/routes/chat_routes.py": (
         "tests/unit/integrations/api/test_fastapi_chat_wire_stream.py",
         "tests/unit/integrations/api/test_fastapi_chat_attribution.py",
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
+    ),
+    # Conversation routes: reset/export address the shared server-wide
+    # conversation; the multi-principal refusal suite pins the enforced
+    # single-trusted-operator posture over them (no per-route mirror file).
+    "victor/integrations/api/routes/conversation_routes.py": (
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
+    ),
+    # Operator posture: the enforced single-trusted-operator claim over the
+    # shared-state surfaces (chat/export/reset/memory) is pinned by the
+    # multi-principal refusal suite.
+    "victor/integrations/api/operator_posture.py": (
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
     ),
     # /ws route: connection registration, message-auth gate, bounded auth
     # handshake and broadcast recipient admission are pinned by the WS auth
@@ -1163,9 +1176,12 @@ RELATED_TESTS = {
     ),
     # /memory + /memory/proposals routes (FEP-0048 FOU-A2d): list/set/forget,
     # structured refusals and the consolidation confirm/discard lifecycle are
-    # pinned by the memory routes suite (no per-route mirror file).
+    # pinned by the memory routes suite (no per-route mirror file); the
+    # multi-principal refusal suite additionally pins the enforced
+    # single-principal posture over /memory (Codex finding 4).
     "victor/integrations/api/routes/memory_routes.py": (
         "tests/unit/integrations/api/test_memory_routes.py",
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
     ),
     # The router registry: the extension contract test walks
     # create_all_routers(), so an addition must keep that passing.
