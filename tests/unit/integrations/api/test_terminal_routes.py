@@ -283,3 +283,39 @@ def test_admitted_disabled_terminal_is_not_tightened_by_reloaded_required(monkey
     _execute(client, "echo hi")
 
     assert launched and launched[0][0] != "bwrap", f"admitted policy tightened: {launched}"
+
+
+def test_terminal_required_launch_carries_pass_fds(monkeypatch, tmp_path):
+    """Finding 8: the direct terminal launcher must forward the backend's
+    owned descriptors (bwrap's seccomp filter) with the wrapped argv —
+    forwarding the argv alone ran bwrap without its filter and leaked one
+    open descriptor per launch in the parent."""
+    server = _create_server(monkeypatch, tmp_path)
+    server._orchestrator = _FakeOrchestrator()
+    _install_required(monkeypatch, backend_available=True)
+    launched: list = []
+    captured: dict = {}
+
+    async def _trap(*args, **kwargs):
+        launched.append([str(a) for a in args])
+        captured["pass_fds"] = kwargs.get("pass_fds")
+
+        class _Proc:
+            returncode = 0
+
+            async def communicate(self):
+                return (b"ok", b"")
+
+        return _Proc()
+
+    import victor.integrations.api.routes.terminal_routes as tr
+
+    monkeypatch.setattr(tr.asyncio, "create_subprocess_exec", _trap)
+    client = TestClient(server.app)
+
+    response = _execute(client, "echo hi")
+    body = response.json()
+    assert launched, "expected a spawn attempt to inspect"
+    assert launched[0][0] == "bwrap"
+    assert captured.get("pass_fds"), "terminal launch dropped the seccomp descriptor"
+    assert body["status"] == "completed"

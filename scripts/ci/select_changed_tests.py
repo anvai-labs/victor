@@ -102,6 +102,19 @@ RELATED_TESTS = {
         "tests/unit/core/graph_rag/test_control_dependence.py",
         "tests/unit/core/indexing/test_ccg_builder_control_dependence.py",
     ),
+    "victor/tools/sandbox/launch.py": (
+        "tests/unit/tools/sandbox/test_launch_helper.py",
+        "tests/unit/tools/sandbox/test_backends_qualification.py",
+        "tests/unit/integrations/api/test_git_routes.py",
+        "tests/unit/integrations/api/test_search_routes.py",
+        "tests/unit/integrations/api/test_terminal_routes.py",
+    ),
+    "victor/tools/graph_query_tool.py": (
+        "tests/unit/tools/test_graph_query_tool.py",
+        "tests/unit/tools/test_graph_query_tool_intent.py",
+        "tests/unit/core/graph_rag/test_intent_seeds.py",
+        "tests/unit/ui/commands/test_graph_index_cli.py",
+    ),
     "scripts/benchmark_body_model_failure.py": (
         "tests/unit/scripts/test_benchmark_body_model_failure.py",
     ),
@@ -433,6 +446,32 @@ RELATED_TESTS = {
         "tests/unit/security/test_injection_fp_battery.py",
         "tests/unit/security/test_injection_hard_fail.py",
         "tests/unit/security/test_tool_output_containment.py",
+    ),
+    # ADR-037 containment (Codex fix wave 1): the session-owned canary state
+    # and its per-turn binding span security suites plus the ChatService turn
+    # frame; the runtime-context mirror name does not match the selector
+    # glob, so coverage is declared explicitly.
+    "victor/security/containment.py": (
+        "tests/unit/security/test_containment.py",
+        "tests/unit/security/test_containment_session_binding.py",
+        "tests/unit/security/test_canary_blocking.py",
+        "tests/unit/security/test_tool_output_containment.py",
+        "tests/unit/security/test_injection_hard_fail.py",
+        "tests/unit/agent/services/test_chat_service_containment_binding.py",
+    ),
+    "victor/agent/runtime/context.py": (
+        "tests/unit/agent/runtime/test_agent_runtime_context.py",
+        "tests/unit/security/test_containment_session_binding.py",
+        "tests/unit/agent/services/test_chat_service.py",
+        "tests/unit/agent/services/test_chat_service_containment_binding.py",
+    ),
+    "victor/agent/services/chat_service.py": (
+        "tests/unit/agent/services/test_chat_service.py",
+        "tests/unit/agent/services/test_chat_service_tool_result.py",
+        "tests/unit/agent/services/test_chat_service_containment_binding.py",
+        "tests/unit/agent/services/test_chat_stream_runtime.py",
+        "tests/unit/agent/services/test_chat_stream_governance.py",
+        "tests/unit/agent/services/test_chat_stream_helpers_lifecycle.py",
     ),
     "victor/evaluation/injection_fp_battery.py": (
         "tests/unit/security/test_injection_fp_battery.py",
@@ -1116,6 +1155,19 @@ RELATED_TESTS = {
     "victor/integrations/api/routes/chat_routes.py": (
         "tests/unit/integrations/api/test_fastapi_chat_wire_stream.py",
         "tests/unit/integrations/api/test_fastapi_chat_attribution.py",
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
+    ),
+    # Conversation routes: reset/export address the shared server-wide
+    # conversation; the multi-principal refusal suite pins the enforced
+    # single-trusted-operator posture over them (no per-route mirror file).
+    "victor/integrations/api/routes/conversation_routes.py": (
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
+    ),
+    # Operator posture: the enforced single-trusted-operator claim over the
+    # shared-state surfaces (chat/export/reset/memory) is pinned by the
+    # multi-principal refusal suite.
+    "victor/integrations/api/operator_posture.py": (
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
     ),
     # /ws route: connection registration, message-auth gate, bounded auth
     # handshake and broadcast recipient admission are pinned by the WS auth
@@ -1162,9 +1214,12 @@ RELATED_TESTS = {
     ),
     # /memory + /memory/proposals routes (FEP-0048 FOU-A2d): list/set/forget,
     # structured refusals and the consolidation confirm/discard lifecycle are
-    # pinned by the memory routes suite (no per-route mirror file).
+    # pinned by the memory routes suite (no per-route mirror file); the
+    # multi-principal refusal suite additionally pins the enforced
+    # single-principal posture over /memory (Codex finding 4).
     "victor/integrations/api/routes/memory_routes.py": (
         "tests/unit/integrations/api/test_memory_routes.py",
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
     ),
     # The router registry: the extension contract test walks
     # create_all_routers(), so an addition must keep that passing.
@@ -1251,6 +1306,7 @@ RELATED_TESTS = {
         "tests/unit/config/test_gateway_resolution_boundary.py",
         "tests/unit/config/test_settings_cache.py",
         "tests/unit/config/test_settings_stratification.py",
+        "tests/unit/config/test_intent_flag_migration.py",
     ),
     "victor/config/provider_config_registry.py": (
         "tests/unit/config/test_gateway_resolution_boundary.py",

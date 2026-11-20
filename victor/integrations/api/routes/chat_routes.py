@@ -19,13 +19,14 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from victor.core.context import bind_attribution
 from victor.framework.wire_events import stream_sse
+from victor.integrations.api.operator_posture import posture_json_response
 from victor.integrations.api.fastapi_server import (
     ChatRequest,
     ChatResponse,
@@ -46,15 +47,37 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     """Create chat / completions routes bound to *server*."""
     router = APIRouter()
 
+    def _posture_refusal(surface: str, client_id: Optional[str]) -> Optional[JSONResponse]:
+        """Enforced single-trusted-operator posture (Codex finding 3): chat
+        conversation addressing resolves the ONE server-wide client with no
+        owner in the lookup, so under the multi-credential posture a second
+        credential must never reach it (sticky first-principal claim)."""
+        return posture_json_response(server.claim_shared_state(client_id, surface), surface)
+
+    async def _admit_chat_turn(
+        http_request: Request, messages: list
+    ) -> tuple[Optional[str], Optional[JSONResponse]]:
+        """Key verification, posture enforcement and payload validation shared
+        by every conversation-addressing chat handler. Returns the resolved
+        client_id (attribution join) plus the response to return early (a
+        posture refusal), or None when the turn may proceed."""
+        client_id = await server._verify_api_key(http_request)
+        refusal = _posture_refusal("chat", client_id)
+        if refusal is not None:
+            return client_id, refusal
+        if not messages:
+            raise HTTPException(status_code=400, detail="No messages provided")
+        return client_id, None
+
     @router.post("/chat", response_model=ChatResponse, tags=["Chat"])
     async def chat(request: ChatRequest, response: Response, http_request: Request) -> ChatResponse:
         """Chat endpoint (non-streaming)."""
-        # FEP-0020 attribution join: the client_id resolved at the auth seam is
-        # bound to the execution context so downstream cost/usage records carry
-        # the authenticated subject (None when auth is not configured).
-        client_id = await server._verify_api_key(http_request)
-        if not request.messages:
-            raise HTTPException(status_code=400, detail="No messages provided")
+        # FEP-0020 attribution join: _admit_chat_turn resolves the client_id at
+        # the auth seam so downstream cost/usage records carry the
+        # authenticated subject (None when auth is not configured).
+        client_id, early = await _admit_chat_turn(http_request, request.messages)
+        if early is not None:
+            return early
 
         request_id = _new_chat_request_id()
         response.headers["X-Victor-Request-Id"] = request_id
@@ -101,6 +124,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         from victor.framework.approval_pause import ApprovalDecision
 
         client_id = await server._verify_api_key(http_request)
+        refusal = _posture_refusal("chat/resume", client_id)
+        if refusal is not None:
+            return refusal
         request_id = _new_chat_request_id()
         response.headers["X-Victor-Request-Id"] = request_id
         client = await server._get_victor_client()
@@ -141,9 +167,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         # Authenticate before streaming starts so an invalid key is a plain 401;
         # the identity is bound inside the generator because the response body
         # is produced after this handler returns (FEP-0020 attribution join).
-        client_id = await server._verify_api_key(http_request)
-        if not request.messages:
-            raise HTTPException(status_code=400, detail="No messages provided")
+        client_id, early = await _admit_chat_turn(http_request, request.messages)
+        if early is not None:
+            return early
 
         request_id = _new_chat_request_id()
 
@@ -210,9 +236,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         ``stream_end`` semantics with full fidelity (VAS-10/VAS-14 seam). Authentication
         and the FEP-0020 attribution join mirror ``chat_stream``.
         """
-        client_id = await server._verify_api_key(http_request)
-        if not request.messages:
-            raise HTTPException(status_code=400, detail="No messages provided")
+        client_id, early = await _admit_chat_turn(http_request, request.messages)
+        if early is not None:
+            return early
 
         request_id = _new_chat_request_id()
 

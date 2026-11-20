@@ -36,10 +36,10 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-S1a | Sandbox backend hardening (bwrap seccomp/egress; Seatbelt deny-default) | S | ADR-035 | FOU-D2 | MERGED | #1907, #1910 (kernel-truth cBPF fix; live probes EPERM, fork=OK) |
 | FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a | MERGED | #1912 (8 adversarial findings fixed pre-merge; suite opt-out via tests/conftest.py). macOS Seatbelt live qualification COMPLETE 2026-11-18: 13/13 probe checks on macOS 26.2/arm64 — one real profile gap found+fixed (`/dev/null` write allow, #1944); probe pattern in tests/unit/tools/sandbox/test_seatbelt_qualification.py |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | IN REVIEW | #1976: core owns the bar at `victor/tools/sandbox/container_sandbox.py` — `ContainerSandbox` (lazy acquire / owned finalizer / idle-TTL self-expiry with `auto_remove` / network-disabled default / `mem_limit`+`cpu_shares` caps on the docker-run invocation / owner labels + reapable) + capability gating `resolve_container_sandbox(settings, required=)` mirroring `resolve_sandbox_backend` (None when Docker unavailable — backend simply not offered; typed refusal reason `binary_missing`/`daemon_unreachable` under required) + `daemon_available()` bounded probe + `sandbox_kwargs_from_settings` (reads `code_executor_*` knobs incl. `subprocess` group) + shared `execute_code`/`upload_files` async helpers + the owner-aware reaper. Capability seam: `service_provider._create_code_execution_manager` now constructs the CORE class directly — Docker-available installs get container isolation without the vertical; loader-based consumers (`cleanup-containers`, `container_eval`) unchanged. Vertical delegation: victor-coding `code_executor_tool.py` is a shim — `CodeSandbox`/`ResourceError` are identity aliases of the core types (not subclasses), historical names re-exported, `@tool` surface intact. Boundary resolution: `victor.tools.*` is not in `FORBIDDEN_RUNTIME_IMPORT_PREFIXES` and the vertical already imported `victor.tools.base/sandbox_ownership`, so `victor.tools.sandbox.container_sandbox` is the sanctioned import path (check_extracted_vertical_boundaries PASSED, errors=0). Tests RED-first: 45-test core suite (`tests/unit/tools/sandbox/test_container_sandbox.py` — lifecycle, network-default, caps-at-argv, 0-leak finalizer, gating, reaper), 14-test vertical delegation battery (identity + compat + tool contract; full vertical suite 1371 passed), bootstrap tests re-pinned to the core seam (unresponsive-daemon <1s, no-vertical construction, inert no-docker, loud construction failure), docker-gated integration egress-denied + caps tests appended to `test_code_sandbox_lifecycle.py` (skip without daemon). Gates: sandbox+security 1028 passed; architecture/contracts guards 210 passed; collect-only 41,889 clean; black/ruff clean; RELATED_TESTS entry added |
-| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c GREEN (injection screen: annotation-only, in-envelope highlighting, corpus-pinned false-positive discipline); S3d MERGED (#1959) + S3d FOLLOW-UP MERGED (fix/injection-homoglyph-normalize): homoglyph pre-pass + quote-guard abuse carve-out closed both designed FN classes → battery re-run verdict = GRADUATE_HARD_FAIL_CANDIDATE (0 FP / 155 benign, 35 TP / 0 FN / 35 adversarial); **hard-fail WIRING SHIPPED flag-gated default-OFF (`ToolSettings.untrusted_content_hard_fail`, False): a tool call whose arguments echo content from a family flagged earlier in the session hard-fails through the same containment gate as canary blocking — flip = field data per ADR-036** | #1908, #1911 |
+| FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c GREEN (injection screen: annotation-only, in-envelope highlighting, corpus-pinned false-positive discipline); S3d MERGED (#1959) + S3d FOLLOW-UP MERGED (fix/injection-homoglyph-normalize): homoglyph pre-pass + quote-guard abuse carve-out closed both designed FN classes → battery re-run verdict = GRADUATE_HARD_FAIL_CANDIDATE (0 FP / 155 benign, 35 TP / 0 FN / 35 adversarial); **hard-fail WIRING SHIPPED flag-gated default-OFF (`ToolSettings.untrusted_content_hard_fail`, False): a tool call whose arguments echo content from a family flagged earlier in the session hard-fails through the same containment gate as canary blocking — flip = field data per ADR-036**; **S3b canary binding RESTORED (Codex fix wave 1, #1983): session-owned canary bound around every turn — the dispatch floor now fires on real sessions, not only tests** | #1908, #1911, #1983 |
 | FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | PART-BLOCKED | `effect_gated_completion` graduation LOCKED OUT by the 2026-08-03 negative A/B (on 0.847 vs off 0.864, overlapping CIs — do NOT graduate, codified #884). `per_turn_auditor` deterministic battery SHIPPED (`victor/evaluation/auditor_ab.py` + 13-test suite): verdict **ESCALATE_LIVE_AB_REQUIRED** — wiring verified (flag resolves + edge-model judge injected on BOTH execution paths; a buffered-path wiring gap — `turn_execution_runtime` resolved the effect gate but never the auditor — found and fixed in the same change; OFF arm strict no-op pinned by negative test; placement audit guards the dormant-flag class) and cost known (max 1 edge-model call per COMPLETE turn, ≤1780-char bounded prompt, 128-token output cap, 0 main-loop token overhead; the deterministic heuristic alarm skips the judge; `max_alarms` bounds downgrades then annotate-and-allow). Judge QUALITY (premature-completion catch vs false-downgrade) is undecidable offline → default stays OFF; graduation requires the documented live A/B: `python -m victor.evaluation.flag_ab --flag per_turn_auditor --base-url <ollama> --model qwen3-coder-tools:30b --corpus effect-gate --variants 2` then `assess_graduation()` (EVR-5 oracle) + catch/false-downgrade rates. No default flipped |
 | FOU-A1 | Subagent-spawn tool (Task-tool pattern) | A | ledger §A1 design | FOU-D2 | A1 phase-1 (foreground) IN REVIEW — see §FOU-A1 evidence | #1977 |
-| FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | A2a MERGED (`PreferenceEpisodicStore` + `MemoryType.PREFERENCE/EPISODE` + two-database schema (memory_preference/memory_episode) + adapter lanes; 33-test suite: round-trip, scope isolation (negative), secret/oversize refusal, forget-by-id/content, thread queries, coordinator interop, db placement). A2b MERGED (#1952: `memory_set`/`memory_forget` tools, workspace-write gated + `DEFAULT_TOOL_PERMISSIONS`; `MemoryConsolidator` propose/commit/discard hook in Session service, confirm-by-default with `memory_auto_capture` default off; secret-scanner word-boundary fix — generic keyword patterns now require a `[=:]` value-bearing delimiter, benign prose no longer refused, dual-path (native+Python) parity tests). A2c MERGED (#1954: `MemoryBlockBuilder` PERCEIVE injection via PerceptionIntegration `memory_injector` collaborator — scoped coordinator queries, 500-token hard cap by rank exclusion, off-when-empty byte-identical negative, flag + `VICTOR_MEMORY_ENABLED` env re-resolved at every read; BudgetManager additive context-block registration so memory competes by priority (evict weaker-only, refit, starve); `victor/evaluation/memory_ab.py` deterministic A/B battery (flag_ab.py documented as too LLM-heavy for the wiring gate) over seeded fixtures → snapshots + ADR-036 verdict `KEEP_DEFAULT_ON` (usefulness 1.0, max 20 tokens, 0 false surfaces, baseline 0 injections); 48-test suite; production container wiring deferred per the FEP's additive-optional hook parameter). A2d MERGED (#1956: `/memory` slash command — list preferences with scope/source/confidence + recent episodes + staged proposals, set with user-scope default/`--project`, forget by id/content, confirm/discard; API routes GET/POST/DELETE `/memory` + `/memory/proposals` list/confirm/discard with sibling management-route auth posture and structured 4xx refusals that never echo the matched secret; shared consolidator handle on `MemoryConsolidator` reached from the client layer via the new `victor.framework.memory` seam, bootstrap SessionService now binds it (confirm-by-default, auto-capture only from `settings.memory.memory_auto_capture`) so end_session stages onto the handle the surfaces confirm; `PreferenceEpisodicStore.recent_episodes` public listing read; 45-test suite; docs in quickstart + http-api) | #1951; A2b MERGED #1952; A2c MERGED #1954; A2d MERGED #1956 |
+| FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | A2a MERGED (`PreferenceEpisodicStore` + `MemoryType.PREFERENCE/EPISODE` + two-database schema (memory_preference/memory_episode) + adapter lanes; 33-test suite: round-trip, scope isolation (negative), secret/oversize refusal, forget-by-id/content, thread queries, coordinator interop, db placement). A2b MERGED (#1952: `memory_set`/`memory_forget` tools, workspace-write gated + `DEFAULT_TOOL_PERMISSIONS`; `MemoryConsolidator` propose/commit/discard hook in Session service, confirm-by-default with `memory_auto_capture` default off; secret-scanner word-boundary fix — generic keyword patterns now require a `[=:]` value-bearing delimiter, benign prose no longer refused, dual-path (native+Python) parity tests). A2c MERGED (#1954: `MemoryBlockBuilder` PERCEIVE injection via PerceptionIntegration `memory_injector` collaborator — scoped coordinator queries, 500-token hard cap by rank exclusion, off-when-empty byte-identical negative, flag + `VICTOR_MEMORY_ENABLED` env re-resolved at every read; BudgetManager additive context-block registration so memory competes by priority (evict weaker-only, refit, starve); `victor/evaluation/memory_ab.py` deterministic A/B battery (flag_ab.py documented as too LLM-heavy for the wiring gate) over seeded fixtures → snapshots + ADR-036 verdict `KEEP_DEFAULT_ON` (usefulness 1.0, max 20 tokens, 0 false surfaces, baseline 0 injections); 48-test suite; production container wiring deferred per the FEP's additive-optional hook parameter). A2d MERGED (#1956: `/memory` slash command — list preferences with scope/source/confidence + recent episodes + staged proposals, set with user-scope default/`--project`, forget by id/content, confirm/discard; API routes GET/POST/DELETE `/memory` + `/memory/proposals` list/confirm/discard with sibling management-route auth posture and structured 4xx refusals that never echo the matched secret; shared consolidator handle on `MemoryConsolidator` reached from the client layer via the new `victor.framework.memory` seam, bootstrap SessionService now binds it (confirm-by-default, auto-capture only from `settings.memory.memory_auto_capture`) so end_session stages onto the handle the surfaces confirm; `PreferenceEpisodicStore.recent_episodes` public listing read; 45-test suite; docs in quickstart + http-api). **Codex review wave 1 (2026-11-20): enforced single-trusted-operator posture over /memory (typed 409 on a second credential) + store-level cross-principal guard (`principal_id`/`on_behalf_of` → `CrossPrincipalAccessRefused`) + `EmptyContentMatchRefused` for empty/whitespace `content_match` forgets (pinned from store, API and tool); full ownership remains A4a+ paused pending D4 — see §Codex review fix wave 1** | #1951; A2b MERGED #1952; A2c MERGED #1954; A2d MERGED #1956 |
 | FOU-A3 | SCIP precise tier auto-on + impact-analysis benchmark publication | A | ADR-032 | — | FUNCTIONAL + OPT-IN (ADR-032 rev 1.8/1.9) | Tier-3 SCIP harvesting works end-to-end and stays opt-in by the ADR-032 decision (`--precise`/`--no-precise`/`--precise-timeout` on `victor index graph index`; polyglot providers shipped — scip-python + scip-typescript + rust-analyzer, rev 1.6 corpus: 146,211 compiler refs @ 76.9%/67.4%/89.2% join rates; CLI drivability fixed rev 1.8 — settings resolve through `Settings.from_sources()` so config files can enable tier 3, per-provider harvest outcomes visible in index summary/`graph stats`/watch manifest; rev 1.9 hardening). REMAINING = two owner decisions, not code: auto-on flip of `enable_precise_index` and impact-analysis benchmark publication | — |
 | FOU-A4 | RBAC/SSO wired into FastAPI middleware; per-user attribution | A | FEP-0020 (unblocks) + [A4 design doc](fou-a4-rbac-sso-design.md) | — | DESIGN LANDED (2026-11-19) — phased plan A4a–A4d recorded; A4a ready for implementation | Design doc: inventory (live auth seam `_include_with_auth`/`_make_auth_dependency` at `fastapi_server.py:582-686`; VAS-05j/k owner scoping; FEP-0020 attribution join subject-only today, `group_id` never bound; VAS-05a contracts design-only — no `VerifiedPrincipal`/OIDC/policy code exists) + gap analysis + two dormancy findings (`api/middleware.py` aiohttp stack zero callers; `ServerSettings` session-token knobs never wired). Phases: A4a principal resolution at the auth seam (behavior-neutral), A4b verified subject+group into FEP-0020 events, A4c Kanidm OIDC entry (`server.auth.mode` default `api_key`), A4d strict policy/role enforcement (`server.auth.policy_path` default off). Decision register D1–D10 with recommended defaults; D1/D2/D6 block A4c only; A4d needs D3/D4 | — |
 | FOU-A5 | Research stack: search API adapters + page-read + browser tool; example cleanup | A | — | — | phase-1 IN REVIEW — search adapters + page-read (see §FOU-A5 evidence below) | #1979 |
@@ -585,3 +585,177 @@ Gates: tests/unit/tools + tests/unit/agent 13,542 passed; victor-coding
 vertical suite 1,373 passed; collect-only 42,004 clean; black 26.10.1 +
 ruff clean; RELATED_TESTS entries added for
 `victor/agent/subagents/{orchestrator,base}.py`.
+
+## Codex review fix wave 1 — containment enforcement at dispatch (2026-11-20, fix/containment-dispatch-enforcement)
+
+Codex v0.32.0-candidate review findings 1/2/16 (HIGH/HIGH/MEDIUM), ADR-037
+containment. All three fixed in one PR (#1983), each with positive + negative
+tests:
+
+- **Finding 1 — canary never bound to the serving session (placement-not-existence
+  confirmed)**: `new_session_canary` was reachable only as the ephemeral fallback in
+  `wrap_untrusted`; `set_session_canary` had zero production callers, so the S3b
+  dispatch floor never fired on a real session. Fix: `SessionContainmentState`
+  (`victor/security/containment.py`) owns ONE stable canary + bounded flagged-family
+  evidence per session; `RuntimeIdentity.containment_state()` mints it lazily per
+  resolved session id and regenerates on session transition (member bind / restored
+  id), so child sessions stay distinct and old canaries retire. `ChatService.chat`
+  and `stream_chat` bind the owner state around EVERY turn (and each resumed stream
+  step / aclose) via `bind_containment_state`, restoring the prior binding on exit.
+  Acceptance: real `ChatService` chat turn from a fresh request task — enveloped
+  tool output publishes the session canary, an echo of that token in a follow-up
+  call is blocked with ZERO executor calls; a second session holds a distinct
+  canary; binding restored after the turn.
+- **Finding 2 — admission checks fail-open (three sub-defects)**:
+  (a) model-bound ERROR results bypassed the envelope — the display formatter or
+  the FIRST `format_and_prune_tool_output` return value (the preview) entered
+  history. Fix: the error branch in `process_tool_results_with_context` publishes
+  through the SAME formatter; `content` (persisted tool message) is the enveloped
+  `llm_output`, display fields keep the user-facing text.
+  (b) the envelope wrapper swallowed failures (`except: pass`). Fix:
+  fail-closed when enforcement is configured — an envelope failure publishes the
+  inert `CONTAINMENT_FAILURE_PLACEHOLDER` (raw content never reaches model
+  context); with `untrusted_content_envelopes` explicitly OFF, delivery stays
+  raw as before. The injection screen remains advisory (separate block).
+  (c) the canary walker checked mapping values only. Fix: `find_canary_in_value`
+  covers mapping KEYS (reported via a redacted `<key>` path component so the
+  model-visible refusal never echoes the token) and the `str()` form of
+  non-JSON-able leaves; `find_flagged_content_in_value` screens keys too.
+  Dispatch gates are fail-closed on containment-infrastructure failure: with
+  `canary_blocking_enabled` on (default) — or settings unreadable while a canary
+  is bound — a throwing checker returns a typed no-execution result
+  (`outcome_kind=containment_failure`, zero execution); with the floor explicitly
+  OFF the check is dormant (logs only). The S3d hard-fail gate gets the same
+  treatment when its flag is ON; unreadable settings keep it dormant (unknown
+  never enables blocking).
+- **Finding 16 — hard-fail evidence task-local**: flagged families lived in a
+  task-local ContextVar whose reset had no production caller. Fix: evidence is
+  stored in the session-owned `SessionContainmentState` (bounded,
+  `MAX_FLAGGED_FAMILIES=32`), written through by `record_flagged_families`,
+  rebound per turn, restored on turn exit — a fresh request task recovers the
+  session's evidence; a different session sees none; a long-lived task cannot
+  carry stale flags across sessions. Family-overlap semantics documented
+  honestly in `injection_screen.py`: overlap is a NECESSARY signal, not proof of
+  exact echo or causation — which is why hard-fail stays flag-gated default-OFF
+  per ADR-036.
+
+Evidence: `tests/unit/security/test_containment_session_binding.py` (16),
+canary-blocking walker + fail-closed gates (+11), tool-output containment
+fail-closed envelope (+2), hard-fail fail-closed (+2), result-processing error
+envelope (+2), chat-turn acceptance (3). Gates: security 884+ green; agent
+services + tools suites green vs the pre-change baseline; black 26.10.1 +
+ruff clean; collect-only clean.
+
+
+## Codex review fix wave 1 — intent shim + seccomp fd (#1984, 2026-11-20)
+
+Fixes findings 7 and 8 (HIGH) and finding 21 (MEDIUM) from the v0.32.0
+candidate Codex review (`~/code/victor-review-findings.md`), branch
+`fix/intent-shim-seccomp-fd` off `origin/develop` @ `04b3efa88`.
+
+- **Finding 7 (HIGH) — intent tool shim**: `graph_query_tool._intent_provider_for`
+  was an async factory against the seeding core's synchronous factory
+  contract — with the intent flag on, explicit `mode="intent"` and the
+  hybrid intent leg reported "unavailable leg: 'coroutine' object has no
+  attribute 'search'" before touching the index. The shim is now sync.
+  Acceptance: the REGISTERED `graph_semantic_search` tool driven end to end
+  over one indexed SQLite fixture (real graph store + real `intent_chunks`
+  table + production `build_intent_index`; deterministic encoder stand-in)
+  in BOTH modes, known symbol contributes a score
+  (`tests/unit/tools/test_graph_query_tool_intent.py`).
+- **Finding 21 (MEDIUM) — intent switch in three settings groups**: ONE
+  effective field chosen: `search.graph.codebase_intent_indexing_enabled`.
+  All supported spellings (flat legacy key/env, `search.`/`codebase.`/
+  `embedding.` mirrors, new-style group env) migrate onto it explicitly
+  (`Settings._migrate_intent_indexing_spellings`); conflicting spellings
+  are rejected at load. CLI help now advertises the effective field.
+  Asserted through the graph CLI (every spelling reaches
+  `GraphIndexConfig`) and the registered query tool
+  (`tests/unit/config/test_intent_flag_migration.py`,
+  `tests/unit/ui/commands/test_graph_index_cli.py`).
+- **Finding 8 (HIGH) — seccomp fd forwarding**: the direct terminal, git
+  and search launchers forwarded the wrapped argv WITHOUT the backend's
+  seccomp filter descriptor (bwrap refused: "Can't read seccomp data") and
+  leaked one open fd per launch. New shared seam
+  `victor/tools/sandbox/launch.py`: `prepare_launch` returns argv AND
+  owned descriptors together; `run_launch`/`run_launch_async` forward
+  `pass_fds` and close them on every exit. Terminal/git/search routes and
+  the canonical executor (sync + async sites) are all consumers. Tests:
+  fd-count stability across repeated failed launches AND repeated
+  admission refusals, route `pass_fds` regressions, live bwrap
+  qualification (harmless subprocess green; unshare probe denied rc=7
+  proving the filter is attached; argv-only negative control fails
+  loudly), skip-with-reason on unqualified hosts
+  (`tests/unit/tools/sandbox/test_launch_helper.py`).
+- **Residual (wave-2 candidates, unchanged here)**: same defect class in
+  launchers outside the named finding scope — bash tool, workflow sandbox
+  executor, MCP stdio client, filesystem write enhancer, merge manager,
+  temporal analyzer, auto-commit, snapshot store, navigation slash
+  command. They wrap-then-spawn without `take_pass_fds` and can adopt the
+  shared helper.
+- **Gates**: unit tools/graph_rag/security 6128 passed; api/storage/
+  config/ui-command suites green; collect-only clean (42029); black
+  26.10.1 + ruff clean on changed files. The seccomp/bwrap live tests run
+  on qualified Linux only.
+## Codex review fix wave 1 — owner isolation (2026-11-20)
+
+Near-term fixes for Codex v0.32-candidate review findings 3, 4 and 13
+(HIGH, owner isolation + destructive forget). Full per-principal ownership
+is the PAUSED A4a+ design (FOU-A4 row; VAS-06 context) pending decision D4 —
+this wave enforces the honest single-trusted-operator posture instead of
+building ownership.
+
+- **Finding 3 (shared server-wide conversation client)**: new
+  `victor/integrations/api/operator_posture.py` + `VictorFastAPIServer.claim_shared_state`.
+  SAFE default: with MORE THAN ONE configured credential (`api_keys` /
+  `VICTOR_API_KEYS`) and no explicit declaration, the FIRST authenticated
+  principal to use a shared surface (chat conversation addressing
+  `/chat`, `/chat/stream`, `/chat/wire-stream`, `/chat/resume`;
+  `/conversation/export`; `/conversation/reset`) becomes its sticky owner
+  for the server session (reset on `update_session_config`), and requests
+  under a DIFFERENT `client_id` label are refused with the typed
+  `409 MultiPrincipalRefused` payload naming the limitation and the escape.
+  Posture-active + unresolved principal fails closed. Unresolved-credential
+  count is credentials, not labels; keys aliased to one `client_id` label
+  count as one principal. Operator escape: `single_operator_mode=True` /
+  `VICTOR_SINGLE_OPERATOR_MODE=1` attests one trusted operator (documented
+  in `docs/user-guide/cli-reference.md` §victor serve). Single-credential
+  and keyless servers behaviorally unchanged (pinned negatives).
+- **Finding 4 (shared memory store/routes)**: same enforced posture over
+  every `/memory` + `/memory/proposals` surface (typed 409 on a second
+  principal; store untouched). PLUS a store-level guard:
+  `PreferenceEpisodicStore(principal_id=...)` binds a principal context;
+  `set_preference`/`get_preferences`/`forget`/`record_episode` accept
+  `on_behalf_of=`, and cross-principal addressing is refused with
+  `CrossPrincipalAccessRefused` BEFORE any transaction opens (rows
+  preserved). Store unbound + call unnamed = legacy single-operator
+  behavior unchanged.
+- **Finding 13 (empty forget wipes a scope)**:
+  `EmptyContentMatchRefused` raised in `PreferenceEpisodicStore.forget`
+  for empty/whitespace-only `content_match` before any transaction; pinned
+  from ALL THREE layers (store, DELETE `/memory` → 400 + rows preserved,
+  `memory_forget` tool → structured error + rows preserved) plus positive
+  controls (non-empty match still works; typed class named in the API
+  ValueError response).
+- **Known residual (out of this wave's contract)**: the `/ws` chat socket
+  (message-level auth, Codex finding 1 scope) does not participate in the
+  sticky claim; the completions endpoint is stateless and unaffected.
+- **Follow-up commit (1429a8f9c)**: jscpd ratchet flagged the duplicated
+  route-file `_posture_refusal` helper + stream-handler prelude — deduped
+  onto shared `posture_json_response`/`request_principal` +
+  `_admit_chat_turn` (ratchet back to baseline, delta +0); plus a
+  real-server two-credential `/memory` test (auth dependency resolves
+  `request.state.client_id` into the sticky claim; store rows preserved).
+- Tests: 26-test refusal/isolation battery
+  (`tests/unit/integrations/api/test_multi_principal_refusal.py` — RED
+  first: two-credential interleaved chat/export/reset/stream/resume →
+  second credential 409 + first user's data intact; single-credential and
+  keyless negatives; escape-hatch positive), store cross-principal +
+  empty-match pins in `test_preference_episodic.py`, API pins in
+  `test_memory_routes.py` (incl. refusing-stand-in posture fixture —
+  addresses the "one router/one store fixture" note), tool pins in
+  `test_memory_write.py`. RELATED_TESTS entries added for
+  `operator_posture.py`, `conversation_routes.py`, `memory_routes.py`,
+  `chat_routes.py`. Gates: black 26.10.1 + ruff clean;
+  tests/unit/integrations/api + tests/unit/storage/memory + tests/unit/tools
+  4235 passed; collect-only 42,018 clean.

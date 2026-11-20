@@ -215,6 +215,36 @@ async def test_memory_forget_rejects_unknown_scope(store: PreferenceEpisodicStor
     assert result["success"] is False
 
 
+# Finding 13 (Codex review): an empty or whitespace-only content_match would
+# contains-match every preference in the scope — the store must reject it and
+# every row must survive, pinned from the TOOL layer.
+@pytest.mark.parametrize("empty_match", ["", "   ", "\t\n"])
+async def test_memory_forget_empty_content_match_is_rejected_and_rows_preserved(
+    store: PreferenceEpisodicStore, empty_match
+):
+    await memory_set(content="always use uv", scope="user")
+    await memory_set(content="uses pytest", scope="user")
+
+    result = await memory_forget(content_match=empty_match, scope="user")
+
+    assert result["success"] is False
+    assert "content_match" in result["error"]
+    remaining = sorted(p.content for p in store.get_preferences(MemoryScope.USER))
+    assert remaining == ["always use uv", "uses pytest"]
+
+
+async def test_memory_forget_empty_match_is_typed(store: PreferenceEpisodicStore):
+    from victor.storage.memory.preference_episodic import EmptyContentMatchRefused
+
+    await memory_forget(content_match=" ", scope="user")
+    # The typed error class is the ValueError the store raises; the tool
+    # surfaces it as a structured error (checked above) — pin the type here.
+    with pytest.raises(EmptyContentMatchRefused):
+        from victor.tools.memory_write import _get_store
+
+        _get_store().forget(content_match=" ", scope=MemoryScope.USER)
+
+
 # =============================================================================
 # Permission gating (workspace-write per FEP-0048)
 # =============================================================================

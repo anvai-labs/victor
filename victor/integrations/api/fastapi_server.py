@@ -55,6 +55,7 @@ from pydantic import BaseModel, Field, field_validator
 from victor.integrations.search_types import CodeSearchResult
 
 from victor.integrations.api.event_bridge import EventBridge
+from victor.integrations.api.operator_posture import is_multi_principal, refusal_payload
 from victor.integrations.api.router_plugins import load_fastapi_router_registrations
 from victor.integrations.api.workflow_event_bridge import WorkflowEventBridge
 from victor.core.events import get_observability_bus
@@ -556,6 +557,7 @@ class VictorFastAPIServer:
         enable_graphql: bool = True,
         session_config: Optional["SessionConfig"] = None,
         allow_unauthenticated: Optional[bool] = None,
+        single_operator_mode: Optional[bool] = None,
     ):
         """Initialize the FastAPI server.
 
@@ -573,12 +575,41 @@ class VictorFastAPIServer:
             allow_unauthenticated: Explicit opt-in for unauthenticated mode.
                 When False (default) and no api_keys configured, raises ValueError.
                 Set to True or env VICTOR_ALLOW_UNAUTHENTICATED=1 to allow.
+            single_operator_mode: Explicit operator declaration that every
+                configured API key belongs to ONE trusted operator. Default
+                (None/False) is the SAFE posture: with more than one
+                configured credential, the shared-state surfaces (chat
+                conversation addressing, /conversation/export,
+                /conversation/reset, /memory) refuse with the typed
+                ``MultiPrincipalRefused`` payload, because they resolve one
+                server-wide client/store with no owner in the lookup (Codex
+                findings 3/4; ownership itself is the paused A4a+ design).
+                Env alias: ``VICTOR_SINGLE_OPERATOR_MODE=1``.
         """
         self.host = host
         self.port = port
         self.workspace_root = workspace_root or str(Path.cwd())
         self.rate_limit_rpm = rate_limit_rpm
         self.api_keys = api_keys or {}
+        env_single_operator = os.environ.get("VICTOR_SINGLE_OPERATOR_MODE", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        self.single_operator_mode = bool(single_operator_mode) or env_single_operator
+        if is_multi_principal(self.api_keys, self.single_operator_mode):
+            logger.warning(
+                "Multi-principal posture: %d API credentials configured without a "
+                "single-trusted-operator declaration. Shared-state surfaces (chat "
+                "conversation addressing, /conversation/export, /conversation/reset, "
+                "/memory) will refuse (MultiPrincipalRefused) — one shared client/store "
+                "resolves them with no owner in the lookup. Full per-principal "
+                "isolation is the paused VAS-06 / FOU-A4a design.",
+                len(self.api_keys),
+            )
+        # Sticky principal that first claimed the shared conversation/memory
+        # state under the multi-credential posture (see claim_shared_state).
+        self._shared_state_principal: Optional[str] = None
         self.enable_cors = enable_cors
         self.enable_hitl = enable_hitl
         self.hitl_auth_token = hitl_auth_token
@@ -734,6 +765,47 @@ class VictorFastAPIServer:
             if api_key in self.api_keys:
                 return self.api_keys[api_key]
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    def claim_shared_state(
+        self, client_id: Optional[str], surface: str
+    ) -> Optional[Dict[str, Any]]:
+        """Sticky single-principal claim over the shared-state surfaces
+        (Codex findings 3/4).
+
+        Chat conversation addressing, export, reset and /memory resolve ONE
+        server-wide client/store with no owner in the lookup, so under the
+        enforced posture (more than one configured credential, no explicit
+        ``single_operator_mode`` declaration) the FIRST authenticated
+        principal to use a shared surface becomes its sticky owner and every
+        DIFFERENT credential is refused with the ``MultiPrincipalRefused``
+        payload — key B can never address key A's conversation or memory.
+        The ``client_id`` LABEL is the principal identity: keys aliased to
+        the same label are treated as one principal.
+
+        Returns:
+            The structured 409 refusal payload to translate into an HTTP
+            response, or ``None`` when the caller may proceed. This is a
+            posture statement, not an authorization decision: real
+            ownership is the paused VAS-06 / FOU-A4a design.
+        """
+        if not is_multi_principal(self.api_keys, self.single_operator_mode):
+            return None
+        if client_id is None:
+            # Posture active but the caller resolved no principal: fail closed.
+            return refusal_payload(surface)
+        if self._shared_state_principal is None:
+            self._shared_state_principal = client_id
+            logger.info(
+                "Shared-state principal bound to %r for this server session "
+                "(multi-credential posture; other credentials are refused on "
+                "chat conversation addressing, /conversation/export, "
+                "/conversation/reset and /memory).",
+                client_id,
+            )
+            return None
+        if client_id != self._shared_state_principal:
+            return refusal_payload(surface)
+        return None
 
     # Paths reachable without an API key: health/status probes. The /ws chat
     # socket authenticates at the message level (auth frame, gated in
@@ -1013,6 +1085,9 @@ class VictorFastAPIServer:
         from victor.framework.session_runner import create_victor_client
 
         self._session_config = session_config
+        # A config switch drops the runtime owners — the sticky shared-state
+        # claim binds to the replaced client/store and must not carry over.
+        self._shared_state_principal = None
         self._session_runner = type(self._session_runner)(
             self._settings,
             self._session_config,

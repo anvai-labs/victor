@@ -187,7 +187,10 @@ async def memory_forget(
         preference_id: Exact preference id to delete (as returned by
                        memory_set or /memory).
         content_match: Case-sensitive substring; deletes all matching
-                       preferences in ``scope``.
+                       preferences in ``scope``. Empty or whitespace-only
+                       matches are REFUSED (they would contains-match every
+                       memory in the scope) — pass a real substring or the
+                       exact ``preference_id`` instead.
         scope: Restricts deletion: "user", "project", or omit when deleting
                by id. Required with ``content_match`` so a vague match can
                never sweep both scopes.

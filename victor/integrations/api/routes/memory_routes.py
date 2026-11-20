@@ -31,9 +31,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from victor.integrations.api.operator_posture import posture_json_response, request_principal
 
 if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
@@ -102,14 +104,28 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     """Create memory routes bound to *server*."""
     router = APIRouter(tags=["Memory"])
 
+    def _posture_refusal(surface: str, http_request: Request) -> Optional[JSONResponse]:
+        """Enforced single-principal posture (Codex finding 4): the /memory
+        surfaces address ONE shared store with no owner in the lookup, so
+        under the multi-credential posture a second credential must never
+        reach them (sticky first-principal claim)."""
+        return posture_json_response(
+            server.claim_shared_state(request_principal(http_request), surface), surface
+        )
+
     @router.get("/memory")
     async def list_memories(
+        http_request: Request,
         scope: Optional[str] = Query(None, description="Filter preferences: user | project"),
         episode_limit: int = Query(20, ge=1, le=100),
     ) -> JSONResponse:
         """List stored preferences (both scopes by default) and recent episodes."""
         from victor.framework.memory import get_shared_memory_store
         from victor.storage.memory.preference_episodic import MemoryScope
+
+        refusal = _posture_refusal("memory", http_request)
+        if refusal is not None:
+            return refusal
 
         if scope is not None and scope not in _VALID_SCOPES:
             return _scope_error(scope)
@@ -133,13 +149,17 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             return JSONResponse({"error": "Internal server error"}, status_code=500)
 
     @router.post("/memory")
-    async def set_memory(request: MemorySetRequest) -> JSONResponse:
+    async def set_memory(request: MemorySetRequest, http_request: Request) -> JSONResponse:
         """Store a preference; secret-shaped/oversized content is refused."""
         from victor.framework.memory import get_shared_memory_store
         from victor.storage.memory.preference_episodic import (
             MemoryScope,
             MemoryWriteRefused,
         )
+
+        refusal = _posture_refusal("memory", http_request)
+        if refusal is not None:
+            return refusal
 
         if request.scope not in _VALID_SCOPES:
             return _scope_error(request.scope)
@@ -167,6 +187,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
     @router.delete("/memory")
     async def forget_memory(
+        http_request: Request,
         preference_id: Optional[str] = Query(None, description="Exact preference id"),
         content_match: Optional[str] = Query(None, description="Content substring"),
         scope: Optional[str] = Query(None, description="Required with content_match"),
@@ -174,6 +195,10 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         """Forget preferences by id, or by content match within one scope."""
         from victor.framework.memory import get_shared_memory_store
         from victor.storage.memory.preference_episodic import MemoryScope
+
+        refusal = _posture_refusal("memory", http_request)
+        if refusal is not None:
+            return refusal
 
         if preference_id is None and content_match is None:
             return JSONResponse(
@@ -194,7 +219,10 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 scope=memory_scope,
             )
         except ValueError as exc:
-            return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+            return JSONResponse(
+                {"success": False, "error": str(exc), "refusal": type(exc).__name__},
+                status_code=400,
+            )
         except Exception:
             logger.exception("Memory forget error")
             return JSONResponse({"error": "Internal server error"}, status_code=500)
@@ -202,9 +230,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         return JSONResponse({"success": True, "forgotten": deleted})
 
     @router.get("/memory/proposals")
-    async def list_proposals() -> JSONResponse:
+    async def list_proposals(http_request: Request) -> JSONResponse:
         """List consolidation proposals staged by the end-session hook."""
         from victor.framework.memory import get_shared_memory_consolidator
+
+        refusal = _posture_refusal("memory", http_request)
+        if refusal is not None:
+            return refusal
 
         try:
             staged = get_shared_memory_consolidator().staged_proposals()
@@ -219,9 +251,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             return JSONResponse({"error": "Internal server error"}, status_code=500)
 
     @router.post("/memory/proposals/confirm")
-    async def confirm_proposals() -> JSONResponse:
+    async def confirm_proposals(http_request: Request) -> JSONResponse:
         """Commit the staged proposals as episodes (the confirm path)."""
         from victor.framework.memory import get_shared_memory_consolidator
+
+        refusal = _posture_refusal("memory", http_request)
+        if refusal is not None:
+            return refusal
 
         try:
             stored = get_shared_memory_consolidator().commit_staged()
@@ -237,9 +273,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             return JSONResponse({"error": "Internal server error"}, status_code=500)
 
     @router.post("/memory/proposals/discard")
-    async def discard_proposals() -> JSONResponse:
+    async def discard_proposals(http_request: Request) -> JSONResponse:
         """Drop the staged proposals without writing anything."""
         from victor.framework.memory import get_shared_memory_consolidator
+
+        refusal = _posture_refusal("memory", http_request)
+        if refusal is not None:
+            return refusal
 
         try:
             discarded = get_shared_memory_consolidator().discard_staged()

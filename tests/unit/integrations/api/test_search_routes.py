@@ -54,7 +54,9 @@ def _trap_launch(monkeypatch, launched: list[dict[str, Any]]) -> None:
         launched.append({"argv": [str(value) for value in argv], "kwargs": kwargs})
         return SimpleNamespace(stdout="", returncode=1)
 
-    monkeypatch.setattr(search_routes.subprocess, "run", _run)
+    import subprocess as subprocess_mod
+
+    monkeypatch.setattr(subprocess_mod, "run", _run)
 
 
 async def test_required_policy_wraps_search_route_launch(monkeypatch, tmp_path):
@@ -141,3 +143,30 @@ async def test_admitted_snapshot_overrides_reloaded_required_settings(monkeypatc
 
     assert response.error is None
     assert launched and launched[0]["argv"][0] == "rg"
+
+
+async def test_search_required_launch_carries_and_closes_descriptors(monkeypatch, tmp_path):
+    """Finding 8: the direct search launcher forwards the backend's owned
+    descriptors with the wrapped argv and closes them after the spawn."""
+    import os
+
+    server = SimpleNamespace(workspace_root=str(tmp_path))
+    _install_policy(monkeypatch, "required", backend_available=True)
+    captured: dict = {}
+
+    def _run(argv: list[str], **kwargs: Any):
+        captured["pass_fds"] = kwargs.get("pass_fds")
+        return SimpleNamespace(stdout="", returncode=0)
+
+    import subprocess as subprocess_mod
+
+    monkeypatch.setattr(subprocess_mod, "run", _run)
+
+    endpoint = _endpoint(server)
+    await endpoint(CodeSearchRequest(query="probe", max_results=5))
+
+    fds = captured.get("pass_fds")
+    assert fds, "search launch dropped the backend's seccomp descriptor"
+    for fd in fds:
+        with pytest.raises(OSError):
+            os.fstat(fd)

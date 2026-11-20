@@ -8,6 +8,8 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Iterator, Optional, Protocol
 from uuid import uuid4
 
+from victor.security.containment import SessionContainmentState
+
 
 def derive_scoped_session_id(parent_session_id: Optional[str], team_id: str, member_id: str) -> str:
     """Colon-scoped child session id for team/worktree-isolated members.
@@ -134,6 +136,7 @@ class RuntimeIdentity:
         self._context = self._initial
         self._member: Optional[AgentRuntimeContext] = None
         self._turn_lock: Optional[asyncio.Lock] = None
+        self._containment_state: Optional[SessionContainmentState] = None
 
     def resolve(self) -> AgentRuntimeContext:
         active_session_id = self._state.active_session_id
@@ -173,6 +176,23 @@ class RuntimeIdentity:
         self._require_idle_session()
         self._member = require_runtime_context(lambda: context)
         self._state.active_session_id = context.session_id
+
+    def containment_state(self) -> SessionContainmentState:
+        """Return this session's stable containment state (canary + evidence).
+
+        Codex review fix wave 1, finding 1: the session owner holds ONE
+        canary per resolved session id. The state is minted lazily, stable
+        across turns and resumes of the same session, and regenerated when
+        the resolved session changes (member bind, restored session id), so
+        child/member sessions never share a canary with the parent and the
+        old canary is retired on session exit/transition. Turn-scoped binding
+        is the caller's job: bind ``bind_containment_state(state)`` around
+        each turn (ChatService does).
+        """
+        session_id = self.resolve().session_id
+        if self._containment_state is None or self._containment_state.session_id != session_id:
+            self._containment_state = SessionContainmentState(session_id=session_id)
+        return self._containment_state
 
 
 @contextmanager
