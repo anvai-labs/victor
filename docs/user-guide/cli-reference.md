@@ -158,6 +158,22 @@ victor serve --reload               # Auto-reload on changes
 | `/health` | GET | Health check |
 | `/providers` | GET | List providers |
 
+**Multi-key posture (single-trusted-operator enforcement):**
+
+The server resolves ONE shared conversation and memory store; per-credential
+ownership is not implemented yet (planned FOU-A4a / VAS-06). To keep a second
+credential from exporting or resetting the first user's conversation or
+memory, the default posture enforces a single authenticated principal: with
+more than one entry in `VICTOR_API_KEYS`, the FIRST principal to use a
+shared surface (chat conversation addressing, `/conversation/export`,
+`/conversation/reset`, `/memory`) becomes its sticky owner for the server
+session, and requests under a DIFFERENT `client_id` label are refused with
+`409 MultiPrincipalRefused`.
+
+If every configured key belongs to one trusted operator (key aliases), set
+`VICTOR_SINGLE_OPERATOR_MODE=1` (or pass `single_operator_mode=True`) to
+declare that explicitly and keep the shared multi-key posture.
+
 ---
 
 ### victor capabilities

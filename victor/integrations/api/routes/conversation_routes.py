@@ -17,9 +17,9 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from victor.integrations.api.change_tracker_ops import (
@@ -27,6 +27,7 @@ from victor.integrations.api.change_tracker_ops import (
     redo_last_change,
     undo_last_change,
 )
+from victor.integrations.api.operator_posture import posture_json_response, request_principal
 
 if TYPE_CHECKING:
     from victor.integrations.api.fastapi_server import VictorFastAPIServer
@@ -38,17 +39,32 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     """Create conversation / history routes bound to *server*."""
     router = APIRouter()
 
+    def _posture_refusal(surface: str, http_request: Request) -> Optional[JSONResponse]:
+        """Enforced single-trusted-operator posture (Codex finding 3): reset
+        and export address the ONE server-wide conversation with no owner in
+        the lookup, so under the multi-credential posture a second credential
+        must never reach them (sticky first-principal claim)."""
+        return posture_json_response(
+            server.claim_shared_state(request_principal(http_request), surface), surface
+        )
+
     @router.post("/conversation/reset", tags=["Conversation"])
-    async def reset_conversation() -> JSONResponse:
+    async def reset_conversation(http_request: Request) -> JSONResponse:
         """Reset conversation history."""
+        refusal = _posture_refusal("conversation/reset", http_request)
+        if refusal is not None:
+            return refusal
         await server._record_rl_feedback()
         # ✅ NEW: Use VictorClient (service layer) instead of direct orchestrator access
         await server.reset_conversation()
         return JSONResponse({"success": True, "message": "Conversation reset"})
 
     @router.get("/conversation/export", tags=["Conversation"])
-    async def export_conversation(format: str = Query("json")) -> Any:
+    async def export_conversation(http_request: Request, format: str = Query("json")) -> Any:
         """Export conversation history."""
+        refusal = _posture_refusal("conversation/export", http_request)
+        if refusal is not None:
+            return refusal
         # ✅ NEW: Use VictorClient (service layer) instead of direct orchestrator access
         messages = await server.get_conversation_messages()
 
