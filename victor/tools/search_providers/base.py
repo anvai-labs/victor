@@ -17,7 +17,9 @@
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional, Protocol, runtime_checkable
+from typing import Awaitable, Callable, Optional, Protocol, runtime_checkable
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -121,3 +123,102 @@ def build_provider_configured_error(provider: str, env_var: str) -> dict:
             f"the environment or run `victor keys --set-service {provider}`"
         ),
     }
+
+
+class KeyGatedSearchProvider:
+    """Shared plumbing for key-gated search API adapters.
+
+    Subclasses set ``name``/``env_var`` and implement :meth:`search` in terms
+    of :meth:`require_key` + :meth:`fetch_json` + ``normalize_results``; this
+    base owns key resolution, the HTTP exchange and status/JSON error mapping
+    so the wire-specific code in each adapter stays minimal (duplication
+    ratchet: the per-adapter copy-paste of this plumbing is a ratchet
+    failure).
+    """
+
+    name: str = ""
+    env_var: str = ""
+
+    def __init__(self, api_key: Optional[str] = None):
+        # Explicit key overrides resolution (used by tests and embedders).
+        self._api_key = api_key
+
+    def is_configured(self) -> bool:
+        return bool(self._api_key) or bool(resolve_provider_key(self.env_var, self.name))
+
+    def require_key(self) -> str:
+        key = self._api_key or resolve_provider_key(self.env_var, self.name)
+        if not key:
+            raise ProviderNotConfigured(self.name, self.env_var)
+        return key
+
+    async def fetch_json(
+        self,
+        request: Callable[[httpx.AsyncClient], Awaitable[httpx.Response]],
+        *,
+        timeout_seconds: float = DEFAULT_SEARCH_TIMEOUT_SECONDS,
+    ) -> dict:
+        """Run one httpx request and return the decoded JSON payload.
+
+        ``request`` builds the awaited call against a fresh client, e.g.
+        ``lambda client: client.post(url, headers=..., json=...)``. Non-200
+        statuses and undecodable JSON raise :class:`SearchProviderError`.
+        """
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            response = await request(client)
+
+        if response.status_code != 200:
+            raise SearchProviderError(
+                self.name,
+                f"search request failed (status {response.status_code})",
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise SearchProviderError(self.name, f"invalid JSON response: {exc}") from exc
+        return payload
+
+    @staticmethod
+    def normalize_results(
+        raw_results: object,
+        *,
+        url_key: str,
+        title_key: str = "title",
+        snippet_key: str = "snippet",
+        max_results: int = 5,
+    ) -> "list[SearchResult]":
+        """Normalize a provider result list into the SearchResult contract.
+
+        Non-dict entries and entries without a URL are skipped; the list is
+        truncated to ``max_results``.
+        """
+        if not isinstance(raw_results, list):
+            raw_results = []
+        results: list[SearchResult] = []
+        for item in raw_results[: max(0, int(max_results))]:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get(url_key) or "")
+            if not url:
+                continue
+            results.append(
+                SearchResult(
+                    title=str(item.get(title_key) or ""),
+                    url=url,
+                    snippet=str(item.get(snippet_key) or ""),
+                )
+            )
+        return results
+
+    @staticmethod
+    def results_list(payload: dict, *path: str) -> list:
+        """Extract the result list at a (nested) payload path.
+
+        Returns ``[]`` when any hop is missing or mistyped, so adapters never
+        need their own defensive type checks.
+        """
+        node: object = payload
+        for key in path:
+            node = node.get(key) if isinstance(node, dict) else None
+        return node if isinstance(node, list) else []

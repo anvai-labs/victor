@@ -4,7 +4,7 @@ Status: Design (no implementation acceptance). Task ledger:
 [victor-foundations-plan.md](victor-foundations-plan.md) FOU-A4 row.
 Auth design of record for the principal/policy shapes:
 [victor-agent-service-auth-policy.md](victor-agent-service-auth-policy.md) (VAS-05a).
-Attribution contract: [FEP-0020](../../feps/fep-0020-ai-gateway-usage-attribution.md).
+Attribution contract: [FEP-0020](../feps/fep-0020-ai-gateway-usage-attribution.md).
 
 Created: 2026-11-19. This document is the A4 pass a follow-up implementation
 PR executes without re-litigating scope. All `file:line` references are
@@ -422,7 +422,7 @@ after this design lands; A4d needs D3/D4 confirmed before merge.
 
 ## 7. References
 
-- [FEP-0020 — AI usage gateway](../../feps/fep-0020-ai-gateway-usage-attribution.md)
+- [FEP-0020 — AI usage gateway](../feps/fep-0020-ai-gateway-usage-attribution.md)
 - [Agent-service auth policy (VAS-05a design)](victor-agent-service-auth-policy.md)
 - [Victor Foundations Plan — FOU-A4 row](victor-foundations-plan.md)
 - [Victor agent-service plan — VAS-05 rows](victor-agent-service-plan.md)

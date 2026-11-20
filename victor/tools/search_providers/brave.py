@@ -18,16 +18,11 @@ API reference: https://api-dashboard.search.brave.com/app/documentation/web-sear
 """
 
 import logging
-from typing import Optional
-
-import httpx
 
 from victor.tools.search_providers.base import (
     DEFAULT_SEARCH_TIMEOUT_SECONDS,
-    ProviderNotConfigured,
-    SearchProviderError,
+    KeyGatedSearchProvider,
     SearchResult,
-    resolve_provider_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,18 +30,11 @@ logger = logging.getLogger(__name__)
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 
 
-class BraveSearchProvider:
+class BraveSearchProvider(KeyGatedSearchProvider):
     """Key-gated Brave Search API adapter."""
 
     name = "brave"
     env_var = "BRAVE_SEARCH_API_KEY"
-
-    def __init__(self, api_key: Optional[str] = None):
-        # Explicit key overrides resolution (used by tests and embedders).
-        self._api_key = api_key
-
-    def is_configured(self) -> bool:
-        return bool(self._api_key) or bool(resolve_provider_key(self.env_var, self.name))
 
     async def search(
         self,
@@ -55,12 +43,9 @@ class BraveSearchProvider:
         max_results: int = 5,
         timeout_seconds: float = DEFAULT_SEARCH_TIMEOUT_SECONDS,
     ) -> list[SearchResult]:
-        key = self._api_key or resolve_provider_key(self.env_var, self.name)
-        if not key:
-            raise ProviderNotConfigured(self.name, self.env_var)
-
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.get(
+        key = self.require_key()
+        payload = await self.fetch_json(
+            lambda client: client.get(
                 BRAVE_SEARCH_URL,
                 headers={
                     "X-Subscription-Token": key,
@@ -70,37 +55,16 @@ class BraveSearchProvider:
                     "q": query,
                     "count": max(1, int(max_results)),
                 },
-            )
+            ),
+            timeout_seconds=timeout_seconds,
+        )
 
-        if response.status_code != 200:
-            raise SearchProviderError(
-                self.name,
-                f"search request failed (status {response.status_code})",
-            )
-
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise SearchProviderError(self.name, f"invalid JSON response: {exc}") from exc
-
-        web_section = payload.get("web") or {}
-        raw_results = web_section.get("results") if isinstance(web_section, dict) else None
-        if not isinstance(raw_results, list):
-            raw_results = []
-
-        results: list[SearchResult] = []
-        for item in raw_results[: max(0, int(max_results))]:
-            if not isinstance(item, dict):
-                continue
-            url = str(item.get("url") or "")
-            if not url:
-                continue
-            results.append(
-                SearchResult(
-                    title=str(item.get("title") or ""),
-                    url=url,
-                    snippet=str(item.get("description") or ""),
-                )
-            )
+        results = self.normalize_results(
+            self.results_list(payload, "web", "results"),
+            url_key="url",
+            title_key="title",
+            snippet_key="description",
+            max_results=max_results,
+        )
         logger.debug("[brave] query=%r results=%d", query, len(results))
         return results

@@ -18,16 +18,13 @@ API reference: https://docs.tavily.com/
 """
 
 import logging
-from typing import Optional
 
-import httpx
 
 from victor.tools.search_providers.base import (
     DEFAULT_SEARCH_TIMEOUT_SECONDS,
-    ProviderNotConfigured,
+    KeyGatedSearchProvider,
     SearchProviderError,
     SearchResult,
-    resolve_provider_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,18 +32,11 @@ logger = logging.getLogger(__name__)
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 
 
-class TavilyProvider:
+class TavilyProvider(KeyGatedSearchProvider):
     """Key-gated Tavily search adapter."""
 
     name = "tavily"
     env_var = "TAVILY_API_KEY"
-
-    def __init__(self, api_key: Optional[str] = None):
-        # Explicit key overrides resolution (used by tests and embedders).
-        self._api_key = api_key
-
-    def is_configured(self) -> bool:
-        return bool(self._api_key) or bool(resolve_provider_key(self.env_var, self.name))
 
     async def search(
         self,
@@ -55,12 +45,9 @@ class TavilyProvider:
         max_results: int = 5,
         timeout_seconds: float = DEFAULT_SEARCH_TIMEOUT_SECONDS,
     ) -> list[SearchResult]:
-        key = self._api_key or resolve_provider_key(self.env_var, self.name)
-        if not key:
-            raise ProviderNotConfigured(self.name, self.env_var)
-
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.post(
+        key = self.require_key()
+        payload = await self.fetch_json(
+            lambda client: client.post(
                 TAVILY_SEARCH_URL,
                 headers={"Authorization": f"Bearer {key}"},
                 json={
@@ -68,36 +55,20 @@ class TavilyProvider:
                     "max_results": max(1, int(max_results)),
                     "include_answer": False,
                 },
-            )
+            ),
+            timeout_seconds=timeout_seconds,
+        )
 
-        if response.status_code != 200:
-            raise SearchProviderError(
-                self.name,
-                f"search request failed (status {response.status_code})",
-            )
-
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise SearchProviderError(self.name, f"invalid JSON response: {exc}") from exc
-
-        raw_results = payload.get("results")
-        if not isinstance(raw_results, list):
+        if not isinstance(payload.get("results"), list):
+            # Tavily's wire contract: the results list is always present.
             raise SearchProviderError(self.name, "response missing 'results' list")
 
-        results: list[SearchResult] = []
-        for item in raw_results[: max(0, int(max_results))]:
-            if not isinstance(item, dict):
-                continue
-            url = str(item.get("url") or "")
-            if not url:
-                continue
-            results.append(
-                SearchResult(
-                    title=str(item.get("title") or ""),
-                    url=url,
-                    snippet=str(item.get("content") or ""),
-                )
-            )
+        results = self.normalize_results(
+            self.results_list(payload, "results"),
+            url_key="url",
+            title_key="title",
+            snippet_key="content",
+            max_results=max_results,
+        )
         logger.debug("[tavily] query=%r results=%d", query, len(results))
         return results

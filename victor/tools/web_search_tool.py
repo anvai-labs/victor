@@ -70,6 +70,32 @@ _DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 _DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
 _DDG_RENDER_URL_TMPL = "https://duckduckgo.com/?q={query}"
 
+# Web-tool defaults when no ToolConfig context is supplied (tests call the
+# tool functions directly). Pooling is enabled for latency; unit tests that
+# assert against respx mocks MUST override ``http_connection_pool_enabled``
+# to False — respx intercepts httpx only, so a pool-enabled test run leaks
+# REAL network requests through the aiohttp path and returns live results.
+_DEFAULT_WEB_CONFIG: Dict[str, Any] = {
+    "provider": None,
+    "model": None,
+    "fetch_top": None,
+    "fetch_pool": None,
+    "max_content_length": _DEFAULT_MAX_CONTENT_LENGTH,
+    "generic_result_cache_enabled": False,
+    "generic_result_cache_ttl": 300,
+    "http_connection_pool_enabled": True,  # 20-30% latency reduction on hot paths
+    "http_connection_pool_max_connections": 100,
+    "http_connection_pool_max_connections_per_host": 10,
+    "http_connection_pool_connection_timeout": 30,
+    "http_connection_pool_total_timeout": 60,
+    "rate_limiter_enabled": True,
+    "rate_limiter_requests_per_minute": 10,
+    "rate_limiter_max_retries": 2,  # Reduced from 5 to fail faster on timeout
+    "rate_limiter_initial_delay": 0.5,  # Reduced from 1.0 for faster retries
+    "rate_limiter_max_delay": 10.0,  # Reduced from 60.0 to fail faster
+    "rate_limiter_backoff_multiplier": 2.0,
+}
+
 
 def _pick_user_agent() -> str:
     """Return a random User-Agent from the rotating pool."""
@@ -322,26 +348,7 @@ def _get_web_config(context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
                 2.0,
             ),
         }
-    return {
-        "provider": None,
-        "model": None,
-        "fetch_top": None,
-        "fetch_pool": None,
-        "max_content_length": _DEFAULT_MAX_CONTENT_LENGTH,
-        "generic_result_cache_enabled": False,
-        "generic_result_cache_ttl": 300,
-        "http_connection_pool_enabled": True,  # Enable HTTP connection pooling by default for 20-30% latency reduction
-        "http_connection_pool_max_connections": 100,
-        "http_connection_pool_max_connections_per_host": 10,
-        "http_connection_pool_connection_timeout": 30,
-        "http_connection_pool_total_timeout": 60,
-        "rate_limiter_enabled": True,
-        "rate_limiter_requests_per_minute": 10,
-        "rate_limiter_max_retries": 2,  # Reduced from 5 to fail faster on timeout
-        "rate_limiter_initial_delay": 0.5,  # Reduced from 1.0 for faster retries
-        "rate_limiter_max_delay": 10.0,  # Reduced from 60.0 to fail faster
-        "rate_limiter_backoff_multiplier": 2.0,
-    }
+    return {**_DEFAULT_WEB_CONFIG, "max_content_length": _DEFAULT_MAX_CONTENT_LENGTH}
 
 
 def _get_generic_web_cache(default_ttl: int) -> GenericResultCache:

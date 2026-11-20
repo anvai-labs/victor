@@ -33,10 +33,24 @@ _EMPTY_DDG_HTML = "<html><body><div class='results'></div></body></html>"
 
 
 @pytest.fixture(autouse=True)
-def _clear_web_caches():
-    """Isolate tests from the generic result cache and rate limiter."""
+def _clear_web_caches(monkeypatch):
+    """Isolate tests from the generic result cache and rate limiter, and
+    force the httpx request path.
+
+    ``_request_text`` prefers the aiohttp connection pool when enabled (the
+    shipped default config enables it), and respx cannot intercept aiohttp —
+    a pool-enabled run would leak REAL network requests from these tests and
+    return live DuckDuckGo results instead of the mocks (seen on CI:
+    result_count 5 from the live endpoint where the mock provides 1). Forcing
+    the pool off keeps every request on the respx-intercepted httpx path.
+    """
     from victor.tools import web_search_tool as wst
 
+    monkeypatch.setattr(
+        wst,
+        "_DEFAULT_WEB_CONFIG",
+        {**wst._DEFAULT_WEB_CONFIG, "http_connection_pool_enabled": False},
+    )
     wst._GENERIC_WEB_CACHE = None
     wst._RATE_LIMITER = None
     yield
@@ -182,6 +196,49 @@ class TestAutoFallback:
 
         assert result["success"] is True
         assert result["provider"] == "duckduckgo"
+
+    @respx.mock
+    async def test_ddg_search_never_routes_through_the_aiohttp_pool(self, monkeypatch):
+        """Negative guard for the CI regression (result_count 5 == live DDG).
+
+        respx intercepts httpx only; if ``_request_text`` ever takes the
+        aiohttp pool branch during these tests, the request bypasses every
+        mock and hits the REAL DuckDuckGo. The pool must stay disabled here —
+        the fixture forces it off, and this test fails loudly if that regresses
+        (instead of silently leaking network and flipping on CI). The recorder
+        asserts AFTER the call because the pool branch swallows exceptions
+        into its httpx fallback.
+        """
+        from victor.tools import http_pool
+
+        pool_calls: list = []
+
+        async def _recording_forbidden_pool(*args, **kwargs):
+            pool_calls.append(args)
+            raise AssertionError("pool must not be used under respx-mocked tests")
+
+        monkeypatch.setattr(http_pool, "get_http_pool", _recording_forbidden_pool)
+        monkeypatch.setattr("victor.config.api_keys.get_service_key", lambda service: None)
+        respx.post(DDG_HTML_URL).mock(
+            return_value=httpx.Response(
+                200,
+                html="""
+                <html><body>
+                <div class="result">
+                  <a class="result__a" href="https://ddg.example">DDG Title</a>
+                  <a class="result__snippet">DDG snippet.</a>
+                </div>
+                </body></html>
+                """,
+            )
+        )
+
+        result = await web_search(query="test", provider="auto")
+
+        assert result["success"] is True
+        assert result["provider"] == "duckduckgo"
+        assert result["result_count"] == 1
+        assert pool_calls == [], "request routed through the aiohttp pool (real-network leak)"
 
 
 class TestRegistration:
