@@ -1107,9 +1107,24 @@ RELATED_TESTS = {
     ),
     # /ws route: connection registration, message-auth gate, bounded auth
     # handshake and broadcast recipient admission are pinned by the WS auth
-    # gate suite (no per-route mirror file).
+    # gate suite (no per-route mirror file); bounded per-client delivery is
+    # pinned by the WS delivery bounds suite (VAS-06/10, TD-03).
     "victor/integrations/api/routes/websocket_routes.py": (
         "tests/unit/integrations/api/test_ws_auth_gate.py",
+        "tests/unit/integrations/api/test_ws_delivery_bounds.py",
+    ),
+    # fastapi_server: the broadcast seam owns bounded per-client delivery
+    # (queues, sender deadlines, overflow policy) pinned by the WS delivery
+    # bounds suite; the auth gate suite pins delivery admission/ordering.
+    "victor/integrations/api/fastapi_server.py": (
+        "tests/unit/integrations/api/test_ws_delivery_bounds.py",
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+        "tests/unit/integrations/api/test_fastapi_server.py",
+    ),
+    # Server settings group: WebSocket delivery knobs are validated positive
+    # by the WS delivery bounds suite.
+    "victor/config/groups/server_config.py": (
+        "tests/unit/integrations/api/test_ws_delivery_bounds.py",
     ),
     # Tool/team routes: approval/cancel wiring and owner-scoped broadcast
     # delivery are pinned by the consolidated-routes and WS auth gate suites
