@@ -83,7 +83,24 @@ def test_settings_reach_the_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
         "cpu_shares": 512,
         "cpu_quota": 50000,
         "idle_ttl_seconds": 60,
+        # Codex finding 11: host-boundary transfer policy knobs ride the same
+        # settings cascade (workspace auth off, budget at the default).
+        "workspace_root": None,
+        "transfer_byte_limit_bytes": 64 * 1024 * 1024,
     }
+
+
+def test_transfer_policy_settings_reach_the_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codex finding 11 (positive): the upload workspace authorization root
+    and the transfer byte budget thread through the settings cascade."""
+    monkeypatch.setattr(f"{CORE}.ContainerSandbox", _RecordingSandbox)
+    sub = SimpleNamespace(
+        code_executor_workspace_root="/srv/project",
+        code_executor_transfer_byte_limit_bytes=1024,
+    )
+    manager = _make_provider(SimpleNamespace(subprocess=sub))._create_code_execution_manager()
+    assert manager.kwargs["workspace_root"] == "/srv/project"
+    assert manager.kwargs["transfer_byte_limit_bytes"] == 1024
 
 
 def test_unresponsive_docker_cannot_stall_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:

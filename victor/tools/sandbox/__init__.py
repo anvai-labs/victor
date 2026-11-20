@@ -48,6 +48,7 @@ from victor.tools.sandbox.backends import (
 from victor.tools.sandbox.container_sandbox import (
     ContainerSandbox,
     ContainerSandboxUnavailableError,
+    SandboxTransferRefused,
     daemon_available,
     find_orphaned_sandboxes,
     reap_orphaned_sandboxes,
@@ -87,6 +88,7 @@ __all__ = [
     "resolve_sandbox_backend",
     "ContainerSandbox",
     "ContainerSandboxUnavailableError",
+    "SandboxTransferRefused",
     "daemon_available",
     "find_orphaned_sandboxes",
     "reap_orphaned_sandboxes",
