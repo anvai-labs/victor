@@ -24,11 +24,14 @@ all GitHub token shapes into ``github_token`` and all DB URIs into
 ``database_url``; Python names each variant), so expectations are label sets
 and agreement means a non-empty intersection.
 
-The engines' pattern REGISTRIES are intentionally disjoint in places (Rust
-carries vendor-specific families the Python registry lacks and vice versa).
-Those are pinned in ``TestDocumentedDivergences`` — a deliberate, visible
-ledger, not a hidden skip: a change on either side breaks the pin and forces
-this ledger to be revisited.
+Registry parity (FOU-C3, formerly the pinned-divergence ledger): the engines'
+pattern REGISTRIES used to be disjoint in places (Rust carried vendor-specific
+families the Python registry lacked — anthropic/openai/twilio/sendgrid/
+slack-webhook/heroku/discord — and Python carried bearer, the PGP header, the
+bare 40-char AWS secret, the github refresh token and the real three-part
+Slack token shape that Rust lacked). Both registries now detect the UNION:
+every formerly-pinned divergence is covered by ``TestRegistryParity`` and any
+future registry drift on either side breaks the exact-set pins there.
 """
 
 from __future__ import annotations
@@ -141,66 +144,73 @@ BENIGN_CORPUS = [
     "def use_secret(self):\n    return self._cache\n",
 ]
 
-# Pinned divergences: (id, content, rust label set, python label set, reason).
-DIVERGENCE_CORPUS = [
+# Registry-parity corpus (FOU-C3): the formerly-pinned divergences, now
+# covered on BOTH sides. Each item pins the exact per-engine label sets —
+# drift on either side breaks the pin and forces the registries to be
+# re-examined. (id, content, rust label set, python label set).
+REGISTRY_PARITY_CORPUS = [
     (
-        "github-refresh-py-gap",
+        "github-refresh-token",
         "ghr_" + "a" * 36,
         {"github_token"},
-        set(),
-        "Python registry has GITHUB_REFRESH_PATTERN but does not register it; "
-        "Rust's gh[pousr]_ family covers it.",
+        {"github_refresh"},
+        "Python's GITHUB_REFRESH_PATTERN is now registered (was defined but "
+        "unregistered); Rust's gh[pousr]_ family covers it.",
     ),
     (
-        "slack-real-token-shape-py-gap",
+        "slack-real-token-shape",
         "xoxb-" + "12345678901-12345678901-abcdefghijklmnopqrstuvwxyz",
         {"slack_token"},
-        set(),
+        {"slack_token"},
         "Real Slack tokens have three dash-separated segments; the Python "
-        "pattern only allows two, so it cannot match this shape.",
+        "pattern now adopts the Rust three-segment shape.",
     ),
     (
-        "bearer-rust-gap",
+        "bearer-token",
         "Bearer abcdefghijklmnopqrstuvwxyz123456",
-        set(),
         {"bearer_token"},
-        "The Rust registry has no bearer-token family.",
+        {"bearer_token"},
+        "The bearer family is now in the Rust registry (keyword + "
+        "whitespace-delimited 20+ char token run per the FOU-A2b "
+        "delimiter discipline).",
     ),
     (
-        "pgp-header-rust-gap",
+        "pgp-private-key-header",
         "-----BEGIN PGP PRIVATE KEY BLOCK-----",
-        set(),
         {"pgp_private_key"},
-        "The Rust private_key regex does not cover the PGP variant.",
+        {"pgp_private_key"},
+        "The Rust registry now has a dedicated PGP family (the generic "
+        "private_key regex deliberately does not absorb the BLOCK variant).",
     ),
     (
-        "bare-aws-secret-rust-gap",
+        "bare-aws-secret",
         "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        set(),
         {"aws_secret_key"},
-        "Python's aws_secret_key matches a bare 40-char base64 run; the Rust "
-        "pattern requires an aws/amazon keyword within 20 chars.",
+        {"aws_secret_key"},
+        "The Rust aws_secret_key family now also matches a boundary-delimited "
+        "bare 40-char base64 run (the Rust regex crate has no lookaround, so "
+        "the delimiters are consumed; detection semantics match).",
     ),
     (
-        "anthropic-rust-only",
+        "anthropic-api-key",
         "sk-ant-" + "api03-abcdefghijklmnopqrstuvwxyz1234567890",
         {"anthropic_api_key"},
-        set(),
-        "Vendor key families (anthropic/openai) exist only in the Rust registry.",
+        {"anthropic_api_key"},
+        "Vendor key families ported to the Python registry.",
     ),
     (
-        "twilio-rust-only",
+        "twilio-sid",
         "AC" + "a" * 32,
         {"twilio_sid"},
-        set(),
-        "Vendor-specific families exist only in the Rust registry.",
+        {"twilio_sid"},
+        "Vendor-specific families ported to the Python registry.",
     ),
     (
-        "sendgrid-rust-only",
+        "sendgrid-key",
         "SG." + "abcdefghijklmnopqrstuv." + "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx",
         {"sendgrid_key"},
-        set(),
-        "Vendor-specific families exist only in the Rust registry.",
+        {"sendgrid_key"},
+        "Vendor-specific families ported to the Python registry.",
     ),
 ]
 
@@ -214,19 +224,22 @@ def _matched_types(content: str, *, use_native: bool) -> set[str]:
 
 
 def _native_secrets_active() -> bool:
-    """True when detect_secrets actually dispatches to the Rust scanner.
+    """True when detect_secrets actually dispatches to the Rust scanner
+    AND the installed wheel knows the FOU-C3 registry-parity families.
 
     The flag ``_RUST_SECRETS_AVAILABLE`` only proves the wrapper imported —
     the wrapper itself falls back to Python internally when the wheel is
-    absent, so a behavioral probe against a Rust-registry-only family
-    (anthropic keys) is the real gate (mirrors
+    absent, so a behavioral probe is the real gate (mirrors
     test_secrets_scanner.py's ``_native_has_generic_patterns`` probe and the
-    CI wheel-lag pattern).
+    CI wheel-lag pattern). The probe targets ``bearer_token`` — a family
+    added to the Rust registry by the parity port — so a wheel that predates
+    this change skips the dispatch-path assertions instead of failing them;
+    the python-fallback path is the unconditional correctness contract.
     """
     if not secrets_mod._RUST_SECRETS_AVAILABLE:
         return False
-    probe = {m.secret_type for m in detect_secrets("sk-ant-" + "a" * 32)}
-    return "anthropic_api_key" in probe
+    probe = {m.secret_type for m in detect_secrets("Bearer abcdefghijklmnopqrstuvwxyz123456")}
+    return "bearer_token" in probe
 
 
 @pytest.fixture(params=[True, False], ids=["dispatch", "python-fallback"])
@@ -313,20 +326,34 @@ class TestMaskingStyle:
         assert content not in py_masked
 
 
-class TestDocumentedDivergences:
-    """The visible ledger of registry-level divergences (see module docstring).
+class TestRegistryParity:
+    """The formerly-pinned divergence ledger, now FIXED both directions
+    (FOU-C3 registry parity — see module docstring).
 
-    Each pin breaks loudly when either engine's pattern registry changes,
-    forcing this ledger to be re-examined rather than silently drifting.
+    Every item pins the exact per-engine label sets: a registry change on
+    either side breaks the pin and forces the union contract to be
+    re-examined rather than silently drifting.
     """
 
     @pytest.mark.parametrize(
         "name,content,rust_types,py_types,reason",
-        DIVERGENCE_CORPUS,
-        ids=[c[0] for c in DIVERGENCE_CORPUS],
+        REGISTRY_PARITY_CORPUS,
+        ids=[c[0] for c in REGISTRY_PARITY_CORPUS],
     )
-    def test_divergence_is_pinned(self, name, content, rust_types, py_types, reason):
+    def test_both_engines_detect_union_family(self, name, content, rust_types, py_types, reason):
         if not _native_secrets_active():
             pytest.skip("native secrets scanner not active (wheel missing or stale)")
         assert _matched_types(content, use_native=True) == rust_types, reason
+        assert _matched_types(content, use_native=False) == py_types, reason
+
+    @pytest.mark.parametrize(
+        "name,content,rust_types,py_types,reason",
+        REGISTRY_PARITY_CORPUS,
+        ids=[c[0] for c in REGISTRY_PARITY_CORPUS],
+    )
+    def test_python_fallback_detects_union_family(
+        self, name, content, rust_types, py_types, reason
+    ):
+        """The Python-side half of the union contract, unconditional — it is
+        the correctness gate when the installed wheel predates the port."""
         assert _matched_types(content, use_native=False) == py_types, reason
