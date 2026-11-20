@@ -49,6 +49,9 @@ _GITHUB_PAT = "ghp_" + "a" * 36
 class _Server:
     """Stand-in matching the create_router(server) factory convention."""
 
+    def claim_shared_state(self, client_id, surface: str):
+        return None
+
 
 @pytest.fixture
 def client(tmp_path: Path):
@@ -221,6 +224,23 @@ class TestDeleteMemory:
         response = http.delete("/memory")
         assert response.status_code == 400
 
+    # Finding 13 (Codex review): an empty or whitespace-only content_match
+    # must be rejected with rows preserved — pinned from the API layer.
+    @pytest.mark.parametrize("empty_match", ["", "   ", "\t\n "])
+    def test_delete_empty_content_match_is_rejected_and_rows_preserved(self, client, empty_match):
+        http, store, _consolidator = client
+        store.set_preference("always use uv", scope=MemoryScope.USER)
+        store.set_preference("uses pytest", scope=MemoryScope.USER)
+
+        response = http.delete("/memory", params={"content_match": empty_match, "scope": "user"})
+
+        assert response.status_code == 400
+        payload = response.json()
+        assert payload["success"] is False
+        assert "content_match" in payload["error"]
+        remaining = sorted(p.content for p in store.get_preferences(MemoryScope.USER))
+        assert remaining == ["always use uv", "uses pytest"]
+
 
 class TestProposalLifecycle:
     def test_stage_list_confirm(self, client):
@@ -267,3 +287,103 @@ class TestProposalLifecycle:
         response = http.get("/memory/proposals")
         assert response.status_code == 200
         assert response.json()["proposals"] == []
+
+
+# =============================================================================
+# Finding 4 (Codex review): enforced single-principal posture for /memory.
+# When the server posture refuses (more than one configured credential
+# without an explicit single-operator declaration), every /memory surface
+# returns the typed MultiPrincipalRefused payload and the store is untouched.
+# =============================================================================
+
+
+class _MultiPrincipalServer(_Server):
+    """Stand-in whose posture refuses shared-state surfaces."""
+
+    def __init__(self) -> None:
+        self.refused_surfaces: list[str] = []
+
+    def claim_shared_state(self, client_id, surface: str):
+        self.refused_surfaces.append(surface)
+        return {
+            "success": False,
+            "refusal": "MultiPrincipalRefused",
+            "surface": surface,
+            "error": (
+                "memory is refused while more than one API credential is "
+                "configured: this server resolves one shared memory store and "
+                "cannot attribute it per credential until owner isolation "
+                "lands (VAS-06 / FOU-A4a). Declare single-trusted-operator "
+                "mode explicitly to keep the shared posture."
+            ),
+        }
+
+
+@pytest.fixture
+def multi_principal_client(tmp_path: Path):
+    from victor.core.database import (
+        get_database,
+        get_project_database,
+        reset_database,
+        reset_project_database,
+    )
+    from victor.agent.services.memory_consolidation import (
+        set_shared_memory_consolidator,
+        set_shared_memory_store,
+    )
+    from victor.integrations.api.routes.memory_routes import create_router
+
+    reset_database()
+    reset_project_database(tmp_path)
+    store = PreferenceEpisodicStore(
+        global_db=get_database(tmp_path / "victor.db"),
+        project_db=get_project_database(tmp_path),
+    )
+    set_shared_memory_store(store)
+    set_shared_memory_consolidator(MemoryConsolidator(store))
+
+    server = _MultiPrincipalServer()
+    app = FastAPI()
+    app.include_router(create_router(server))
+    yield TestClient(app), store, server
+
+    from victor.agent.services.memory_consolidation import reset_shared_memory
+
+    reset_shared_memory()
+    reset_database()
+    reset_project_database(tmp_path)
+
+
+class TestMultiPrincipalPosture:
+    def test_list_refused(self, multi_principal_client):
+        http, store, server = multi_principal_client
+        response = http.get("/memory")
+        assert response.status_code == 409
+        payload = response.json()
+        assert payload["refusal"] == "MultiPrincipalRefused"
+        assert "single-trusted-operator" in payload["error"]
+        assert payload["surface"] == "memory"
+        assert server.refused_surfaces == ["memory"]
+
+    def test_set_refused_and_store_untouched(self, multi_principal_client):
+        http, store, server = multi_principal_client
+        response = http.post("/memory", json={"content": "always use uv"})
+        assert response.status_code == 409
+        assert response.json()["refusal"] == "MultiPrincipalRefused"
+        assert store.get_preferences(MemoryScope.USER) == []
+
+    def test_forget_refused_and_rows_preserved(self, multi_principal_client):
+        http, store, _server = multi_principal_client
+        store.set_preference("always use uv", scope=MemoryScope.USER)
+        response = http.delete("/memory", params={"preference_id": "pref_any"})
+        assert response.status_code == 409
+        assert sorted(p.content for p in store.get_preferences(MemoryScope.USER)) == [
+            "always use uv"
+        ]
+
+    def test_proposal_surfaces_refused(self, multi_principal_client):
+        http, _store, server = multi_principal_client
+        assert http.get("/memory/proposals").status_code == 409
+        assert http.post("/memory/proposals/confirm").status_code == 409
+        assert http.post("/memory/proposals/discard").status_code == 409
+        assert len(server.refused_surfaces) == 3
