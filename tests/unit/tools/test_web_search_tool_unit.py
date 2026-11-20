@@ -187,8 +187,8 @@ class TestRuntimeInfraIntegration:
         context = {"tool_config": tool_config}
 
         with patch(
-            "victor.tools.web_search_tool._request_text",
-            new=AsyncMock(return_value=(200, html)),
+            "victor.tools.web_search_tool._fetch_page",
+            new=AsyncMock(return_value=(200, html, "text/html", False)),
         ) as mock_request:
             first = await web_fetch(url, _exec_ctx=context)
 
@@ -196,7 +196,7 @@ class TestRuntimeInfraIntegration:
         assert mock_request.await_count == 1
 
         with patch(
-            "victor.tools.web_search_tool._request_text",
+            "victor.tools.web_search_tool._fetch_page",
             new=AsyncMock(side_effect=AssertionError("network should not be called")),
         ):
             second = await web_fetch(url, _exec_ctx=context)
@@ -208,7 +208,7 @@ class TestRuntimeInfraIntegration:
     async def test_web_fetch_browser_render_skips_http_request(self):
         with (
             patch(
-                "victor.tools.web_search_tool._request_text",
+                "victor.tools.web_search_tool._fetch_page",
                 new=AsyncMock(side_effect=AssertionError("http fetch should not be called")),
             ),
             patch(
@@ -235,8 +235,8 @@ class TestRuntimeInfraIntegration:
         short_html = "<html><body><div id='root'></div><script>app()</script></body></html>"
         with (
             patch(
-                "victor.tools.web_search_tool._request_text",
-                new=AsyncMock(return_value=(200, short_html)),
+                "victor.tools.web_search_tool._fetch_page",
+                new=AsyncMock(return_value=(200, short_html, "text/html", False)),
             ),
             patch(
                 "victor.tools.web_search_tool._render_page_text",
@@ -262,8 +262,8 @@ class TestRuntimeInfraIntegration:
         short_html = "<html><body><div id='root'></div><script>app()</script></body></html>"
         with (
             patch(
-                "victor.tools.web_search_tool._request_text",
-                new=AsyncMock(return_value=(200, short_html)),
+                "victor.tools.web_search_tool._fetch_page",
+                new=AsyncMock(return_value=(200, short_html, "text/html", False)),
             ),
             patch(
                 "victor.tools.web_search_tool._render_page_text",

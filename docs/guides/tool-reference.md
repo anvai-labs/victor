@@ -57,8 +57,14 @@
 
 | Tool | Description | Example |
 |------|-------------|---------|
-| `web_search` | Search web | `web_search "Python async"` |
-| `web_fetch` | Fetch page | `web_fetch https://example.com` |
+| `web_search` | Search web (DuckDuckGo by default; Tavily/Brave/Serper with a key) | `web_search "Python async"` |
+| `web_fetch` | Readable page fetch (title + main text, size cap, content-type guard) | `web_fetch https://example.com` |
+
+**Search providers (FOU-A5, optional, key-gated):** `web_search(provider=...)` accepts
+`auto` (default), `duckduckgo` (no key), `tavily`, `brave`, or `serper`. A provider is
+only offered when its key resolves; `auto` falls back to DuckDuckGo when no key is set.
+One-line setup: `export TAVILY_API_KEY=...` (or `victor keys --set-service tavily`;
+likewise `BRAVE_SEARCH_API_KEY` / `SERPER_API_KEY`).
 
 ## Tool Tiers
 

@@ -224,8 +224,22 @@ Tools for accessing web content (disabled in air-gapped mode).
 
 | Tool | Description | Cost | Example Usage |
 |------|-------------|------|---------------|
-| `web_search` | Search using DuckDuckGo | MEDIUM | "Search for Django REST framework docs" |
-| `web_fetch` | Fetch and extract web content | MEDIUM | "Get the content from that URL" |
+| `web_search` | Search using DuckDuckGo (or Tavily/Brave/Serper with a key) | MEDIUM | "Search for Django REST framework docs" |
+| `web_fetch` | Fetch and extract readable page content (title + main text) | MEDIUM | "Get the content from that URL" |
+
+**Search API providers (optional, key-gated).** By default `web_search` uses
+DuckDuckGo, which needs no key. If you have a search API key, Victor upgrades
+automatically (`provider="auto"`) or on request (`provider="tavily"`):
+
+| Provider | Env Variable | Setup |
+|----------|--------------|-------|
+| Tavily | `TAVILY_API_KEY` | `victor keys --set-service tavily` or export the env var |
+| Brave Search | `BRAVE_SEARCH_API_KEY` | `victor keys --set-service brave` |
+| Serper (Google SERP) | `SERPER_API_KEY` | `victor keys --set-service serper` |
+
+Without a key the provider is simply not offered: `auto` falls back to
+DuckDuckGo, and an explicit provider request returns a structured
+"provider not configured" result instead of failing.
 
 **Example: Web Research**
 ```
