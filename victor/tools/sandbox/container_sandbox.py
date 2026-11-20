@@ -27,8 +27,8 @@ sandbox containers cannot accumulate:
 
 - **Lazy**: constructing a :class:`ContainerSandbox` makes no Docker contact
   and starts nothing. A container is acquired on first
-  ``execute``/``put_files`` (or an explicit ``start``), so bootstrap, tests
-  and sessions that never run code never touch Docker.
+  ``execute``/``put_files``/``get_file`` (or an explicit ``start``), so
+  bootstrap, tests and sessions that never run code never touch Docker.
 - **Owned**: an acquired container is removed by ``stop``/``dispose`` and by
   a ``weakref.finalize`` that fires when the sandbox is garbage-collected or
   the interpreter exits.
@@ -506,10 +506,23 @@ class ContainerSandbox:
         container.exec_run(["touch", LEASE_PATH])
 
     def get_file(self, remote_path: str) -> bytes:
-        """Retrieve a single file from the sandbox."""
+        """Retrieve a single file from the sandbox.
+
+        Raises:
+        * :class:`ContainerSandboxUnavailableError` — no container can be
+          acquired (typed download failure; the ``get_file`` residual of
+          Codex finding 18). The historical silent ``b""`` return let
+          callers read "no Docker" as an empty-but-successful payload.
+          Fail-closed instead.
+        """
         container = self._ensure_container()
         if container is None:
-            return b""
+            raise ContainerSandboxUnavailableError(
+                "daemon_unreachable" if DOCKER_AVAILABLE else "binary_missing",
+                "Cannot retrieve files: the Docker container sandbox is unavailable; "
+                "refusing the download instead of returning empty bytes as success "
+                "(fail-closed). Verify: docker ps.",
+            )
 
         bits, _ = container.get_archive(remote_path)
         with io.BytesIO(b"".join(bits)) as tar_stream:

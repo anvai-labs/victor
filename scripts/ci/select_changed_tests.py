@@ -1578,6 +1578,9 @@ RELATED_TESTS = {
         "tests/unit/tools/sandbox/test_container_sandbox.py",
         "tests/unit/agent/test_code_exec_bootstrap.py",
         "tests/unit/agent/protocols/test_infrastructure_protocols.py",
+        # get_file/put_files typed-unavailable contract, via the vertical's
+        # CodeSandbox alias (skips when victor_coding is not installed).
+        "tests/integration/infra/test_docker_availability.py",
     ),
     # Codex containment mediums (findings 18/20): the tri-state policy
     # resolution in backends and the executor's fail-closed launch gate have
