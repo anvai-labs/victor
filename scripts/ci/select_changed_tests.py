@@ -376,11 +376,13 @@ RELATED_TESTS = {
         "tests/unit/memory/test_memory_adapters.py",
         "tests/unit/memory/test_conversation_history_store_protocol.py",
         "tests/unit/storage/memory/test_preference_episodic.py",
+        "tests/unit/storage/memory/test_preference_adapters_offloop.py",
     ),
     "victor/storage/memory/preference_episodic.py": (
         "tests/unit/storage/memory/test_preference_episodic.py",
         "tests/unit/commands/test_memory_command.py",
         "tests/unit/integrations/api/test_memory_routes.py",
+        "tests/unit/storage/memory/test_preference_adapters_offloop.py",
     ),
     "victor/tools/memory_write.py": ("tests/unit/tools/test_memory_write.py",),
     "victor/tools/spawn_subagent.py": (
@@ -413,8 +415,17 @@ RELATED_TESTS = {
     "victor/agent/memory_injection.py": (
         "tests/unit/agent/test_memory_injection.py",
         "tests/unit/agent/test_memory_injection_production_wiring.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
         "tests/unit/agent/test_memory_ab.py",
         "tests/unit/config/test_memory_settings.py",
+    ),
+    "victor/agent/conversation/context_assembly.py": (
+        "tests/unit/agent/test_orchestrator_context.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
+    ),
+    "victor/agent/orchestrator_context.py": (
+        "tests/unit/agent/test_orchestrator_context.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
     ),
     # The production wiring lives in the orchestrator composition root; the
     # glob mirrors (test_orchestrator*.py) don't cover the dormancy test.
@@ -446,6 +457,7 @@ RELATED_TESTS = {
         "tests/unit/security/test_tool_output_containment.py",
         "tests/unit/security/test_injection_hard_fail.py",
         "tests/unit/agent/services/test_chat_service_containment_binding.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
     ),
     "victor/agent/runtime/context.py": (
         "tests/unit/agent/runtime/test_agent_runtime_context.py",
@@ -1243,6 +1255,7 @@ RELATED_TESTS = {
         "tests/unit/agent/services/test_stream_turn_guards.py",
         "tests/unit/agent/services/test_streaming_act_port.py",
         "tests/unit/agent/services/test_streaming_act_adapter.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
     ),
     **dict.fromkeys(
         (
@@ -1259,6 +1272,7 @@ RELATED_TESTS = {
             "tests/unit/framework/test_agentic_loop_verification.py",
             "tests/unit/framework/test_agentic_loop_effect_gate.py",
             "tests/unit/evaluation/test_auditor_ab.py",
+            "tests/unit/agent/test_memory_delivery_provider_messages.py",
         ),
     ),
     "victor/evaluation/auditor_ab.py": ("tests/unit/evaluation/test_auditor_ab.py",),

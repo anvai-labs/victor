@@ -53,6 +53,7 @@ from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 from dataclasses import dataclass, field, replace
 
 from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
+from victor.agent.memory_injection import memory_delivered_messages
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.services import post_loop_recovery
 from victor.agent.services.tool_progress import batch_all_rejected
@@ -1725,7 +1726,10 @@ class TurnExecutor:
             kwargs["reasoning_effort"] = reasoning_effort
 
         return await self._execution_provider.execute_turn(
-            messages=self._chat_context.messages,
+            messages=memory_delivered_messages(
+                self._resolve_orchestrator(),
+                self._chat_context.messages,
+            ),
             model=model,
             temperature=temperature,
             max_tokens=self._provider_context.max_tokens,
