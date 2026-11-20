@@ -714,7 +714,7 @@ building ownership.
   tests/unit/integrations/api + tests/unit/storage/memory + tests/unit/tools
   4235 passed; collect-only 42,018 clean.
 
-## Codex review fix wave 1 — memory delivery + off-loop reads (2026-11-20, fix/w2-memory-delivery)
+## Codex review fix wave 1 — memory delivery + off-loop reads (#1987, 2026-11-20)
 
 Codex v0.32.0-candidate review findings 6 (HIGH) and 19 (MEDIUM): the
 PERCEIVE memory block was rendered into perception metadata with no named
@@ -722,7 +722,7 @@ production consumer, the binding supplied neither the session project path
 nor the active budget manager, and both memory lane adapters ran synchronous
 SQLite scans + Python ranking ON the event loop.
 
-- **Finding 6 FIXED — provider-message delivery, provenance-tagged, exactly
+- **Finding 6 FIXED (#1987) — provider-message delivery, provenance-tagged, exactly
   once**: `PerceptionIntegration.perceive` now records a turn-scoped
   `MemoryDelivery` (query, block) — overwritten on EVERY perceive, so a
   previous turn's block can never leak into a later turn. The named
@@ -744,7 +744,7 @@ SQLite scans + Python ranking ON the event loop.
   the ACTIVE context-block `BudgetManager` (container `IBudgetManager`,
   resolved lazily via `budget_manager_factory` because the service layer
   initializes after the composition-root binding).
-- **Finding 19 FIXED — off-loop, lane-selected reads**: `PreferenceEpisodicAdapter.search`
+- **Finding 19 FIXED (#1987) — off-loop, lane-selected reads**: `PreferenceEpisodicAdapter.search`
   (both lanes) pushes its lane into the query (`filters["kind"]`) so the
   store selects the lane BEFORE reading (the PREFERENCE lane never opens the
   episode table, and vice versa — each scope's scan is bounded to its lane),
