@@ -583,6 +583,12 @@ building ownership.
 - **Known residual (out of this wave's contract)**: the `/ws` chat socket
   (message-level auth, Codex finding 1 scope) does not participate in the
   sticky claim; the completions endpoint is stateless and unaffected.
+- **Follow-up commit (1429a8f9c)**: jscpd ratchet flagged the duplicated
+  route-file `_posture_refusal` helper + stream-handler prelude — deduped
+  onto shared `posture_json_response`/`request_principal` +
+  `_admit_chat_turn` (ratchet back to baseline, delta +0); plus a
+  real-server two-credential `/memory` test (auth dependency resolves
+  `request.state.client_id` into the sticky claim; store rows preserved).
 - Tests: 26-test refusal/isolation battery
   (`tests/unit/integrations/api/test_multi_principal_refusal.py` — RED
   first: two-credential interleaved chat/export/reset/stream/resume →
