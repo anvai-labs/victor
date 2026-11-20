@@ -47,6 +47,17 @@ class ServerSettings(BaseModel):
     render_timeout_seconds: int = 10
     render_max_concurrency: int = 2
 
+    # Bounded per-client WebSocket delivery (VAS-06/10, TD-03): each /ws
+    # socket gets an outbound queue of this depth drained by its own sender
+    # task, so one slow socket cannot block the broadcast loop for every
+    # recipient. Overflow sheds the oldest nonessential progress event;
+    # terminal/approval events are never dropped (the slow client is
+    # disconnected and the gap recorded instead).
+    server_ws_delivery_queue_size: int = 256
+    # Per-send deadline for a client's sender task: a socket wedged past
+    # this bound is disconnected instead of stalling delivery forever.
+    server_ws_send_deadline_seconds: float = 10.0
+
     @field_validator("server_max_sessions")
     @classmethod
     def validate_max_sessions(cls, v: int) -> int:
@@ -99,6 +110,42 @@ class ServerSettings(BaseModel):
         """
         if v <= 0:
             raise ValueError("server_session_ttl_seconds must be positive")
+        return v
+
+    @field_validator("server_ws_delivery_queue_size")
+    @classmethod
+    def validate_ws_delivery_queue_size(cls, v: int) -> int:
+        """Validate the per-client delivery queue depth is positive.
+
+        Args:
+            v: Queue size value
+
+        Returns:
+            Validated queue size
+
+        Raises:
+            ValueError: If queue size is not positive
+        """
+        if v <= 0:
+            raise ValueError("server_ws_delivery_queue_size must be positive")
+        return v
+
+    @field_validator("server_ws_send_deadline_seconds")
+    @classmethod
+    def validate_ws_send_deadline(cls, v: float) -> float:
+        """Validate the per-send deadline is positive.
+
+        Args:
+            v: Deadline value in seconds
+
+        Returns:
+            Validated deadline
+
+        Raises:
+            ValueError: If deadline is not positive
+        """
+        if v <= 0:
+            raise ValueError("server_ws_send_deadline_seconds must be positive")
         return v
 
     @field_validator("server_session_secret", mode="before")

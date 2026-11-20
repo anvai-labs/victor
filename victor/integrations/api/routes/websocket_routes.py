@@ -42,6 +42,10 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         """Handle WebSocket connections."""
         await websocket.accept()
         server._ws_clients.append(websocket)
+        # Bounded per-client delivery (VAS-06/10, TD-03): this socket's
+        # broadcasts flow through its own bounded queue + sender task; the
+        # broadcast producer never awaits this socket directly.
+        server._register_ws_delivery(websocket)
         logger.info(f"WebSocket client connected. Total: {len(server._ws_clients)}")
 
         # Bounded handshake (VAS-05h): on a keyed server an unauthenticated
@@ -82,6 +86,9 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             except Exception:
                 pass
         finally:
+            # Drop the bounded delivery state (cancels the sender task) —
+            # teardown also removes the socket from _ws_clients.
+            server._teardown_ws_delivery(websocket, reason="disconnected")
             if websocket in server._ws_clients:
                 server._ws_clients.remove(websocket)
             logger.info(f"WebSocket client disconnected. Total: {len(server._ws_clients)}")
