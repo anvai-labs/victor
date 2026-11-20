@@ -161,3 +161,67 @@ async def test_stream_close_error_survives_cache_close_error():
             await iterator.aclose()
         assert "cache cleanup failed" in " ".join(error.value.__notes__)
     assert coordinator.get_active_count() == 0
+
+
+# =============================================================================
+# Finding (delegation grant widening): depth-1 enforcement at child ADMISSION
+# on the FINAL tool set
+# =============================================================================
+
+
+async def test_spawn_refuses_spawn_tool_in_final_tool_set_without_spawn_rights():
+    """A member that cannot spawn is REFUSED at admission when the final tool
+    set still contains the spawn tool — typed refusal, member never built."""
+    parent = MagicMock()
+    coordinator = SubAgentOrchestrator(parent)
+    with patch("victor.agent.subagents.orchestrator.SubAgent") as subagent_cls:
+        result = await coordinator.spawn(
+            SubAgentRole.RESEARCHER,
+            "task",
+            allowed_tools=["read", "spawn_subagent"],
+        )
+    assert result.success is False
+    assert "spawn_subagent" in result.error
+    assert "depth" in result.error
+    subagent_cls.assert_not_called()
+
+
+async def test_spawn_admits_final_tool_set_without_spawn_tool():
+    """The normal path: a final tool set without the spawn tool is admitted
+    unchanged."""
+    parent = MagicMock()
+    parent.settings.subagent_default_tool_budget = 10
+    parent.settings.subagent_default_context_limit = 1000
+    coordinator = SubAgentOrchestrator(parent)
+    member = MagicMock(orchestrator=MagicMock())
+    member.execute = AsyncMock(return_value=SubAgentResult(True, "done", {}, 0, 0, 0.0))
+    with patch("victor.agent.subagents.orchestrator.SubAgent", return_value=member) as subagent_cls:
+        result = await coordinator.spawn(
+            SubAgentRole.RESEARCHER,
+            "task",
+            allowed_tools=["read", "grep"],
+        )
+    assert result.success is True
+    assert subagent_cls.call_args.args[0].allowed_tools == ["read", "grep"]
+
+
+async def test_stream_spawn_strips_spawn_tool_from_final_tool_set():
+    """The streaming admission path never authorizes a recursing member: the
+    spawn tool is stripped from the final tool set it constructs."""
+    parent = MagicMock()
+    coordinator = SubAgentOrchestrator(parent)
+    member = MagicMock(orchestrator=MagicMock())
+
+    async def _stream():
+        yield StreamChunk(content="x", is_final=True, metadata={})
+
+    member.stream_execute.side_effect = lambda: _stream()
+    with patch("victor.agent.subagents.orchestrator.SubAgent", return_value=member) as subagent_cls:
+        chunks = [
+            chunk
+            async for chunk in coordinator.stream_spawn(
+                SubAgentRole.RESEARCHER, "task", allowed_tools=["read", "spawn_subagent"]
+            )
+        ]
+    assert subagent_cls.call_args.args[0].allowed_tools == ["read"]
+    assert any(chunk.is_final for chunk in chunks)

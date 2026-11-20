@@ -224,6 +224,17 @@ def _bounded_result_summary(content: Optional[str], max_chars: Optional[int]) ->
     return content[:max_chars]
 
 
+def _is_spawn_tool_name(tool_name: str) -> bool:
+    """True when ``tool_name`` resolves (aliases included) to the spawn tool."""
+    try:
+        from victor.tools.decorators import resolve_tool_name
+        from victor.tools.spawn_subagent import SPAWN_SUBAGENT_TOOL_NAME
+
+        return resolve_tool_name(tool_name) == SPAWN_SUBAGENT_TOOL_NAME
+    except Exception:  # pragma: no cover - guard must never break registration
+        return tool_name == "spawn_subagent"
+
+
 class SubAgent(IAgent):  # type: ignore[misc]
     """Represents a spawned sub-agent instance.
 
@@ -537,6 +548,18 @@ class SubAgent(IAgent):  # type: ignore[misc]
         missing_tools = []
         shared_registry = None
         for tool_name in self.config.allowed_tools:
+            # The copied spawn boolean is consulted at REGISTRATION time too
+            # (not just at the tool boundary): a member that cannot spawn is
+            # never registered the spawn tool, even if a caller smuggled it
+            # into allowed_tools past the upstream guards.
+            if not self.config.can_spawn_subagents and _is_spawn_tool_name(tool_name):
+                logger.warning(
+                    "Ignoring '%s' in %s sub-agent tool set: member cannot spawn "
+                    "subagents (depth 1)",
+                    tool_name,
+                    self.config.role.value,
+                )
+                continue
             tool = self._context.tool_registry.get(tool_name)
             if tool is None:
                 # Role-authorized tools must not depend on the parent
@@ -854,7 +877,15 @@ class SubAgent(IAgent):  # type: ignore[misc]
             )
 
     def _identity_metadata(self) -> Dict[str, Any]:
-        """Return stable team/session identity metadata for this runtime."""
+        """Return stable team/session identity metadata for this runtime.
+
+        ``child_session_id`` reports the RESOLVED member session id (the same
+        value bound to the provider session scope) rather than the optional
+        input field: spawns that mint an explicit id (foreground spawn) and
+        legacy members that derive ``{parent}-{member_id}`` both surface the
+        id that was actually used.
+        """
+        resolved = getattr(self, "_resolved_session_id", None)
         return {
             "member_id": self.config.member_id,
             "agent_id": self.id,
@@ -863,8 +894,8 @@ class SubAgent(IAgent):  # type: ignore[misc]
             "plan_id": self.config.plan_id,
             "plan_step_id": self.config.plan_step_id,
             "parent_session_id": self.config.parent_session_id,
-            "child_session_id": self.config.child_session_id,
-            "session_id": getattr(self, "_resolved_session_id", None),
+            "child_session_id": resolved or self.config.child_session_id,
+            "session_id": resolved,
         }
 
     async def _run_context_lifecycle(

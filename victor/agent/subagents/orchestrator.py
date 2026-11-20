@@ -142,6 +142,14 @@ ROLE_CONTEXT_FRACTIONS: Dict[SubAgentRole, float] = {
 }
 
 
+def _contains_spawn_tool(tools: Optional[List[str]]) -> bool:
+    """True when any alias of the spawn tool appears in a candidate tool set."""
+    from victor.tools.decorators import resolve_tool_name
+    from victor.tools.spawn_subagent import SPAWN_SUBAGENT_TOOL_NAME
+
+    return any(resolve_tool_name(t) == SPAWN_SUBAGENT_TOOL_NAME for t in tools or [])
+
+
 def get_context_for_role(
     role: SubAgentRole,
     provider: str = "ollama",
@@ -297,6 +305,15 @@ class SubAgentOrchestrator:
             f"{f' for vertical: {vertical}' if vertical else ''}"
         )
 
+    def get_role_tools(self, role_name: str) -> List[str]:
+        """Effective role-provider tool grants for a role (vertical-aware).
+
+        Exposed for the spawn wiring (``ToolBuildersMixin.build_spawn_subagent_runner``),
+        which must intersect the caller's requested tools with the role's
+        effective grants instead of letting the restrict-list REPLACE them.
+        """
+        return list(self._role_provider.get_tools_for_role(role_name, self._vertical))
+
     async def spawn(
         self,
         role: SubAgentRole,
@@ -380,6 +397,28 @@ class SubAgentOrchestrator:
         else:
             # Use role provider for vertical-aware tool selection
             effective_tools = self._role_provider.get_tools_for_role(role_name, self._vertical)
+
+        # Depth-1 enforcement at child ADMISSION, on the FINAL tool set: a
+        # member that cannot spawn must never be admitted holding the spawn
+        # tool, whatever the caller (tool restrict-list, workflow task or
+        # formation spec) put into allowed_tools. Typed refusal, not a
+        # silent strip — reaching this point means a caller bypassed the
+        # tool-boundary sanitizer.
+        if not can_spawn_subagents and _contains_spawn_tool(effective_tools):
+            refused = (
+                "spawn refused at admission: can_spawn_subagents=False but the "
+                "final tool set contains 'spawn_subagent' (depth 1)"
+            )
+            logger.warning("%s for %s member", refused, role_name)
+            return SubAgentResult(
+                success=False,
+                summary=refused,
+                details={"role": role.value, "task": task[:200]},
+                tool_calls_used=0,
+                context_size=0,
+                duration_seconds=0.0,
+                error=refused,
+            )
 
         effective_budget = tool_budget or self._role_provider.get_budget_for_role(role_name)
         effective_agent_id = agent_id or generate_agent_id(role_name)
@@ -693,6 +732,16 @@ class SubAgentOrchestrator:
         effective_budget = tool_budget or ROLE_DEFAULT_BUDGETS.get(role, 15)
         effective_tools = allowed_tools or ROLE_DEFAULT_TOOLS.get(role, ["read", "ls"])
         effective_context = context_limit or ROLE_DEFAULT_CONTEXT.get(role, 50000)
+
+        # Depth-1 admission guard for the streaming path too: stream_spawn
+        # never authorizes spawning members, so the spawn tool is stripped
+        # from the final tool set rather than admitted.
+        if _contains_spawn_tool(effective_tools):
+            effective_tools = [t for t in effective_tools if not _contains_spawn_tool([t])]
+            logger.warning(
+                "spawn_subagent stripped from %s streaming member tool set (depth 1)",
+                role.value,
+            )
 
         # Create configuration
         config = SubAgentConfig(

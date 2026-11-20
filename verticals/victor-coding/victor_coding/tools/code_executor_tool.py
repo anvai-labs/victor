@@ -28,8 +28,9 @@ for backward compatibility (session bootstrap leak guard, cleanup-containers
 command, evaluation reaper).
 """
 
-from typing import List
+from typing import Any, Dict, List
 
+from victor.core.errors import ToolExecutionError
 from victor.tools.base import AccessMode, DangerLevel, Priority
 from victor.tools.decorators import tool
 from victor.tools.sandbox.container_sandbox import (
@@ -70,6 +71,23 @@ _execute_code = execute_code
 _upload_files = upload_files
 
 
+def _sandbox_failure(message: str, recovery_hint: str) -> ToolExecutionError:
+    """Build the typed failure the @tool adapter converts to a failed result.
+
+    Codex review (code executor context contract): the tool used to return
+    "Error: ..." STRINGS on missing context, which the function-tool adapter
+    wrapped as ``ToolResult(success=True)`` — a success-shaped report with
+    zero sandbox work done. Every refusal below is now a typed
+    :class:`ToolExecutionError` (category ``tool_execution`` + recovery hint)
+    so the adapter publishes ``success=False``.
+    """
+    return ToolExecutionError(
+        message,
+        tool_name="sandbox",
+        recovery_hint=recovery_hint,
+    )
+
+
 @tool(
     category="execution",
     priority=Priority.MEDIUM,  # Task-specific code execution
@@ -81,7 +99,7 @@ async def sandbox(
     operation: str,
     code: str = "",
     file_paths: List[str] = None,
-    context: dict = None,
+    _exec_ctx: Dict[str, Any] = None,
 ) -> str:
     """Unified sandbox operations for code execution in isolated Docker container.
 
@@ -96,29 +114,60 @@ async def sandbox(
         operation: Operation to perform - "execute" or "upload"
         code: Python code to execute (for "execute" operation)
         file_paths: List of local file paths to upload (for "upload" operation)
-        context: Tool context provided by orchestrator
+        _exec_ctx: Reserved framework execution context injected by the tool
+            executor (carries the session's ``code_manager``). Never supplied
+            by the model.
 
     Returns:
-        Operation result string
+        Operation result string.
+
+    Raises:
+        ToolExecutionError: Typed failure when the execution context or the
+            session sandbox handle is missing, or an operation argument is
+            invalid — never a success-shaped error string.
     """
-    if context is None:
-        return "Error: Context not provided."
+    context = _exec_ctx
+    if not isinstance(context, dict):
+        raise _sandbox_failure(
+            "sandbox requires the runtime execution context (injected by the "
+            "tool executor as _exec_ctx), which was missing on this dispatch.",
+            recovery_hint=(
+                "Dispatch the sandbox tool through the normal tool-execution "
+                "path; do not pass internal context arguments yourself."
+            ),
+        )
 
     sandbox_instance: CodeSandbox = context.get("code_manager")
     if not sandbox_instance:
-        return "Error: CodeSandbox not found in context."
+        raise _sandbox_failure(
+            "sandbox is unavailable: no code-execution sandbox handle "
+            "('code_manager') in this session's execution context.",
+            recovery_hint=(
+                "The container runtime is unavailable or disabled in this "
+                "session; run this code with the shell tool or enable Docker."
+            ),
+        )
 
     op = operation.lower().strip()
 
     if op == "execute":
         if not code:
-            return "Error: 'code' parameter required for execute operation."
+            raise _sandbox_failure(
+                "'code' parameter required for execute operation.",
+                recovery_hint="Pass the Python source to run in the 'code' argument.",
+            )
         return await _execute_code(sandbox_instance, code)
 
     elif op == "upload":
         if not file_paths:
-            return "Error: 'file_paths' parameter required for upload operation."
+            raise _sandbox_failure(
+                "'file_paths' parameter required for upload operation.",
+                recovery_hint="Pass the local paths to copy in 'file_paths'.",
+            )
         return await _upload_files(sandbox_instance, file_paths)
 
     else:
-        return f"Error: Unknown operation '{operation}'. Use 'execute' or 'upload'."
+        raise _sandbox_failure(
+            f"Unknown operation '{operation}'. Use 'execute' or 'upload'.",
+            recovery_hint="Retry with operation='execute' or operation='upload'.",
+        )
