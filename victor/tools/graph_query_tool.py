@@ -487,7 +487,17 @@ async def _intent_seed_scores(
     )
 
 
-async def _intent_provider_for(graph_store: Any) -> Any:
+def _intent_provider_for(graph_store: Any) -> Any:
+    """Intent-tier provider factory (SYNC — the core factory contract).
+
+    ``intent_seed_scores``/``hybrid_seeds`` call their factories synchronously
+    and then ``await store.search(...)`` on the RESULT. An async factory here
+    returned a coroutine instead of a store, so with the intent flag on the
+    helper reported "unavailable leg: 'coroutine' object has no attribute
+    'search'" before ever touching the index (explicit intent always missed;
+    hybrid silently hid the missing contribution). Kept as a module-level
+    seam so tests can substitute the factory.
+    """
     from victor.core.graph_rag.seeding import intent_provider_for
 
     return intent_provider_for(graph_store)

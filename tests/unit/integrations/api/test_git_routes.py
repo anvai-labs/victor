@@ -208,6 +208,9 @@ def test_git_commit_copies_settings_once_for_multi_spawn_request(monkeypatch, tm
         def wrap_argv(self, argv, cwd=None):
             return ["policy-wrapper", *argv]
 
+        def take_pass_fds(self):
+            return ()
+
     def _resolve_backend(received):
         # Simulate a global reload after request admission but before later
         # children in the same HTTP commit flow.
@@ -240,3 +243,36 @@ def test_admitted_disabled_git_is_not_tightened_by_reloaded_required(monkeypatch
 
     assert response.status_code == 200
     assert launched and launched[0][0] == "git", f"admitted policy tightened: {launched}"
+
+
+def test_git_required_launch_carries_and_closes_descriptors(monkeypatch, tmp_path):
+    """Finding 8: the direct git launcher must forward the backend's owned
+    descriptors (bwrap's seccomp filter) WITH the wrapped argv, and close
+    them after the spawn — forwarding the argv alone ran bwrap without its
+    filter and leaked one open descriptor per launch in the parent."""
+    import os
+
+    import pytest
+
+    server = _create_server(monkeypatch, tmp_path)
+    _install_required(monkeypatch, backend_available=True)
+    captured: dict = {}
+
+    real_run = subprocess.run
+
+    def _trap(argv, **kwargs):
+        captured["pass_fds"] = kwargs.get("pass_fds")
+        return real_run(["/bin/true"], capture_output=True)
+
+    monkeypatch.setattr(subprocess, "run", _trap)
+    client = TestClient(server.app)
+
+    response = client.get("/git/status")
+    body = response.json()
+    assert body.get("is_git_repo") is not False or "error" in body, body
+    fds = captured.get("pass_fds")
+    assert fds, "git launch dropped the backend's seccomp descriptor"
+    # The parent must not leak: the helper closed the descriptors on exit.
+    for fd in fds:
+        with pytest.raises(OSError):
+            os.fstat(fd)

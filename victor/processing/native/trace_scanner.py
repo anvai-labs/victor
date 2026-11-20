@@ -75,20 +75,27 @@ def scan_usage_files(file_paths: List[str]) -> List[SessionStats]:
         except Exception:
             pass
 
-    # Python fallback: scan each file and merge
-    all_stats = []
+    # Python fallback: aggregate per session ACROSS the whole file list,
+    # mirroring the Rust batch semantics — a session appearing in several
+    # files contributes all of its events once, not once per file.
+    sessions: Dict[str, Dict[str, Any]] = {}
     for path in file_paths:
-        all_stats.extend(_scan_usage_file_python(path))
-    return sorted(all_stats, key=lambda s: -s.completion_score)
+        _accumulate_usage_file(path, sessions)
+    return _finalize_session_stats(sessions)
 
 
 def _scan_usage_file_python(file_path: str) -> List[SessionStats]:
     """Pure Python JSONL trace scanner — reference implementation."""
+    sessions: Dict[str, Dict[str, Any]] = {}
+    _accumulate_usage_file(file_path, sessions)
+    return _finalize_session_stats(sessions)
+
+
+def _accumulate_usage_file(file_path: str, sessions: Dict[str, Dict[str, Any]]) -> None:
+    """Fold one usage.jsonl file's events into the shared session map."""
     path = Path(file_path)
     if not path.exists():
-        return []
-
-    sessions: Dict[str, Dict[str, Any]] = {}
+        return
 
     try:
         opener = gzip.open if path.suffix == ".gz" else open
@@ -121,6 +128,10 @@ def _scan_usage_file_python(file_path: str) -> List[SessionStats]:
     except Exception:
         pass
 
+
+def _finalize_session_stats(sessions: Dict[str, Dict[str, Any]]) -> List[SessionStats]:
+    """Shared scoring/filter/sort tail — mirrors the Rust
+    ``finalize_session_stats`` so both engines' semantics stay aligned."""
     results = []
     for sid, s in sessions.items():
         if s["tool_calls"] < 2:

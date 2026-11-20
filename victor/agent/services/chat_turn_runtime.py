@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
 from victor.agent.runtime.context import AgentRuntimeContext
+from victor.security.containment import SessionContainmentState
 from victor.agent.task_report_metadata import (
     build_compaction_metadata,
     build_task_report_finish_metadata,
@@ -67,6 +68,8 @@ class ChatTurnState(Protocol):
 
     def resolve_runtime_context(self) -> AgentRuntimeContext: ...
 
+    def resolve_containment_state(self) -> SessionContainmentState: ...
+
     def apply_skill_for_turn(self, user_message: str) -> None: ...
 
     def activate_constraints(self, constraints: Any, vertical: str | None) -> None: ...
@@ -85,6 +88,10 @@ class ChatTurnRuntime:
     def resolve_runtime_context(self) -> AgentRuntimeContext:
         """Read the current shared identity through the existing live state view."""
         return self.state.resolve_runtime_context()
+
+    def resolve_containment_state(self) -> SessionContainmentState:
+        """Read the session-owned containment state (canary + evidence)."""
+        return self.state.resolve_containment_state()
 
     def enter(
         self,

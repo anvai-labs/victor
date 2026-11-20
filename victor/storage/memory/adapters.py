@@ -42,6 +42,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Protocol, Tuple, TYPE_CHECKING
 
@@ -879,14 +880,21 @@ class PreferenceEpisodicAdapter:
     async def search(self, query: MemoryQuery) -> List[MemoryResult]:
         """Search the store, returning only this adapter's lane.
 
+        Codex finding 19: the lane is selected BEFORE reading — this lane's
+        ``kind`` filter is pushed into the query so the store reads only the
+        rows this adapter can surface — and the synchronous SQLite scan plus
+        Python ranking run on a worker thread (``asyncio.to_thread``), never
+        on the event loop.
+
         Args:
             query: Search query specification
 
         Returns:
             List of MemoryResult with provenance stamped
         """
+        scoped_query = self._lane_scoped_query(query)
         try:
-            results = self._store.search(query)
+            results = await asyncio.to_thread(self._store.search, scoped_query)
         except Exception as e:
             logger.warning(f"PreferenceEpisodicAdapter search failed: {e}")
             return []
@@ -899,6 +907,18 @@ class PreferenceEpisodicAdapter:
 
         provenance = self._store.provenance(query.query_id, self._lane)
         return [replace(r, provenance=provenance) for r in lane_results]
+
+    def _lane_scoped_query(self, query: MemoryQuery) -> MemoryQuery:
+        """The query with this adapter's lane pinned (kind selected pre-read)."""
+        lane = self._lane.name.lower()
+        filters = dict(query.filters or {})
+        if filters.get("kind") not in (None, lane):
+            # A caller-pinned kind that disagrees with the lane can only
+            # return nothing for this adapter; keep it (store honors it) so
+            # the empty result is honest rather than silently re-laned.
+            return query
+        filters["kind"] = lane
+        return replace(query, filters=filters)
 
     async def store(
         self,

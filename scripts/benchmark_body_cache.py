@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib
 import itertools
 import json
 import os
@@ -20,6 +19,7 @@ import platform
 import sqlite3
 import sys
 import time
+from types import ModuleType
 from typing import Any
 from urllib.parse import quote
 
@@ -45,15 +45,39 @@ _CACHE_MODULE_ALLOWLIST = frozenset(
 )
 
 
+def _import_cache_module(name: str) -> ModuleType:
+    """Literal-import dispatch over the producer allowlist.
+
+    Static ``import`` statements instead of ``importlib.import_module`` so
+    every import target is a provable literal (Semgrep non-literal-import):
+    no external input can steer which module this observer loads. The
+    allowlist above remains the source of truth for what is hashed; the
+    terminal branch below fails loudly if the two drift apart.
+    """
+    if name == "victor.core.graph_rag.body_clones":
+        import victor.core.graph_rag.body_clones as module
+    elif name == "victor.core.graph_rag.body_provenance":
+        import victor.core.graph_rag.body_provenance as module
+    elif name == "victor.core.graph_rag.structural_clones":
+        import victor.core.graph_rag.structural_clones as module
+    elif name == "victor.core.graph_rag.semantic_clones":
+        import victor.core.graph_rag.semantic_clones as module
+    elif name == "victor.core.graph_rag.family_cohesion":
+        import victor.core.graph_rag.family_cohesion as module
+    elif name == "victor_codegraph.embeddings":
+        import victor_codegraph.embeddings as module
+    else:
+        raise ValueError(f"Module outside the cache-producer allowlist: {name}")
+    return module
+
+
 def _implementation() -> dict[str, str]:
     result = {
         str(Path(__file__).resolve()): hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     }
     for name in sorted(_CACHE_MODULE_ALLOWLIST):
         try:
-            module = importlib.import_module(
-                name
-            )  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
+            module = _import_cache_module(name)
         except ModuleNotFoundError as exc:
             if name.endswith(".body_provenance") and exc.name == name:
                 continue  # The pre-provenance reference has no such module.

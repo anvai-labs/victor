@@ -12,11 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""OS-level sandboxing for subprocess-spawning tools.
+"""Sandboxing for Victor tools.
 
-See :mod:`victor.tools.sandbox.backends`. Activated via ``settings.sandbox``
-(``sandbox_policy``: ``disabled`` (default) / ``preferred`` / ``required``);
-``preferred`` resolution is fail-open, ``required`` is fail-closed.
+Two isolation models live here:
+
+* :mod:`victor.tools.sandbox.backends` — OS-level launchers that wrap a host
+  subprocess argv (bwrap/Seatbelt/none). Activated via ``settings.sandbox``
+  (``sandbox_policy``: ``disabled`` / ``preferred`` / ``required``);
+  ``preferred`` resolution is fail-open, ``required`` is fail-closed.
+* :mod:`victor.tools.sandbox.container_sandbox` — the Docker container
+  sandbox for code execution (FOU-S2, ADR-035 item 5): the promoted
+  ``CodeSandbox`` lifecycle quality bar, gated behind
+  :func:`resolve_container_sandbox` (None when Docker is unavailable, typed
+  refusal under ``required``).
 """
 
 from victor.tools.sandbox.backends import (
@@ -24,6 +32,7 @@ from victor.tools.sandbox.backends import (
     NoneSandbox,
     RequiredLaunchDecision,
     SandboxBackend,
+    PolicyResolution,
     PolicyUnavailable,
     SandboxRequiredUnavailableError,
     SeatbeltSandbox,
@@ -32,8 +41,27 @@ from victor.tools.sandbox.backends import (
     current_sandbox_posture,
     effective_sandbox_policy,
     force_unsandboxed_for_session,
+    resolve_effective_policy,
     resolve_required_launch,
     resolve_sandbox_backend,
+)
+from victor.tools.sandbox.container_sandbox import (
+    ContainerSandbox,
+    ContainerSandboxUnavailableError,
+    SandboxTransferRefused,
+    daemon_available,
+    find_orphaned_sandboxes,
+    reap_orphaned_sandboxes,
+    resolve_container_sandbox,
+    sandbox_kwargs_from_settings,
+    watchdog_command,
+)
+from victor.tools.sandbox.launch import (
+    SandboxLaunch,
+    close_pass_fds,
+    prepare_launch,
+    run_launch,
+    run_launch_async,
 )
 
 __all__ = [
@@ -42,13 +70,29 @@ __all__ = [
     "BubblewrapSandbox",
     "SeatbeltSandbox",
     "PolicyUnavailable",
+    "PolicyResolution",
     "SandboxRequiredUnavailableError",
     "RequiredLaunchDecision",
     "_effective_policy_from_settings",
+    "SandboxLaunch",
+    "close_pass_fds",
+    "prepare_launch",
+    "run_launch",
+    "run_launch_async",
     "build_seccomp_deny_program",
     "current_sandbox_posture",
     "effective_sandbox_policy",
     "force_unsandboxed_for_session",
+    "resolve_effective_policy",
     "resolve_required_launch",
     "resolve_sandbox_backend",
+    "ContainerSandbox",
+    "ContainerSandboxUnavailableError",
+    "SandboxTransferRefused",
+    "daemon_available",
+    "find_orphaned_sandboxes",
+    "reap_orphaned_sandboxes",
+    "resolve_container_sandbox",
+    "sandbox_kwargs_from_settings",
+    "watchdog_command",
 ]

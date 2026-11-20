@@ -118,3 +118,4 @@ FOU Tier-S increments (tracked in `docs/architecture/victor-foundations-plan.md`
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
 | 2026-11-16 | 1.0 | Initial ADR | Vijaykumar Singh |
+| 2026-11-20 | 1.1 | Dispatch-enforcement hardening (Codex review fix wave 1): session-owned canary binding (owner state bound per turn), fail-closed envelope publication and dispatch gates on containment-infrastructure failure, full serialized-argument canary walk (keys + serialized leaves), flagged-family evidence moved from task-local ContextVar to bounded session-owner state with honest family-overlap semantics (overlap is necessary, not proof of echo or causation) | Vijaykumar Singh |

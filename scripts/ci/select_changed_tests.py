@@ -102,6 +102,19 @@ RELATED_TESTS = {
         "tests/unit/core/graph_rag/test_control_dependence.py",
         "tests/unit/core/indexing/test_ccg_builder_control_dependence.py",
     ),
+    "victor/tools/sandbox/launch.py": (
+        "tests/unit/tools/sandbox/test_launch_helper.py",
+        "tests/unit/tools/sandbox/test_backends_qualification.py",
+        "tests/unit/integrations/api/test_git_routes.py",
+        "tests/unit/integrations/api/test_search_routes.py",
+        "tests/unit/integrations/api/test_terminal_routes.py",
+    ),
+    "victor/tools/graph_query_tool.py": (
+        "tests/unit/tools/test_graph_query_tool.py",
+        "tests/unit/tools/test_graph_query_tool_intent.py",
+        "tests/unit/core/graph_rag/test_intent_seeds.py",
+        "tests/unit/ui/commands/test_graph_index_cli.py",
+    ),
     "scripts/benchmark_body_model_failure.py": (
         "tests/unit/scripts/test_benchmark_body_model_failure.py",
     ),
@@ -363,15 +376,34 @@ RELATED_TESTS = {
         "tests/unit/memory/test_memory_adapters.py",
         "tests/unit/memory/test_conversation_history_store_protocol.py",
         "tests/unit/storage/memory/test_preference_episodic.py",
+        "tests/unit/storage/memory/test_preference_adapters_offloop.py",
     ),
     "victor/storage/memory/preference_episodic.py": (
         "tests/unit/storage/memory/test_preference_episodic.py",
         "tests/unit/commands/test_memory_command.py",
         "tests/unit/integrations/api/test_memory_routes.py",
+        "tests/unit/storage/memory/test_preference_adapters_offloop.py",
     ),
     "victor/tools/memory_write.py": ("tests/unit/tools/test_memory_write.py",),
+    "victor/tools/spawn_subagent.py": (
+        "tests/unit/tools/test_spawn_subagent.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+    ),
+    "victor/agent/factory/tool_builders.py": (
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/agent/runtime/test_component_assembler.py",
+    ),
+    "victor/agent/runtime/component_assembler.py": (
+        "tests/unit/agent/runtime/test_component_assembler.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+    ),
+    "victor/agent/orchestrator_properties.py": (
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/agent/test_orchestrator_properties.py",
+    ),
     "victor/agent/services/memory_consolidation.py": (
         "tests/unit/agent/services/test_memory_consolidation.py",
+        "tests/unit/agent/services/test_memory_consolidation_sessions.py",
         "tests/unit/commands/test_memory_command.py",
         "tests/unit/integrations/api/test_memory_routes.py",
     ),
@@ -384,8 +416,17 @@ RELATED_TESTS = {
     "victor/agent/memory_injection.py": (
         "tests/unit/agent/test_memory_injection.py",
         "tests/unit/agent/test_memory_injection_production_wiring.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
         "tests/unit/agent/test_memory_ab.py",
         "tests/unit/config/test_memory_settings.py",
+    ),
+    "victor/agent/conversation/context_assembly.py": (
+        "tests/unit/agent/test_orchestrator_context.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
+    ),
+    "victor/agent/orchestrator_context.py": (
+        "tests/unit/agent/test_orchestrator_context.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
     ),
     # The production wiring lives in the orchestrator composition root; the
     # glob mirrors (test_orchestrator*.py) don't cover the dormancy test.
@@ -406,6 +447,33 @@ RELATED_TESTS = {
         "tests/unit/security/test_injection_hard_fail.py",
         "tests/unit/security/test_tool_output_containment.py",
     ),
+    # ADR-037 containment (Codex fix wave 1): the session-owned canary state
+    # and its per-turn binding span security suites plus the ChatService turn
+    # frame; the runtime-context mirror name does not match the selector
+    # glob, so coverage is declared explicitly.
+    "victor/security/containment.py": (
+        "tests/unit/security/test_containment.py",
+        "tests/unit/security/test_containment_session_binding.py",
+        "tests/unit/security/test_canary_blocking.py",
+        "tests/unit/security/test_tool_output_containment.py",
+        "tests/unit/security/test_injection_hard_fail.py",
+        "tests/unit/agent/services/test_chat_service_containment_binding.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
+    ),
+    "victor/agent/runtime/context.py": (
+        "tests/unit/agent/runtime/test_agent_runtime_context.py",
+        "tests/unit/security/test_containment_session_binding.py",
+        "tests/unit/agent/services/test_chat_service.py",
+        "tests/unit/agent/services/test_chat_service_containment_binding.py",
+    ),
+    "victor/agent/services/chat_service.py": (
+        "tests/unit/agent/services/test_chat_service.py",
+        "tests/unit/agent/services/test_chat_service_tool_result.py",
+        "tests/unit/agent/services/test_chat_service_containment_binding.py",
+        "tests/unit/agent/services/test_chat_stream_runtime.py",
+        "tests/unit/agent/services/test_chat_stream_governance.py",
+        "tests/unit/agent/services/test_chat_stream_helpers_lifecycle.py",
+    ),
     "victor/evaluation/injection_fp_battery.py": (
         "tests/unit/security/test_injection_fp_battery.py",
     ),
@@ -416,6 +484,7 @@ RELATED_TESTS = {
     "victor/security/permissions.py": (
         "tests/unit/security/test_permissions.py",
         "tests/unit/tools/test_memory_write.py",
+        "tests/unit/tools/test_spawn_subagent.py",
     ),
     "victor/security/safety/secrets.py": (
         "tests/unit/security/test_secrets_scanner.py",
@@ -1087,12 +1156,60 @@ RELATED_TESTS = {
     "victor/integrations/api/routes/chat_routes.py": (
         "tests/unit/integrations/api/test_fastapi_chat_wire_stream.py",
         "tests/unit/integrations/api/test_fastapi_chat_attribution.py",
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
+    ),
+    # Conversation routes: reset/export address the shared server-wide
+    # conversation; the multi-principal refusal suite pins the enforced
+    # single-trusted-operator posture over them (no per-route mirror file).
+    "victor/integrations/api/routes/conversation_routes.py": (
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
+    ),
+    # Operator posture: the enforced single-trusted-operator claim over the
+    # shared-state surfaces (chat/export/reset/memory) is pinned by the
+    # multi-principal refusal suite.
+    "victor/integrations/api/operator_posture.py": (
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
     ),
     # /ws route: connection registration, message-auth gate, bounded auth
     # handshake and broadcast recipient admission are pinned by the WS auth
-    # gate suite (no per-route mirror file).
+    # gate suite (no per-route mirror file); bounded per-client delivery is
+    # pinned by the WS delivery bounds suite (VAS-06/10, TD-03); owner
+    # binding of /ws/events subscription records by the owner-binding suite.
     "victor/integrations/api/routes/websocket_routes.py": (
         "tests/unit/integrations/api/test_ws_auth_gate.py",
+        "tests/unit/integrations/api/test_ws_delivery_bounds.py",
+        "tests/unit/integrations/api/test_event_bridge_owner_binding.py",
+    ),
+    # fastapi_server: the broadcast seam owns bounded per-client delivery
+    # (queues, sender deadlines, overflow policy) pinned by the WS delivery
+    # bounds suite; the auth gate suite pins delivery admission/ordering;
+    # the owner-binding suite pins the WS-principal stamping and the
+    # effective-posture suite pins the startup posture surface (finding 22).
+    "victor/integrations/api/fastapi_server.py": (
+        "tests/unit/integrations/api/test_ws_delivery_bounds.py",
+        "tests/unit/integrations/api/test_ws_auth_gate.py",
+        "tests/unit/integrations/api/test_fastapi_server.py",
+        "tests/unit/integrations/api/test_event_bridge_owner_binding.py",
+        "tests/unit/integrations/api/test_server_effective_posture.py",
+    ),
+    # Server settings group: WebSocket delivery knobs are validated positive
+    # by the WS delivery bounds suite; the effective-posture suite pins the
+    # enforced-vs-declared disposition of every advertised control.
+    "victor/config/groups/server_config.py": (
+        "tests/unit/integrations/api/test_ws_delivery_bounds.py",
+        "tests/unit/integrations/api/test_server_effective_posture.py",
+    ),
+    # EventBridge: bounded queues (VAS-06/10) and owner-bound subscription
+    # records / protected-event admission (Codex finding 9).
+    "victor/integrations/api/event_bridge.py": (
+        "tests/unit/integrations/api/test_event_bridge_queue_bounds.py",
+        "tests/unit/integrations/api/test_fastapi_event_bridge.py",
+        "tests/unit/integrations/api/test_event_bridge_owner_binding.py",
+    ),
+    # Deprecated aiohttp-era middleware shims (Codex finding 22): the shim
+    # warning contract is pinned by the effective-posture suite.
+    "victor/integrations/api/middleware.py": (
+        "tests/unit/integrations/api/test_server_effective_posture.py",
     ),
     # Tool/team routes: approval/cancel wiring and owner-scoped broadcast
     # delivery are pinned by the consolidated-routes and WS auth gate suites
@@ -1106,9 +1223,12 @@ RELATED_TESTS = {
     ),
     # /system routes: status contract incl. the ADR-035 sandbox_posture
     # reporting is pinned by the consolidated-routes suite (no per-route
-    # mirror file).
+    # mirror file); the effective-posture suite pins the /status posture
+    # surface and /events/recent owner-scoped replay (Codex finding 22).
     "victor/integrations/api/routes/system_routes.py": (
         "tests/unit/api/test_consolidated_routes.py",
+        "tests/unit/integrations/api/test_server_effective_posture.py",
+        "tests/unit/integrations/api/test_fastapi_event_bridge.py",
     ),
     # /agents route: owner-scoped background-agent event delivery is pinned
     # by the background agent manager owner (no per-route mirror file).
@@ -1118,9 +1238,12 @@ RELATED_TESTS = {
     ),
     # /memory + /memory/proposals routes (FEP-0048 FOU-A2d): list/set/forget,
     # structured refusals and the consolidation confirm/discard lifecycle are
-    # pinned by the memory routes suite (no per-route mirror file).
+    # pinned by the memory routes suite (no per-route mirror file); the
+    # multi-principal refusal suite additionally pins the enforced
+    # single-principal posture over /memory (Codex finding 4).
     "victor/integrations/api/routes/memory_routes.py": (
         "tests/unit/integrations/api/test_memory_routes.py",
+        "tests/unit/integrations/api/test_multi_principal_refusal.py",
     ),
     # The router registry: the extension contract test walks
     # create_all_routers(), so an addition must keep that passing.
@@ -1156,6 +1279,7 @@ RELATED_TESTS = {
         "tests/unit/agent/services/test_stream_turn_guards.py",
         "tests/unit/agent/services/test_streaming_act_port.py",
         "tests/unit/agent/services/test_streaming_act_adapter.py",
+        "tests/unit/agent/test_memory_delivery_provider_messages.py",
     ),
     **dict.fromkeys(
         (
@@ -1172,6 +1296,7 @@ RELATED_TESTS = {
             "tests/unit/framework/test_agentic_loop_verification.py",
             "tests/unit/framework/test_agentic_loop_effect_gate.py",
             "tests/unit/evaluation/test_auditor_ab.py",
+            "tests/unit/agent/test_memory_delivery_provider_messages.py",
         ),
     ),
     "victor/evaluation/auditor_ab.py": ("tests/unit/evaluation/test_auditor_ab.py",),
@@ -1207,7 +1332,16 @@ RELATED_TESTS = {
         "tests/unit/config/test_gateway_resolution_boundary.py",
         "tests/unit/config/test_settings_cache.py",
         "tests/unit/config/test_settings_stratification.py",
+        "tests/unit/config/test_intent_flag_migration.py",
+        "tests/unit/config/groups/test_subprocess_config.py",
+        "tests/unit/config/test_security_settings.py",
     ),
+    "victor/config/groups/subprocess_config.py": (
+        "tests/unit/config/groups/test_subprocess_config.py",
+        "tests/unit/tools/sandbox/test_container_sandbox.py",
+        "tests/unit/agent/test_code_exec_bootstrap.py",
+    ),
+    "victor/config/security_settings.py": ("tests/unit/config/test_security_settings.py",),
     "victor/config/provider_config_registry.py": (
         "tests/unit/config/test_gateway_resolution_boundary.py",
         "tests/unit/providers/test_subscription_gateway.py",
@@ -1236,7 +1370,27 @@ RELATED_TESTS = {
         "tests/unit/providers/test_provider_kinds.py",
         "tests/unit/config/test_account_scoped_credentials.py",
         "tests/unit/security/test_secure_paths.py",
+        "tests/unit/tools/test_search_providers.py",
     ),
+    "victor/tools/web_search_tool.py": (
+        "tests/unit/tools/test_web_search_tool_unit.py",
+        "tests/unit/tools/test_web_search_fallback_unit.py",
+        "tests/unit/tools/test_web_search_provider_dispatch.py",
+        "tests/unit/tools/test_web_fetch_page_read.py",
+        "tests/unit/tools/test_web_fetch_destination_policy.py",
+        "tests/unit/tools/test_web_tool.py",
+    ),
+    "victor/tools/search_providers/__init__.py": (
+        "tests/unit/tools/test_search_providers.py",
+        "tests/unit/tools/test_web_search_provider_dispatch.py",
+    ),
+    "victor/tools/search_providers/base.py": (
+        "tests/unit/tools/test_search_providers.py",
+        "tests/unit/tools/test_web_search_provider_dispatch.py",
+    ),
+    "victor/tools/search_providers/tavily.py": ("tests/unit/tools/test_search_providers.py",),
+    "victor/tools/search_providers/brave.py": ("tests/unit/tools/test_search_providers.py",),
+    "victor/tools/search_providers/serper.py": ("tests/unit/tools/test_search_providers.py",),
     "victor/config/groups/provider_config.py": (
         "tests/unit/config/test_inferflux_default.py",
         "tests/unit/config/test_settings_stratification.py",
@@ -1249,6 +1403,8 @@ RELATED_TESTS = {
         "tests/unit/config/test_tool_selection_access.py",
         "tests/unit/config/test_settings_stratification.py",
         "tests/unit/security/test_injection_hard_fail.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/tools/test_web_fetch_destination_policy.py",
     ),
     "victor/framework/agent_factory.py": (
         "tests/unit/framework/test_skill_registry_wiring.py",
@@ -1356,6 +1512,7 @@ RELATED_TESTS = {
     "victor/workflows/data_pipeline.py": ("tests/unit/workflows/test_data_pipeline_breaker.py",),
     "victor/agent/services/session_service.py": (
         "tests/unit/agent/services/test_memory_consolidation.py",
+        "tests/unit/agent/services/test_memory_consolidation_sessions.py",
         "tests/unit/agent/services/test_session_runtime.py",
     ),
     "victor/integrations/mcp/standalone_http.py": (
@@ -1442,7 +1599,43 @@ RELATED_TESTS = {
     "victor/tools/base.py": (
         *DEPRECATION_NOTICE_TESTS,
         "tests/unit/core/test_tool_base.py",
+        "tests/unit/tools/test_web_fetch_destination_policy.py",
         *MCP_SCHEMA_TESTS,
+    ),
+    # Container sandbox lifecycle quality bar (FOU-S2, ADR-035 item 5): core
+    # owns the bar; the coding vertical delegates (shim re-exports).
+    "victor/tools/sandbox/container_sandbox.py": (
+        "tests/unit/tools/sandbox/test_container_sandbox.py",
+        "tests/unit/agent/test_code_exec_bootstrap.py",
+        "tests/unit/agent/test_lifecycle_manager.py",
+        "tests/unit/agent/protocols/test_infrastructure_protocols.py",
+        # get_file/put_files typed-unavailable contract, via the vertical's
+        # CodeSandbox alias (skips when victor_coding is not installed).
+        "tests/integration/infra/test_docker_availability.py",
+    ),
+    # Codex finding 11: session shutdown prefers the owned-handle close
+    # protocol for the container sandbox.
+    "victor/agent/lifecycle_manager.py": (
+        "tests/unit/agent/test_lifecycle_manager.py",
+        "tests/unit/agent/test_code_exec_bootstrap.py",
+    ),
+    # Codex containment mediums (findings 18/20): the tri-state policy
+    # resolution in backends and the executor's fail-closed launch gate have
+    # no mirrored test file — pinned by the sandbox policy/lifecycle suites
+    # plus the executor integration battery.
+    "victor/tools/sandbox/backends.py": (
+        "tests/unit/tools/sandbox/test_backends.py",
+        "tests/unit/tools/sandbox/test_backends_hardening.py",
+        "tests/unit/tools/sandbox/test_backends_qualification.py",
+        "tests/unit/tools/sandbox/test_posture_flip.py",
+        "tests/unit/tools/sandbox/test_launch_helper.py",
+        "tests/unit/tools/sandbox/test_executor_integration.py",
+    ),
+    "victor/tools/subprocess_executor.py": (
+        "tests/unit/tools/sandbox/test_executor_integration.py",
+        "tests/unit/tools/test_shell_tool.py",
+        "tests/unit/tools/test_shell_async_cache.py",
+        "tests/unit/tools/test_subprocess_process_group.py",
     ),
     # 5x'd stamina-budget defaults (2026-10-31): sources without a mirrored
     # test file are pinned by the suites that consume their defaults.

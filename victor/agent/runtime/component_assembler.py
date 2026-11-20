@@ -84,6 +84,10 @@ class ComponentAssembler:
             tool_cache=orchestrator.tool_cache,
             safety_checker=orchestrator._safety_checker,
             code_correction_middleware=orchestrator._code_correction_middleware,
+            # FOU-A1: the spawn_subagent tool's substrate runner, bound to
+            # this parent session (resolves the lazy subagent orchestrator
+            # at call time; returns None → tool refusal when disabled).
+            spawn_subagent_runner=factory.build_spawn_subagent_runner(orchestrator),
         )
 
         # Response completer

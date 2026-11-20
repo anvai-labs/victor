@@ -913,7 +913,7 @@ class VictorClient:
             state_dict = session_data.get("conversation_state")
             if state_dict:
                 try:
-                    from victor.agent.conversation_state import ConversationStateMachine
+                    from victor.agent.conversation.state_machine import ConversationStateMachine
 
                     orchestrator.conversation_state = ConversationStateMachine.from_dict(state_dict)
                 except Exception as exc:

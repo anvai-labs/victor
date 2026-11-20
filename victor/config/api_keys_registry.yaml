@@ -243,6 +243,36 @@ providers:
 
 services:
   # --------------------------------------------------------------------------
+  # Web Search APIs (FOU-A5 research stack; used by web_search providers)
+  # --------------------------------------------------------------------------
+  tavily:
+    env_var: TAVILY_API_KEY
+    description: "Tavily AI search API (web_search provider=tavily)"
+    registration_url: "https://app.tavily.com/"
+    docs_url: "https://docs.tavily.com/"
+    free_tier: true
+    free_tier_limits: "1,000 API calls/month"
+    notes: "Research-grade search with content extraction. Generous free tier."
+
+  brave:
+    env_var: BRAVE_SEARCH_API_KEY
+    description: "Brave Search API (web_search provider=brave)"
+    registration_url: "https://api-dashboard.search.brave.com/register"
+    docs_url: "https://api-dashboard.search.brave.com/app/documentation/web-search"
+    free_tier: true
+    free_tier_limits: "2,000 queries/month"
+    notes: "Independent index. Free tier requires credit card on signup."
+
+  serper:
+    env_var: SERPER_API_KEY
+    description: "Serper Google SERP API (web_search provider=serper)"
+    registration_url: "https://serper.dev/signup"
+    docs_url: "https://serper.dev/"
+    free_tier: true
+    free_tier_limits: "2,500 free queries on signup"
+    notes: "Google SERP results. Pay-as-you-go after free credits."
+
+  # --------------------------------------------------------------------------
   # Market Data & Financial Services
   # --------------------------------------------------------------------------
   finnhub:

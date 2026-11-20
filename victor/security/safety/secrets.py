@@ -117,6 +117,9 @@ AWS_SESSION_TOKEN_PATTERN = (
 GITHUB_PAT_PATTERN = r"ghp_[0-9a-zA-Z]{36}"
 GITHUB_OAUTH_PATTERN = r"gho_[0-9a-zA-Z]{36}"
 GITHUB_APP_PATTERN = r"(?:ghu|ghs)_[0-9a-zA-Z]{36}"
+# Registered in CREDENTIAL_PATTERNS as ``github_refresh`` (FOU-C3 parity: the
+# Rust registry's gh[pousr]_ family covers refresh tokens, so the Python
+# registry must detect them too).
 GITHUB_REFRESH_PATTERN = r"ghr_[0-9a-zA-Z]{36}"
 
 # Other Cloud Providers
@@ -124,8 +127,25 @@ GOOGLE_API_KEY_PATTERN = r"AIza[0-9A-Za-z\-_]{35}"
 AZURE_SUBSCRIPTION_KEY_PATTERN = (
     r"(?i)(?:subscription[_-]?key|api[_-]?key)\s*[=:]\s*['\"]?[a-f0-9]{32}['\"]?"
 )
-SLACK_TOKEN_PATTERN = r"xox[baprs]-[0-9]{10,13}-[0-9a-zA-Z]{24}"
+# Real Slack tokens carry THREE dash-separated segments (xoxb-<id>-<id>-<secret>);
+# the trailing secret run absorbs the leading dash of the third segment, so the
+# two-segment legacy shape still matches (FOU-C3 parity with the Rust pattern).
+SLACK_TOKEN_PATTERN = r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*"
 STRIPE_KEY_PATTERN = r"(?:sk|pk)_(?:live|test)_[0-9a-zA-Z]{24,}"
+
+# Vendor key families ported from the Rust registry for registry parity
+# (FOU-C3): every family the native scanner detects must also be detectable
+# by the pure-Python fallback, and vice versa.
+OPENAI_API_KEY_PATTERN = r"sk-[a-zA-Z0-9]{20,}T3BlbkFJ[a-zA-Z0-9]{20,}"
+OPENAI_API_KEY_V2_PATTERN = r"sk-proj-[a-zA-Z0-9_-]{80,}"
+ANTHROPIC_API_KEY_PATTERN = r"sk-ant-[a-zA-Z0-9_-]{20,}"
+TWILIO_SID_PATTERN = r"AC[a-f0-9]{32}"
+SENDGRID_KEY_PATTERN = r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}"
+SLACK_WEBHOOK_PATTERN = r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[a-zA-Z0-9]+"
+DISCORD_TOKEN_PATTERN = r"[MN][A-Za-z\d]{23,}\.[\w-]{6}\.[\w-]{27}"
+HEROKU_API_KEY_PATTERN = (
+    r"(?i)heroku.{0,20}['\"][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['\"]"
+)
 
 # Generic Secrets
 # Value-bearing shape only: an explicit ``=``/``:`` delimiter between the
@@ -191,6 +211,52 @@ CREDENTIAL_PATTERNS: Dict[str, Tuple[str, SecretSeverity, str]] = {
         GITHUB_APP_PATTERN,
         SecretSeverity.HIGH,
         "GitHub App tokens should use secure storage",
+    ),
+    "github_refresh": (
+        GITHUB_REFRESH_PATTERN,
+        SecretSeverity.HIGH,
+        "GitHub refresh tokens should use secure storage",
+    ),
+    # Vendor key families (registry parity with the Rust scanner, FOU-C3)
+    "openai_api_key": (
+        OPENAI_API_KEY_PATTERN,
+        SecretSeverity.HIGH,
+        "OpenAI keys should be stored in a secrets manager",
+    ),
+    "openai_api_key_v2": (
+        OPENAI_API_KEY_V2_PATTERN,
+        SecretSeverity.HIGH,
+        "OpenAI project keys should be stored in a secrets manager",
+    ),
+    "anthropic_api_key": (
+        ANTHROPIC_API_KEY_PATTERN,
+        SecretSeverity.HIGH,
+        "Anthropic keys should be stored in a secrets manager",
+    ),
+    "twilio_sid": (
+        TWILIO_SID_PATTERN,
+        SecretSeverity.MEDIUM,
+        "Twilio account SIDs identify an account; keep them out of code",
+    ),
+    "sendgrid_key": (
+        SENDGRID_KEY_PATTERN,
+        SecretSeverity.HIGH,
+        "SendGrid keys should be stored in a secrets manager",
+    ),
+    "slack_webhook": (
+        SLACK_WEBHOOK_PATTERN,
+        SecretSeverity.MEDIUM,
+        "Slack webhook URLs allow unauthenticated posting; rotate if leaked",
+    ),
+    "discord_token": (
+        DISCORD_TOKEN_PATTERN,
+        SecretSeverity.HIGH,
+        "Discord bot tokens should be stored in a secrets manager",
+    ),
+    "heroku_api_key": (
+        HEROKU_API_KEY_PATTERN,
+        SecretSeverity.HIGH,
+        "Heroku API keys should be stored in a secrets manager",
     ),
     # Cloud Providers
     "google_api_key": (

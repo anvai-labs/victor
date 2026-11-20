@@ -360,19 +360,32 @@ def _normalize_char(ch: str) -> str:
 
 
 def normalize_for_matching(text: str) -> Tuple[str, Tuple[Tuple[int, int], ...]]:
-    """Normalized COPY of ``text`` plus a per-char index map into the original.
+    """Normalized copy of ``text`` plus a per-emitted-char index map.
 
     Returns ``(normalized, index_map)`` where ``index_map[i]`` is the
     ``(start, end)`` span of the ORIGINAL character that produced normalized
     character ``i``. Patterns run on ``normalized`` for DETECTION; spans are
     mapped back with :func:`_map_span` so highlighting references the original
-    text exactly (no whole-line approximation, no misaligned offsets). ASCII
-    input short-circuits to the identity map. Per-character NFKC deliberately
-    does NOT compose combining sequences across characters — irrelevant to the
-    single-char substitution class this defends against.
+    text exactly (no whole-line approximation, no misaligned offsets).
+
+    Memory contract (Codex review finding 17):
+
+    * ASCII input short-circuits to ``(text, ())`` — the ORIGINAL string is
+      returned unchanged with an EMPTY map and zero per-character
+      allocation; :func:`_map_span` treats an empty map as identity. The
+      historical per-character ``(i, i+1)`` tuple cost ~4.2MB traced for a
+      32,768-character tool output for no mapping benefit.
+    * Non-ASCII input records ONE map entry PER EMITTED normalized
+      character, not per original character. An expansion (e.g. the ``ﬁ``
+      ligature -> ``fi``) emits two normalized characters from one original
+      character, so the map stays aligned with the normalized text — regex
+      match spans from a LATER pattern can never index past the map or
+      clamp onto the wrong source position. Per-character NFKC deliberately
+      does NOT compose combining sequences across characters — irrelevant
+      to the single-char substitution class this defends against.
     """
     if text.isascii():
-        return text, tuple((i, i + 1) for i in range(len(text)))
+        return text, ()  # identity: no copy, no per-character map allocation
     norm_chars: List[str] = []
     index_map: List[Tuple[int, int]] = []
     for i, ch in enumerate(text):
@@ -380,14 +393,23 @@ def normalize_for_matching(text: str) -> Tuple[str, Tuple[Tuple[int, int], ...]]
         if not repl:
             continue  # character vanishes in normalization: invisible to matching
         norm_chars.append(repl)
-        index_map.append((i, i + 1))
+        # One entry per EMITTED normalized character keeps len(index_map) ==
+        # len(normalized), so every regex match span has an exact map entry.
+        index_map.extend((i, i + 1) for _ in repl)
     return "".join(norm_chars), tuple(index_map)
 
 
 def _map_span(index_map: Tuple[Tuple[int, int], ...], start: int, end: int) -> Tuple[int, int]:
-    """Map a normalized-text span back to original-text coordinates."""
-    if not index_map or end <= start:
-        return 0, 0
+    """Map a normalized-text span back to original-text coordinates.
+
+    An empty map is IDENTITY (the ASCII fast path allocates no map). A
+    mapless non-ASCII text normalized to nothing, so no match can reach
+    that branch with a real span.
+    """
+    if not index_map:
+        return start, end
+    if end <= start:
+        return start, start
     start = min(start, len(index_map) - 1)
     end = min(end, len(index_map))
     return index_map[start][0], index_map[end - 1][1]
@@ -527,8 +549,26 @@ def screen_and_highlight(text: str) -> Tuple[str, ScreenVerdict]:
 # instruction), the call hard-fails through the same containment gate as the
 # canary floor. Recording is inert by itself — blocking happens only when
 # ``ToolSettings.untrusted_content_hard_fail`` is on (default OFF per the
-# ADR-036 graduation policy; the flip is a field-data decision). Same
-# context-scoped session-state pattern as the canary binding.
+# ADR-036 graduation policy; the flip is a field-data decision).
+#
+# Evidence lifetime (Codex review fix wave 1, finding 16): flagged-family
+# evidence is owned by the session, not the task. When the session owner has
+# bound a ``SessionContainmentState`` (the production turn path), recording
+# writes through to that owner state — bounded by
+# ``containment.MAX_FLAGGED_FAMILIES`` — and every turn rebinds it, so a
+# fresh request task recovers the session's evidence and a different session
+# sees none. Bindings are restored on turn exit, so a long-lived task cannot
+# carry evidence across sessions. The ContextVar below is the fallback
+# transport for direct callers and tests without a bound owner.
+#
+# Family-overlap semantics, stated honestly: a hard-fail hit requires a
+# classifier match on the argument text AND overlap with a family flagged
+# earlier in the SAME session. That overlap is a NECESSARY signal, not proof:
+# it establishes neither an exact echo of the flagged span nor that the prior
+# injected instruction caused the action — benign text in the same family
+# (e.g. security documentation quoting an imperative) can still hard-fail
+# when the flag is on. This residual ambiguity is precisely why hard-fail
+# ships dormant (default OFF) behind the ADR-036 evidence policy.
 _session_flagged_families: ContextVar[frozenset] = ContextVar(
     "victor_session_flagged_families", default=frozenset()
 )
@@ -538,16 +578,32 @@ def record_flagged_families(families: Tuple[str, ...]) -> None:
     """Record injection families the screen flagged in this session's output."""
     if not families:
         return
+    from victor.security.containment import current_containment_state
+
+    state = current_containment_state()
+    if state is not None:
+        state.record_flagged_families(families)
+        return
     _session_flagged_families.set(_session_flagged_families.get() | frozenset(families))
 
 
 def current_flagged_families() -> frozenset:
     """Families flagged in tool output so far this session (empty when none)."""
+    from victor.security.containment import current_containment_state
+
+    state = current_containment_state()
+    if state is not None:
+        return state.flagged_families
     return _session_flagged_families.get()
 
 
 def reset_flagged_families() -> None:
-    """Clear the session flagged-family memory."""
+    """Clear the session flagged-family memory (transport fallback and owner)."""
+    from victor.security.containment import current_containment_state
+
+    state = current_containment_state()
+    if state is not None:
+        state.clear_flagged_families()
     _session_flagged_families.set(frozenset())
 
 
@@ -572,6 +628,11 @@ def find_flagged_content_in_value(
     if isinstance(value, dict):
         for key, item in value.items():
             child = f"{_path}.{key}" if _path else str(key)
+            # Keys are part of the serialized argument structure too.
+            key_text = key if isinstance(key, str) else str(key)
+            key_verdict = screen_untrusted_content(key_text)
+            if key_verdict.flagged and set(key_verdict.families) & set(families):
+                return f"{_path}.<key>" if _path else "<key>"
             hit = find_flagged_content_in_value(item, families, child)
             if hit is not None:
                 return hit

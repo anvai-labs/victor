@@ -200,6 +200,21 @@ These run locally and don't need API keys:
 
 ## External Service Keys
 
+### Web Search APIs (FOU-A5 research stack)
+
+Used by `web_search(provider=...)`. Without a key the provider is not offered
+and Victor falls back to keyless DuckDuckGo.
+
+| Service | Env Variable | Description | Free Tier |
+|---------|--------------|-------------|-----------|
+| Tavily | `TAVILY_API_KEY` | Research-grade web search + content extraction | 1,000 calls/month |
+| Brave Search | `BRAVE_SEARCH_API_KEY` | Independent web search index | 2,000 queries/month |
+| Serper | `SERPER_API_KEY` | Google SERP results | 2,500 free queries |
+
+```bash
+victor keys --set-service tavily --keyring   # or export TAVILY_API_KEY=...
+```
+
 ### Market Data Services
 
 | Service | Env Variable | Description | Free Tier |

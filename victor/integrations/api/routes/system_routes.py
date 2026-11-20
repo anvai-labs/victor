@@ -19,9 +19,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -55,6 +55,20 @@ def _keyring_status() -> tuple[bool, str]:
         return ("fail" not in name.lower()), name
     except Exception:
         return False, "unavailable"
+
+
+def _effective_posture(server: Any) -> Optional[Dict[str, Any]]:
+    """The server's effective-posture surface (Codex finding 22).
+
+    Duck-typed: alternate server implementations (test stubs, embedder
+    substitutions) without the surface report ``None`` instead of breaking
+    the status contract.
+    """
+    getter = getattr(server, "effective_posture", None)
+    try:
+        return getter() if callable(getter) else None
+    except Exception:  # pragma: no cover - posture reporting must not break /status
+        return None
 
 
 def create_router(server: "VictorFastAPIServer") -> APIRouter:
@@ -92,6 +106,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 workspace=server.workspace_root,
                 capabilities=server._detect_capabilities(),
                 sandbox_posture=current_sandbox_posture(),
+                effective_posture=_effective_posture(server),
             )
         except Exception as e:
             logger.warning(f"Status check error: {e}")
@@ -105,6 +120,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 workspace=server.workspace_root,
                 capabilities=server._detect_capabilities(),
                 sandbox_posture=current_sandbox_posture(),
+                effective_posture=_effective_posture(server),
             )
 
     @router.get("/events/recent")
@@ -112,15 +128,23 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         limit: int = Query(default=12, ge=1, le=100),
         categories: Optional[List[str]] = Query(default=None),
         correlation_id: Optional[str] = Query(default=None),
+        http_request: Request = None,
     ) -> JSONResponse:
-        """Return recent bridged events for websocket timeline hydration."""
+        """Return recent bridged events for websocket timeline hydration.
+
+        Owner-scoped replay (Codex finding 9): the resolved principal
+        filters protected events, so timeline hydration cannot surface
+        another principal's protected events from the replay buffer.
+        """
         broadcaster = (
             server._event_bridge._broadcaster if server._event_bridge else EventBroadcaster()
         )
+        principal = getattr(getattr(http_request, "state", None), "client_id", None)
         events = broadcaster.get_recent_events(
             limit=limit,
             subscriptions=set(categories) if categories else None,
             correlation_id=correlation_id,
+            owner_client_id=principal,
         )
         return JSONResponse(
             {

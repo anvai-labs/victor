@@ -117,6 +117,62 @@ class ToolBuildersMixin:
         logger.debug("ToolRegistry created")
         return registry
 
+    def build_spawn_subagent_runner(self, orchestrator: Any) -> Callable[..., Any]:
+        """Build the spawn_subagent substrate runner bound to a parent session.
+
+        FOU-A1: the ``spawn_subagent`` tool (``victor.tools.spawn_subagent``)
+        never imports the runtime layer; the factory injects this runner into
+        the session's tool-executor context instead. The runner resolves the
+        orchestrator's lazy ``subagent_orchestrator`` (the team coordinator's
+        member-execution path) at call time and returns ``None`` when subagent
+        orchestration is disabled, which the tool surfaces as a refusal.
+
+        Depth-1 recursion guard, enforced here too (defense in depth — the
+        tool already strips the spawn tool from the requested list): the
+        member is always constructed with ``can_spawn_subagents=False``.
+
+        Args:
+            orchestrator: The parent orchestrator the runner is bound to.
+
+        Returns:
+            An async callable ``(prompt, tools, model, tool_budget)`` that
+            resolves to ``SubAgentResult.to_dict()``, or ``None`` when the
+            substrate is unavailable.
+        """
+        from victor.tools.spawn_subagent import sanitize_subagent_tool_list
+
+        async def _runner(
+            prompt: str,
+            tools: Any = None,
+            model: Optional[str] = None,
+            tool_budget: Optional[int] = None,
+        ) -> Optional[Dict[str, Any]]:
+            subagent_orchestrator = orchestrator.subagent_orchestrator
+            if subagent_orchestrator is None:
+                return None
+
+            from victor.core.shared_types import SubAgentRole
+
+            spawn_kwargs: Dict[str, Any] = {
+                "role": SubAgentRole.RESEARCHER,
+                "task": prompt,
+                "tool_budget": tool_budget,
+                "allowed_tools": sanitize_subagent_tool_list(tools),
+                "can_spawn_subagents": False,
+                "parent_session_id": getattr(orchestrator, "session_id", None),
+                "member_id": "spawn_subagent",
+            }
+            if model:
+                # Resolve the override through the parent's provider lane;
+                # resolution failures fail open to the parent model.
+                spawn_kwargs["provider"] = getattr(orchestrator, "provider_name", None)
+                spawn_kwargs["model"] = model
+
+            result = await subagent_orchestrator.spawn(**spawn_kwargs)
+            return result.to_dict()
+
+        return _runner
+
     def create_tool_executor(
         self,
         tools: "ToolRegistry",
@@ -124,6 +180,7 @@ class ToolBuildersMixin:
         tool_cache: Optional["ToolCache"],
         safety_checker: "SafetyCheckerProtocol",
         code_correction_middleware: Optional[Any],
+        spawn_subagent_runner: Optional[Callable] = None,
     ) -> "ToolExecutor":
         """Create tool executor for centralized tool execution.
 
@@ -135,6 +192,9 @@ class ToolBuildersMixin:
             tool_cache: Optional cache for tool results
             safety_checker: SafetyChecker for validating tool execution
             code_correction_middleware: Optional middleware for code correction
+            spawn_subagent_runner: Optional FOU-A1 substrate runner bound to
+                the parent session (see ``build_spawn_subagent_runner``);
+                injected into the executor context for the spawn_subagent tool.
 
         Returns:
             ToolExecutor instance configured with settings
@@ -203,8 +263,22 @@ class ToolBuildersMixin:
                 "http_connection_pool_total_timeout",
                 60,
             ),
+            # Destination policy for research page fetches (Codex finding
+            # 12): empty list = allow-all default, non-empty = enforced
+            # across HTTP, redirects and browser navigation.
+            web_fetch_allowed_hosts=list(self._tool_setting("web_fetch_allowed_hosts", []) or []),
         )
         executor.update_context(tool_config=tool_config)
+
+        # FOU-A1: bind the subagent-spawn substrate runner + per-spawn budget
+        # into the executor context the spawn_subagent tool reads. The runner
+        # resolves the lazy subagent orchestrator at call time, so a disabled
+        # substrate degrades to a tool-level refusal, never a broken session.
+        if spawn_subagent_runner is not None:
+            executor.update_context(spawn_subagent_runner=spawn_subagent_runner)
+        executor.update_context(
+            spawn_subagent_budget=self._tool_setting("spawn_subagent_tool_budget", None)
+        )
 
         logger.debug(f"ToolExecutor created with validation_mode={validation_mode}")
         return executor

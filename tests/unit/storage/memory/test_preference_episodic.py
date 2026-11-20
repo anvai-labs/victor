@@ -351,6 +351,115 @@ def test_forget_with_no_criteria_is_rejected(store: PreferenceEpisodicStore):
 
 
 # =============================================================================
+# Finding 13 (Codex review): empty/whitespace content_match must never wipe a
+# scope — rejected in the STORE before any transaction opens, rows preserved.
+# =============================================================================
+
+
+def test_forget_empty_content_match_is_rejected(store: PreferenceEpisodicStore):
+    store.set_preference("always use uv", scope=MemoryScope.USER)
+    store.set_preference("uses pytest", scope=MemoryScope.USER)
+
+    with pytest.raises(ValueError, match="content_match"):
+        store.forget(content_match="", scope=MemoryScope.USER)
+
+    # The empty contains-match would have matched every row in the scope.
+    remaining = sorted(p.content for p in store.get_preferences(MemoryScope.USER))
+    assert remaining == ["always use uv", "uses pytest"]
+
+
+def test_forget_whitespace_content_match_is_rejected(store: PreferenceEpisodicStore):
+    store.set_preference("always use uv", scope=MemoryScope.PROJECT)
+    store.set_preference("uses pytest", scope=MemoryScope.PROJECT)
+
+    with pytest.raises(ValueError, match="content_match"):
+        store.forget(content_match="   \t\n ", scope=MemoryScope.PROJECT)
+
+    remaining = sorted(p.content for p in store.get_preferences(MemoryScope.PROJECT))
+    assert remaining == ["always use uv", "uses pytest"]
+
+
+def test_forget_empty_match_refusal_is_typed(store: PreferenceEpisodicStore):
+    from victor.storage.memory.preference_episodic import EmptyContentMatchRefused
+
+    with pytest.raises(EmptyContentMatchRefused):
+        store.forget(content_match=" ", scope=MemoryScope.USER)
+
+
+def test_forget_empty_match_without_scope_is_still_rejected(store: PreferenceEpisodicStore):
+    """The input defect is rejected before the scope requirement is reached."""
+    with pytest.raises(ValueError, match="content_match"):
+        store.forget(content_match="")
+
+
+def test_forget_nonempty_match_still_works(store: PreferenceEpisodicStore):
+    """Positive control: the guard rejects only empty/whitespace matches."""
+    store.set_preference("use uv", scope=MemoryScope.USER)
+    store.set_preference("use pip", scope=MemoryScope.USER)
+    assert store.forget(content_match="uv", scope=MemoryScope.USER) == 1
+    assert [p.content for p in store.get_preferences(MemoryScope.USER)] == ["use pip"]
+
+
+# =============================================================================
+# Finding 4 (Codex review): store-level cross-principal guard. When a
+# principal context is present (store-bound or call-supplied), addressing the
+# store as a different principal is refused before any database work.
+# =============================================================================
+
+
+def test_cross_principal_write_is_refused(dbs):
+    global_db, project_db = dbs
+    guarded = PreferenceEpisodicStore(
+        global_db=global_db, project_db=project_db, principal_id="alice"
+    )
+    with pytest.raises(ValueError, match="bob"):
+        guarded.set_preference("bob's directive", scope=MemoryScope.USER, on_behalf_of="bob")
+    # Nothing was written under alice's principal context.
+    assert [p.content for p in guarded.get_preferences(MemoryScope.USER)] == []
+
+
+def test_cross_principal_read_and_forget_are_refused(dbs):
+    global_db, project_db = dbs
+    guarded = PreferenceEpisodicStore(
+        global_db=global_db, project_db=project_db, principal_id="alice"
+    )
+    pref = guarded.set_preference("alice's directive", scope=MemoryScope.USER)
+
+    with pytest.raises(ValueError, match="bob"):
+        guarded.get_preferences(MemoryScope.USER, on_behalf_of="bob")
+    with pytest.raises(ValueError, match="bob"):
+        guarded.forget(preference_id=pref.id, on_behalf_of="bob")
+    with pytest.raises(ValueError, match="bob"):
+        guarded.forget(content_match="directive", scope=MemoryScope.USER, on_behalf_of="bob")
+    with pytest.raises(ValueError, match="bob"):
+        guarded.record_episode("bob's episode", on_behalf_of="bob")
+
+    # The row survives every refused addressing attempt.
+    assert [p.content for p in guarded.get_preferences(MemoryScope.USER)] == ["alice's directive"]
+
+
+def test_same_principal_addressing_is_allowed(dbs):
+    global_db, project_db = dbs
+    guarded = PreferenceEpisodicStore(
+        global_db=global_db, project_db=project_db, principal_id="alice"
+    )
+    guarded.set_preference("alice's directive", scope=MemoryScope.USER, on_behalf_of="alice")
+    assert [p.content for p in guarded.get_preferences(MemoryScope.USER, on_behalf_of="alice")] == [
+        "alice's directive"
+    ]
+    guarded.record_episode("alice's episode", on_behalf_of="alice")
+    assert guarded.recent_episodes() != []
+
+
+def test_store_without_principal_context_accepts_named_caller(dbs):
+    """No principal context anywhere: the legacy single-operator behavior."""
+    global_db, project_db = dbs
+    unbound = PreferenceEpisodicStore(global_db=global_db, project_db=project_db)
+    unbound.set_preference("anyone's directive", scope=MemoryScope.USER, on_behalf_of="whoever")
+    assert [p.content for p in unbound.get_preferences(MemoryScope.USER)] == ["anyone's directive"]
+
+
+# =============================================================================
 # Thread-linked episode queries
 # =============================================================================
 

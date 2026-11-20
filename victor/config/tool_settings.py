@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from pydantic import BaseModel, Field
 
@@ -68,6 +68,18 @@ class ToolSettings(BaseModel):
             "low-confidence recommendations always retain the baseline."
         ),
     )
+    # Subagent spawn (FOU-A1): per-spawn tool budget for child agents.
+    # None = the member-execution substrate's per-role default budget.
+    spawn_subagent_tool_budget: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Tool-call budget for agents created by the spawn_subagent tool "
+            "(FOU-A1). None uses the subagent substrate's per-role default. "
+            "The spawn call itself always counts against the parent's live "
+            "tool-call budget."
+        ),
+    )
     tool_selection_enabled: bool = Field(
         default=False,
         description=(
@@ -120,6 +132,14 @@ class ToolSettings(BaseModel):
     )
     generic_result_cache_enabled: bool = False
     generic_result_cache_ttl: int = 300
+    # Destination policy for research page fetches (web_fetch, Codex finding
+    # 12). Empty list = every destination admitted (local single-operator
+    # default; behavior unchanged). Non-empty = only the listed hosts (exact
+    # match or subdomain, case-insensitive) may be fetched — enforced at the
+    # web_fetch entry point, re-checked at EVERY redirect hop and on the
+    # browser render path's final URL; violations return a structured error
+    # naming the denied destination.
+    web_fetch_allowed_hosts: List[str] = Field(default_factory=list)
     tool_selection_cache_enabled: bool = True
     tool_selection_cache_ttl: int = 300
     tool_validation_mode: str = "lenient"

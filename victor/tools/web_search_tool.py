@@ -27,14 +27,22 @@ import logging
 import re
 import time
 from threading import RLock
-from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
 from victor.tools.base import AccessMode, CostTier, DangerLevel, Priority, ToolConfig
 from victor.tools.decorators import tool
+from victor.tools.search_providers import (
+    AUTO_PROVIDER_ORDER,
+    KNOWN_PROVIDER_NAMES,
+    ProviderNotConfigured,
+    build_provider_configured_error,
+    canonical_provider_name,
+    get_provider,
+)
 from victor.storage.cache.generic_result_cache import GenericResultCache, ResultType
 
 # Constants
@@ -51,12 +59,111 @@ _USER_AGENTS = (
 _USER_AGENT = _USER_AGENTS[0]  # Backwards-compat alias for static imports.
 _DEFAULT_MAX_CONTENT_LENGTH = 5000
 
+# Hard cap on bytes downloaded for a page read (web_fetch). Oversized pages
+# fail with a structured error instead of silently ballooning context.
+_PAGE_DOWNLOAD_CAP_BYTES = 2 * 1024 * 1024
+
+# Destination policy for research fetches (Codex finding 12). The policy is
+# settings-driven (``tools.web_fetch_allowed_hosts`` via ToolConfig): an
+# EMPTY list means every destination is admitted (the local single-operator
+# default, so default behavior is unchanged); a non-empty list admits only
+# the listed hosts — an entry matches its exact host (case-insensitive) and
+# any subdomain. The policy is enforced at the web_fetch entry point AND
+# re-checked at EVERY redirect hop (the HTTP path no longer follows
+# redirects blindly) and on the browser path's final URL, so a redirect
+# chain cannot move the fetch to a host the operator never admitted.
+_MAX_REDIRECT_HOPS = 10
+
+
+class DestinationPolicyDenied(Exception):
+    """A research fetch destination was refused by the destination policy."""
+
+    def __init__(self, url: str, host: str, allowed_hosts: List[str]):
+        self.url = url
+        self.host = host
+        self.allowed_hosts = list(allowed_hosts)
+        super().__init__(
+            f"Destination policy denied the fetch to '{host}' ({url}); "
+            f"allowed hosts: {', '.join(allowed_hosts)}"
+        )
+
+
+def _host_allowed(host: Optional[str], allowed_hosts: List[str]) -> bool:
+    """Whether ``host`` is admitted by the allowlist (empty = allow all)."""
+    if not allowed_hosts:
+        return True
+    if not host:
+        return False
+    host = host.lower().rstrip(".")
+    for entry in allowed_hosts:
+        entry = str(entry).lower().rstrip(".")
+        if not entry:
+            continue
+        if host == entry or host.endswith("." + entry):
+            return True
+    return False
+
+
+def _check_destination(url: str, allowed_hosts: List[str]) -> None:
+    """Admit one fetch destination; raise :class:`DestinationPolicyDenied`.
+
+    Only http(s) URLs with an admitted host pass. An empty allowlist admits
+    everything (default posture), so the check is a no-op unless configured.
+    """
+    if not allowed_hosts:
+        return
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if parsed.scheme.lower() not in ("http", "https") or not _host_allowed(host, allowed_hosts):
+        raise DestinationPolicyDenied(
+            url=url, host=host or "(no host)", allowed_hosts=allowed_hosts
+        )
+
+
+def _destination_policy_error(denied: DestinationPolicyDenied) -> Dict[str, Any]:
+    """Structured error naming the denied destination (Codex finding 12)."""
+    return {
+        "success": False,
+        "error": str(denied),
+        "destination_policy_denied": True,
+        "denied_host": denied.host,
+        "denied_url": denied.url,
+    }
+
+
 # DuckDuckGo endpoints tried in order. The HTML endpoint is the primary path
 # but rate-limits aggressively and blocks headless UAs; `lite` is a lighter
 # fallback; the rendered main site is the last resort (browser-based).
 _DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 _DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
 _DDG_RENDER_URL_TMPL = "https://duckduckgo.com/?q={query}"
+
+# Web-tool defaults when no ToolConfig context is supplied (tests call the
+# tool functions directly). Pooling is enabled for latency; unit tests that
+# assert against respx mocks MUST override ``http_connection_pool_enabled``
+# to False — respx intercepts httpx only, so a pool-enabled test run leaks
+# REAL network requests through the aiohttp path and returns live results.
+_DEFAULT_WEB_CONFIG: Dict[str, Any] = {
+    "provider": None,
+    "model": None,
+    "fetch_top": None,
+    "fetch_pool": None,
+    "max_content_length": _DEFAULT_MAX_CONTENT_LENGTH,
+    "generic_result_cache_enabled": False,
+    "generic_result_cache_ttl": 300,
+    "http_connection_pool_enabled": True,  # 20-30% latency reduction on hot paths
+    "http_connection_pool_max_connections": 100,
+    "http_connection_pool_max_connections_per_host": 10,
+    "http_connection_pool_connection_timeout": 30,
+    "http_connection_pool_total_timeout": 60,
+    "web_fetch_allowed_hosts": [],  # empty = allow all destinations (finding 12)
+    "rate_limiter_enabled": True,
+    "rate_limiter_requests_per_minute": 10,
+    "rate_limiter_max_retries": 2,  # Reduced from 5 to fail faster on timeout
+    "rate_limiter_initial_delay": 0.5,  # Reduced from 1.0 for faster retries
+    "rate_limiter_max_delay": 10.0,  # Reduced from 60.0 to fail faster
+    "rate_limiter_backoff_multiplier": 2.0,
+}
 
 
 def _pick_user_agent() -> str:
@@ -295,6 +402,7 @@ def _get_web_config(context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
                 "http_connection_pool_total_timeout",
                 60,
             ),
+            "web_fetch_allowed_hosts": list(getattr(config, "web_fetch_allowed_hosts", None) or []),
             "rate_limiter_enabled": getattr(config, "rate_limiter_enabled", True),
             "rate_limiter_requests_per_minute": getattr(
                 config,
@@ -310,26 +418,7 @@ def _get_web_config(context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
                 2.0,
             ),
         }
-    return {
-        "provider": None,
-        "model": None,
-        "fetch_top": None,
-        "fetch_pool": None,
-        "max_content_length": _DEFAULT_MAX_CONTENT_LENGTH,
-        "generic_result_cache_enabled": False,
-        "generic_result_cache_ttl": 300,
-        "http_connection_pool_enabled": True,  # Enable HTTP connection pooling by default for 20-30% latency reduction
-        "http_connection_pool_max_connections": 100,
-        "http_connection_pool_max_connections_per_host": 10,
-        "http_connection_pool_connection_timeout": 30,
-        "http_connection_pool_total_timeout": 60,
-        "rate_limiter_enabled": True,
-        "rate_limiter_requests_per_minute": 10,
-        "rate_limiter_max_retries": 2,  # Reduced from 5 to fail faster on timeout
-        "rate_limiter_initial_delay": 0.5,  # Reduced from 1.0 for faster retries
-        "rate_limiter_max_delay": 10.0,  # Reduced from 60.0 to fail faster
-        "rate_limiter_backoff_multiplier": 2.0,
-    }
+    return {**_DEFAULT_WEB_CONFIG, "max_content_length": _DEFAULT_MAX_CONTENT_LENGTH}
 
 
 def _get_generic_web_cache(default_ttl: int) -> GenericResultCache:
@@ -793,11 +882,162 @@ def _extract_content(html: str, max_length: int = 5000) -> str:
     return ""
 
 
+# Content types eligible for page reading. Anything else (PDF, JSON, binary
+# downloads) is rejected with a structured error instead of garbage text.
+_READABLE_CONTENT_TYPES = frozenset(
+    {
+        "application/xhtml+xml",
+        "application/xml",
+        "text/markdown",
+        "text/plain",
+        "text/xml",
+    }
+)
+
+
+def _is_readable_content_type(content_type: str) -> bool:
+    """True when a Content-Type header value is readable page content."""
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    if not media_type:
+        return True  # Header absent: best-effort read (server omitting it).
+    return media_type.startswith("text/html") or media_type in _READABLE_CONTENT_TYPES
+
+
+def _extract_title(html: str) -> str:
+    """Extract a page title from HTML (<title>, falling back to og:title)."""
+    try:
+        soup = BeautifulSoup(html, "lxml")
+        tag = soup.title
+        if tag is not None and tag.string and tag.string.strip():
+            return tag.string.strip()
+        og = soup.find("meta", attrs={"property": "og:title"})
+        if og is not None and og.get("content"):
+            return str(og["content"]).strip()
+    except Exception:
+        pass
+    return ""
+
+
+async def _fetch_page(
+    url: str,
+    *,
+    timeout_seconds: float = 30.0,
+    max_bytes: int = _PAGE_DOWNLOAD_CAP_BYTES,
+    web_config: Optional[Dict[str, Any]] = None,
+) -> Tuple[int, str, str, bool]:
+    """Fetch one page for reading with a hard download cap.
+
+    Streams the response through httpx and stops reading once ``max_bytes``
+    is exceeded, so a huge page cannot balloon memory or context. Uses the
+    shared rate limiter; the aiohttp connection pool is deliberately not used
+    here because the pool layer cannot express byte-bounded reads.
+
+    Args:
+        url: Target URL
+        timeout_seconds: Per-request timeout
+        max_bytes: Maximum number of body bytes to download
+        web_config: Web tool configuration from _get_web_config
+
+    Returns:
+        Tuple of (status_code, body_text, content_type, truncated)
+
+    Raises:
+        httpx.TimeoutException: On request timeout (propagates to the tool).
+        httpx.HTTPError: On transport errors (propagates to the tool).
+        DestinationPolicyDenied: When the destination policy (including a
+            redirect hop's destination) refuses the fetch (Codex finding 12).
+    """
+    config = web_config or {}
+    allowed_hosts = list(config.get("web_fetch_allowed_hosts", []) or [])
+    headers = {"User-Agent": _pick_user_agent()}
+
+    rate_limiter = None
+    if bool(config.get("rate_limiter_enabled", True)):
+        rate_limiter = _get_rate_limiter(
+            requests_per_minute=int(config.get("rate_limiter_requests_per_minute", 10)),
+            max_retries=int(config.get("rate_limiter_max_retries", 5)),
+            initial_delay=float(config.get("rate_limiter_initial_delay", 1.0)),
+            max_delay=float(config.get("rate_limiter_max_delay", 60.0)),
+            backoff_multiplier=float(config.get("rate_limiter_backoff_multiplier", 2.0)),
+        )
+
+    truncated = False
+    status = 0
+    content_type = ""
+    chunks: Optional[bytearray] = None
+    current_url = url
+    # Redirects are followed manually so the destination policy is re-checked
+    # at EVERY hop (Codex finding 12) — follow_redirects=True would move the
+    # fetch to any Location the remote server names.
+    async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=False) as client:
+        for _ in range(_MAX_REDIRECT_HOPS):
+            _check_destination(current_url, allowed_hosts)
+            if rate_limiter is not None:
+                await rate_limiter.acquire(current_url)
+            async with client.stream("GET", current_url, headers=headers) as response:
+                status = int(response.status_code)
+                content_type = response.headers.get("content-type", "") or ""
+                if status in (301, 302, 303, 307, 308):
+                    location = response.headers.get("location", "")
+                    if not location:
+                        return status, "", content_type, False
+                    current_url = urljoin(current_url, location)
+                    continue
+                if status != 200:
+                    return status, "", content_type, False
+                chunks = bytearray()
+                async for chunk in response.aiter_bytes():
+                    chunks.extend(chunk)
+                    if len(chunks) > max_bytes:
+                        truncated = True
+                        break
+                break
+        else:
+            # Redirect hop budget exhausted without reaching a final response.
+            raise httpx.TooManyRedirects(f"more than {_MAX_REDIRECT_HOPS} redirects: {url}")
+
+    body = bytes(chunks or b"").decode("utf-8", errors="replace")
+    return status, body, content_type, truncated
+
+
+async def _provider_search(provider_name: str, query: str, max_results: int) -> Dict[str, Any]:
+    """Run one search through a key-gated API provider.
+
+    Never raises: provider failures (including an absent key) come back as
+    structured error results so the agentic loop can react instead of crash.
+    """
+    provider = get_provider(provider_name)
+    try:
+        results = await provider.search(query, max_results=max_results, timeout_seconds=30.0)
+    except ProviderNotConfigured:
+        return build_provider_configured_error(provider_name, provider.env_var)
+    except Exception as exc:
+        return {
+            "success": False,
+            "provider": provider_name,
+            "provider_configured": True,
+            "results": "",
+            "result_count": 0,
+            "error": f"Search provider '{provider_name}' failed: {exc}",
+        }
+
+    structured = [r.as_dict() for r in results]
+    return {
+        "success": True,
+        "provider": provider_name,
+        "provider_configured": True,
+        "results": _format_results(query, structured),
+        "structured_results": structured,
+        "result_count": len(results),
+    }
+
+
 async def _render_page_text(
     url: str,
     *,
     timeout_seconds: float = 30.0,
     max_length: int = _DEFAULT_MAX_CONTENT_LENGTH,
+    allowed_hosts: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Render a JavaScript-backed page with Playwright and return plaintext.
 
@@ -805,7 +1045,16 @@ async def _render_page_text(
     normal HTTP fetches stay cheap. The output is plaintext by default to reduce
     LLM token pressure; the rendered HTML length is reported for diagnostics but
     the full DOM is not returned.
+
+    The destination policy (Codex finding 12) applies to browser navigation
+    too: the initial URL is checked before any browser is launched and the
+    final URL (browser redirects land here) is re-checked after navigation.
     """
+    allowed_hosts = list(allowed_hosts or [])
+    try:
+        _check_destination(url, allowed_hosts)
+    except DestinationPolicyDenied as denied:
+        return _destination_policy_error(denied)
     try:
         from playwright.async_api import async_playwright
     except Exception as exc:
@@ -824,6 +1073,12 @@ async def _render_page_text(
                 wait_until="networkidle",
                 timeout=int(timeout_seconds * 1000),
             )
+            try:
+                # Browser redirects may have moved the navigation off the
+                # admitted host — the final URL gets the same policy check.
+                _check_destination(page.url, allowed_hosts)
+            except DestinationPolicyDenied as denied:
+                return _destination_policy_error(denied)
             text = await page.locator("body").inner_text(timeout=int(timeout_seconds * 1000))
             html = await page.content()
             text = re.sub(r"\n\s*\n", "\n\n", text or "")
@@ -889,9 +1144,10 @@ async def web_search(
     fetch_top: Optional[int] = None,
     fetch_pool: Optional[int] = None,
     max_content_length: int = 5000,
+    provider: str = "auto",
     _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Search the web using DuckDuckGo. Optionally summarize with AI.
+    """Search the web. Uses DuckDuckGo (no key) or a key-gated search API provider.
 
     Purpose:
     - Find links, docs, references on the public web.
@@ -908,12 +1164,21 @@ async def web_search(
         fetch_top: Number of URLs to fetch for deeper summary (only with ai_summarize=True).
         fetch_pool: Pool of URLs to try fetching from (only with ai_summarize=True).
         max_content_length: Max content length to extract per URL (only with ai_summarize=True).
+        provider: 'auto' (first configured API provider, else DuckDuckGo), 'duckduckgo'
+            (keyless), or a key-gated API provider: 'tavily', 'brave', 'serper'. A
+            configured provider requires its API key (e.g. TAVILY_API_KEY env or
+            `victor keys --set-service tavily`); without it the tool returns a
+            structured "provider not configured" result instead of crashing.
+            Ignored when ai_summarize=True (that path always searches DuckDuckGo).
         _exec_ctx: Tool execution context containing ToolConfig for provider/model access.
 
     Returns:
         Dictionary containing:
         - success: Whether search succeeded
+        - provider: Provider actually used ('duckduckgo' or the API provider name)
+        - provider_configured: Whether the provider's key resolved (API providers only)
         - results: Formatted search results text
+        - structured_results: List of {title, url, snippet} dicts (API providers only)
         - result_count: Number of results found
         - summary: AI summary (only if ai_summarize=True)
         - error: Error message if failed
@@ -933,6 +1198,29 @@ async def web_search(
     if not query:
         return {"success": False, "error": "Missing required parameter: query"}
 
+    # Resolve the search provider (FOU-A5): key-gated API adapters with
+    # graceful degradation to the keyless DuckDuckGo path.
+    raw_provider = (provider or "auto").strip().lower()
+    if raw_provider not in KNOWN_PROVIDER_NAMES:
+        return {
+            "success": False,
+            "error": (
+                f"Unknown search provider '{raw_provider}'. "
+                "Available: auto, duckduckgo, tavily, brave, serper"
+            ),
+        }
+    provider_name = canonical_provider_name(raw_provider) or raw_provider
+    if provider_name == "ddg":
+        provider_name = "duckduckgo"
+    if provider_name == "auto":
+        provider_name = "duckduckgo"
+        for candidate in AUTO_PROVIDER_ORDER:
+            if get_provider(candidate).is_configured():
+                provider_name = candidate
+                break
+    if provider_name != "duckduckgo":
+        return await _provider_search(provider_name, query, max_results)
+
     config = _get_web_config(_exec_ctx)
 
     # Map safe search to DuckDuckGo values
@@ -945,6 +1233,7 @@ async def web_search(
         "max_results": max_results,
         "region": region,
         "safe_search": safe_search,
+        "provider": provider_name,
     }
     if config.get("generic_result_cache_enabled"):
         cache = _get_generic_web_cache(int(config.get("generic_result_cache_ttl", 300)))
@@ -974,6 +1263,7 @@ async def web_search(
         if not results:
             result_payload = {
                 "success": True,
+                "provider": "duckduckgo",
                 "results": "No results found",
                 "result_count": 0,
             }
@@ -985,6 +1275,7 @@ async def web_search(
         output = _format_results(query, results)
         result_payload = {
             "success": True,
+            "provider": "duckduckgo",
             "results": output,
             "result_count": len(results),
         }
@@ -1020,7 +1311,19 @@ async def web_fetch(
     render: str = "auto",
     _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Fetch and extract main text content from a URL.
+    """Fetch and extract main text content from a URL (readability-oriented page read).
+
+    No API key is required. The HTTP path enforces a download size cap and a
+    readable content-type guard (HTML/text only), and returns the page title
+    alongside the extracted main text. Non-readable responses (PDF, binary)
+    come back as structured errors.
+
+    The fetch is subject to the destination policy (Codex finding 12): when
+    ``tools.web_fetch_allowed_hosts`` is non-empty, only those hosts (and
+    their subdomains) may be fetched, the policy is re-checked at every
+    redirect hop and on the browser path's final URL, and violations return a
+    structured error naming the destination. An empty list (the default)
+    admits every destination.
 
     Args:
         url: URL to fetch content from.
@@ -1036,6 +1339,14 @@ async def web_fetch(
         }
 
     config = _get_web_config(_exec_ctx)
+    allowed_hosts = list(config.get("web_fetch_allowed_hosts", []) or [])
+    # Destination policy BEFORE anything else — including the result cache,
+    # so a host denied by a policy change cannot be served from cache.
+    try:
+        _check_destination(url, allowed_hosts)
+    except DestinationPolicyDenied as denied:
+        return _destination_policy_error(denied)
+
     cache: Optional[GenericResultCache] = None
     cache_params = {
         "max_content_length": int(config.get("max_content_length", _DEFAULT_MAX_CONTENT_LENGTH)),
@@ -1056,6 +1367,7 @@ async def web_fetch(
                 url,
                 timeout_seconds=30.0,
                 max_length=max_content_length,
+                allowed_hosts=allowed_hosts,
             )
             if not rendered.get("success"):
                 return rendered
@@ -1075,12 +1387,10 @@ async def web_fetch(
                 )
             return result_payload
 
-        status_code, payload = await _request_text(
-            "GET",
+        status_code, payload, content_type, truncated = await _fetch_page(
             url,
-            headers={"User-Agent": _USER_AGENT},
-            follow_redirects=True,
-            timeout_seconds=30.0,  # Increased from 15.0 for better reliability
+            timeout_seconds=30.0,
+            max_bytes=_PAGE_DOWNLOAD_CAP_BYTES,
             web_config=config,
         )
         if status_code != 200:
@@ -1088,6 +1398,28 @@ async def web_fetch(
                 "success": False,
                 "error": f"Failed to fetch URL (status {status_code})",
             }
+        if truncated:
+            return {
+                "success": False,
+                "error": (
+                    f"Page exceeds the {_PAGE_DOWNLOAD_CAP_BYTES} byte "
+                    "download cap and cannot be read"
+                ),
+                "download_cap_exceeded": True,
+                "url": url,
+            }
+        if content_type and not _is_readable_content_type(content_type):
+            return {
+                "success": False,
+                "error": (
+                    f"Unsupported content type '{content_type}' for page reading "
+                    "(only HTML/text pages can be read)"
+                ),
+                "content_type": content_type,
+                "url": url,
+            }
+
+        title = _extract_title(payload)
 
         # Extract text content
         content = _extract_content(
@@ -1100,11 +1432,13 @@ async def web_fetch(
                 url,
                 timeout_seconds=30.0,
                 max_length=max_content_length,
+                allowed_hosts=allowed_hosts,
             )
             if rendered.get("success") and rendered.get("content"):
                 result_payload = {
                     "success": True,
                     "content": rendered.get("content", ""),
+                    "title": rendered.get("title", title),
                     "url": url,
                     "render": "browser",
                     "html_length": rendered.get("html_length", 0),
@@ -1125,6 +1459,7 @@ async def web_fetch(
         result_payload = {
             "success": True,
             "content": content,
+            "title": title,
             "url": url,
             "render": "http",
         }
@@ -1137,6 +1472,10 @@ async def web_fetch(
             )
         return result_payload
 
+    except DestinationPolicyDenied as denied:
+        # A redirect hop (or the browser's final URL) landed on a host the
+        # destination policy does not admit — structured error naming it.
+        return _destination_policy_error(denied)
     except httpx.TimeoutException:
         return {"success": False, "error": "Request timed out"}
     except Exception as e:

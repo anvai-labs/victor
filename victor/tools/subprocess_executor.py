@@ -366,12 +366,15 @@ def _resolve_default_sandbox(
 
     Reads ``settings.sandbox`` (ADR-035 fail-closed default). A ``required`` policy that
     cannot be enforced raises :class:`SandboxRequiredUnavailableError` —
-    that refusal is the security boundary and is never swallowed. Any other
-    resolution failure degrades to no sandbox so subprocess execution is
-    never broken by a sandbox bug.
+    that refusal is the security boundary and is never swallowed. An UNKNOWN
+    policy (Codex finding 20: a fault INSIDE effective-policy evaluation, as
+    opposed to the settings-read failure handled first) also refuses — it is
+    never interpreted as an inactive decision. Only a KNOWN explicit
+    ``disabled``/``preferred`` policy can yield :class:`NoneSandbox`, and a
+    backend-selection fault under one still refuses via
+    :class:`PolicyUnavailable` rather than silently passing through.
     """
     from victor.tools.sandbox import (
-        NoneSandbox,
         SandboxRequiredUnavailableError,
         resolve_sandbox_backend,
     )
@@ -398,15 +401,27 @@ def _resolve_default_sandbox(
 
     decision = resolve_required_launch(sandbox_settings)
     if decision.refuse:
-        # HB-02: a resolver/configuration error must not convert a required
-        # policy into disabled isolation.
+        # HB-02 + Codex finding 20: a resolver/configuration error OR an
+        # UNKNOWN policy (evaluation fault) must not convert this launch
+        # into disabled isolation — refuse before any spawn.
         raise SandboxRequiredUnavailableError("resolver_error", decision.reason)
     if decision.required_active:
         return decision.backend
+    # Known non-required policy (explicit disabled / preferred): the
+    # historical resolution. Unknown policy NEVER reaches here — it refuses
+    # above — so this call can only fail on a settings-accessor fault during
+    # backend selection, which is unknown enforcement state, not an
+    # affirmative opt-out. Refuse (fail-closed) rather than silently
+    # returning the passthrough backend.
     try:
         return resolve_sandbox_backend(sandbox_settings)
-    except Exception:  # pragma: no cover - defensive: preferred fail-open
-        return NoneSandbox()
+    except Exception as exc:
+        from victor.tools.sandbox import PolicyUnavailable
+
+        raise PolicyUnavailable(
+            "backend_selection_failed",
+            f"Sandbox backend selection failed ({exc}); refusing execution (fail-closed).",
+        ) from exc
 
 
 def _sandbox_refusal_result(
@@ -454,10 +469,10 @@ def _apply_sandbox(
 
     Returns ``(exec_args, exec_shell, pass_fds)``. ``pass_fds`` are the
     backend fds that must survive exec (bwrap's seccomp filter); the caller
-    forwards them to the spawn call and closes them afterwards. When no
-    sandbox is active the inputs are returned unchanged (zero behavior change
-    with sandboxing disabled). A wrapped command always runs as an argv list
-    with ``shell=False``.
+    forwards them through :func:`run_launch`, which closes them on every
+    exit. When no sandbox is active the inputs are returned unchanged (zero
+    behavior change with sandboxing disabled). A wrapped command always runs
+    as an argv list with ``shell=False``.
     """
     backend = (
         sandbox
@@ -467,24 +482,19 @@ def _apply_sandbox(
     if backend.type_name == "none":
         return args, shell, []
 
-    cwd_path = Path(working_dir) if working_dir else None
-    if shell or isinstance(args, str):
-        cmd_str = args if isinstance(args, str) else " ".join(args)
-        return (
-            backend.wrap_argv(["/bin/sh", "-c", cmd_str], cwd_path),
-            False,
-            (backend.take_pass_fds()),
-        )
-    return backend.wrap_argv(list(args), cwd_path), False, backend.take_pass_fds()
+    from victor.tools.sandbox import prepare_launch
+
+    launch = prepare_launch(backend, _shell_argv(args, shell), working_dir)
+    return launch.argv, False, list(launch.pass_fds)
 
 
-def _close_pass_fds(pass_fds: Sequence[int]) -> None:
-    """Close backend fds whose inheritance duty ended after spawn."""
-    for fd in pass_fds:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
+def _shell_argv(args: Union[str, List[str]], shell: bool) -> List[str]:
+    """Normalize a shell-string invocation into the wrapped argv list."""
+    if isinstance(args, str):
+        return ["/bin/sh", "-c", args]
+    if shell:
+        return ["/bin/sh", "-c", " ".join(args)]
+    return list(args)
 
 
 def run_command(
@@ -586,20 +596,18 @@ def run_command(
         return _sandbox_refusal_result(str(exc), cmd_str, working_dir)
 
     try:
-        try:
-            result = subprocess.run(
-                exec_args,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=working_dir,
-                env=env,
-                shell=exec_shell,  # nosec B602
-                preexec_fn=preexec_fn,  # nosec B603
-                pass_fds=tuple(pass_fds),
-            )
-        finally:
-            _close_pass_fds(pass_fds)
+        from victor.tools.sandbox import SandboxLaunch, run_launch
+
+        result = run_launch(
+            SandboxLaunch(argv=exec_args, pass_fds=tuple(pass_fds)),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=working_dir,
+            env=env,
+            shell=exec_shell,  # nosec B602
+            preexec_fn=preexec_fn,  # nosec B603
+        )
 
         duration_ms = (time.time() - start_time) * 1000
 
@@ -956,15 +964,16 @@ async def run_command_async(
             "max_output_bytes": max_output_bytes,
         }
         if backend.type_name != "none":
-            wrapped = backend.wrap_argv(["/bin/sh", "-c", command], cwd)
-            backend_fds = backend.take_pass_fds()
+            from victor.tools.sandbox import close_pass_fds, prepare_launch
+
+            launch = prepare_launch(backend, ["/bin/sh", "-c", command], cwd)
             logger.debug("Executing command via %s sandbox: %.200s", backend.type_name, command)
             try:
                 stdout, stderr, return_code, timed_out, capped = await run_managed_process(
-                    argv=wrapped, pass_fds=backend_fds, **run_kwargs
+                    argv=launch.argv, pass_fds=launch.pass_fds, **run_kwargs
                 )
             finally:
-                _close_pass_fds(backend_fds)
+                close_pass_fds(launch.pass_fds)
         else:
             logger.debug("Executing command via shell: %.200s", command)
             stdout, stderr, return_code, timed_out, capped = await run_managed_process(

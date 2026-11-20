@@ -42,6 +42,7 @@ transfer-hint machinery consume this store unchanged.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -132,6 +133,43 @@ class SecretContentRefused(MemoryWriteRefused):
         self.secret_types = list(secret_types)
 
 
+class EmptyContentMatchRefused(ValueError):
+    """``forget(content_match=...)`` with an empty/whitespace-only match.
+
+    A contains-match on the empty string matches EVERY preference in the
+    selected scope, so an empty form value or model argument would erase an
+    entire scope. Rejected in the store before any transaction opens
+    (Codex review finding 13); escape-coding LIKE wildcards does not address
+    this input.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "content_match must contain a non-whitespace substring; an empty "
+            "match would delete every preference in the scope"
+        )
+
+
+class CrossPrincipalAccessRefused(MemoryWriteRefused):
+    """An operation addressed the store as a principal that owns nothing here.
+
+    Store-level defense-in-depth under the enforced single-principal posture
+    (Codex review finding 4): when a principal context is present — bound at
+    construction or supplied per call — addressing the store as a DIFFERENT
+    principal is refused before any database work. Full per-principal
+    ownership is the paused A4a+ design (VAS-06).
+    """
+
+    def __init__(self, store_principal: str, caller_principal: str) -> None:
+        super().__init__(
+            f"principal {caller_principal!r} may not address memory bound to "
+            f"principal {store_principal!r}: cross-principal memory addressing "
+            "is refused until owner isolation lands (VAS-06 / FOU-A4a)"
+        )
+        self.store_principal = store_principal
+        self.caller_principal = caller_principal
+
+
 @dataclass(frozen=True)
 class Preference:
     """A stable directive captured at user or project scope."""
@@ -175,6 +213,12 @@ class PreferenceEpisodicStore:
             ``get_project_database(project_path)``.
         project_path: Project root used when ``project_db`` is not injected.
         max_content_bytes: Content cap override (tests / stricter policies).
+        principal_id: Optional principal context bound to this store. When
+            set, operations naming a DIFFERENT principal (``on_behalf_of``)
+            are refused with ``CrossPrincipalAccessRefused`` before any
+            database work — defense-in-depth under the enforced
+            single-principal posture (Codex review finding 4); leave unset
+            for the single-operator deployments the posture sanctions.
     """
 
     def __init__(
@@ -183,13 +227,33 @@ class PreferenceEpisodicStore:
         project_db: Optional[DatabaseManager] = None,
         project_path: Optional[Any] = None,
         max_content_bytes: int = MAX_MEMORY_CONTENT_BYTES,
+        principal_id: Optional[str] = None,
     ):
         self._global_db = global_db if global_db is not None else get_database()
         self._project_db = (
             project_db if project_db is not None else get_project_database(project_path)
         )
         self._max_content_bytes = max_content_bytes
+        self._principal_id = principal_id
         self._ensure_tables()
+
+    @property
+    def principal_id(self) -> Optional[str]:
+        """The principal context bound to this store (None = unbound)."""
+        return self._principal_id
+
+    def _guard_principal(self, on_behalf_of: Optional[str]) -> None:
+        """Reject cross-principal addressing when a principal context exists.
+
+        Fires only when BOTH the store is bound and the call names a
+        principal, and they differ — checked before any transaction opens.
+        """
+        if (
+            on_behalf_of is not None
+            and self._principal_id is not None
+            and on_behalf_of != self._principal_id
+        ):
+            raise CrossPrincipalAccessRefused(self._principal_id, on_behalf_of)
 
     # ------------------------------------------------------------------
     # Schema
@@ -234,15 +298,21 @@ class PreferenceEpisodicStore:
         confidence: float = 1.0,
         metadata: Optional[Dict[str, Any]] = None,
         now: Optional[float] = None,
+        on_behalf_of: Optional[str] = None,
     ) -> Preference:
         """Store a stable directive.
 
         Refuses (``MemoryWriteRefused`` subclasses) and stores nothing when
         the content is secret-shaped or exceeds the size cap.
 
+        Args:
+            on_behalf_of: Optional caller principal; refused when it differs
+                from the store's bound principal context.
+
         Returns:
             The stored ``Preference``.
         """
+        self._guard_principal(on_behalf_of)
         self.validate_content(content)
         self._check_scope(scope)
 
@@ -280,12 +350,18 @@ class PreferenceEpisodicStore:
         scope: MemoryScope,
         *,
         limit: int = 100,
+        on_behalf_of: Optional[str] = None,
     ) -> List[Preference]:
         """List preferences for exactly one scope.
 
         Rows of the other scope are never returned: the query runs against the
         scope's own database and filters ``scope = ?``.
+
+        Args:
+            on_behalf_of: Optional caller principal; refused when it differs
+                from the store's bound principal context.
         """
+        self._guard_principal(on_behalf_of)
         self._check_scope(scope)
         db = self._db_for(scope)
         rows = db.query(
@@ -306,22 +382,35 @@ class PreferenceEpisodicStore:
         preference_id: Optional[str] = None,
         content_match: Optional[str] = None,
         scope: Optional[MemoryScope] = None,
+        on_behalf_of: Optional[str] = None,
     ) -> int:
         """Forget preferences by id and/or by content substring match.
 
         Args:
             preference_id: Delete this exact preference id.
             content_match: Delete preferences whose content contains this
-                substring (LIKE-escaped; ``%``/``_`` are literal).
+                substring (LIKE-escaped; ``%``/``_`` are literal). Empty and
+                whitespace-only matches are REFUSED
+                (``EmptyContentMatchRefused``) — a contains-match on the
+                empty string would erase the entire scope.
             scope: Restrict the deletion to one scope. Required when
                 ``content_match`` is given so a vague match can never sweep
                 across both databases.
+            on_behalf_of: Optional caller principal; refused when it differs
+                from the store's bound principal context.
 
         Returns:
             Number of rows deleted.
         """
+        self._guard_principal(on_behalf_of)
+
         if preference_id is None and content_match is None:
             raise ValueError("forget requires preference_id or content_match")
+
+        # Codex finding 13: the empty contains-match matches EVERY row in the
+        # scope — reject the input before any transaction opens.
+        if content_match is not None and not content_match.strip():
+            raise EmptyContentMatchRefused()
 
         if preference_id is not None:
             return self._forget_by_id(preference_id, scope)
@@ -368,11 +457,17 @@ class PreferenceEpisodicStore:
         thread_id: str = "",
         metadata: Optional[Dict[str, Any]] = None,
         timestamp: Optional[float] = None,
+        on_behalf_of: Optional[str] = None,
     ) -> Episode:
         """Record a project-scope event summary linked to its session/thread.
 
         Refuses secret-shaped or oversized summaries; nothing is stored.
+
+        Args:
+            on_behalf_of: Optional caller principal; refused when it differs
+                from the store's bound principal context.
         """
+        self._guard_principal(on_behalf_of)
         self.validate_content(summary)
 
         ts = timestamp if timestamp is not None else time.time()
@@ -447,23 +542,50 @@ class PreferenceEpisodicStore:
         project-scoped query), but results carry their scope in metadata so
         downstream injection can filter.
 
+        Lane handling (Codex finding 19): ``query.filters["kind"]`` selects
+        the content lane BEFORE reading — ``"preference"`` skips the episode
+        table entirely and ``"episode"`` skips the preference tables. The
+        adapters push their lane down here so each scan reads only the rows
+        its caller can surface.
+
+        Synchronous by design: callers on the event loop go through the
+        adapter's ``asyncio.to_thread`` hop, never inline.
+
         Returns:
             ``MemoryResult`` entries sorted by relevance (descending), each
             with provenance stamped for dedup/merge tracing.
         """
         scope_filter = self._scope_filter(query)
+        lane_filter = self._lane_filter(query)
+
+        want_preferences = lane_filter in (None, "preference")
+        want_episodes = lane_filter in (None, "episode")
 
         results: List[MemoryResult] = []
         if scope_filter in (None, MemoryScope.USER):
-            results.extend(self._search_preferences(query, MemoryScope.USER))
+            if want_preferences:
+                results.extend(self._search_preferences(query, MemoryScope.USER))
         if scope_filter in (None, MemoryScope.PROJECT):
-            results.extend(self._search_preferences(query, MemoryScope.PROJECT))
-            results.extend(self._search_episodes(query))
+            if want_preferences:
+                results.extend(self._search_preferences(query, MemoryScope.PROJECT))
+            if want_episodes:
+                results.extend(self._search_episodes(query))
 
         threshold = max(query.min_relevance, 1e-6)
         results = [r for r in results if r.relevance >= threshold]
         results.sort(key=lambda r: r.relevance, reverse=True)
         return results[: query.limit]
+
+    @staticmethod
+    def _lane_filter(query: MemoryQuery) -> Optional[str]:
+        """The ``kind`` lane filter, normalized (``None`` = both lanes)."""
+        raw = (query.filters or {}).get("kind")
+        if raw is None:
+            return None
+        lane = str(raw).lower()
+        if lane not in ("preference", "episode"):
+            return None
+        return lane
 
     def _search_preferences(self, query: MemoryQuery, scope: MemoryScope) -> List[MemoryResult]:
         """Search one scope's preference rows in that scope's database."""
@@ -583,7 +705,16 @@ class PreferenceEpisodicStore:
             )
 
     async def get(self, key: str) -> Optional[MemoryResult]:
-        """Fetch one memory by id across both lanes/scopes."""
+        """Fetch one memory by id across both lanes/scopes.
+
+        The synchronous SQLite lookups run on a worker thread (Codex finding
+        19): protocol consumers await this on the event loop, so the DB work
+        is offloaded and the loop never blocks on it.
+        """
+        return await asyncio.to_thread(self._get_by_id_sync, key)
+
+    def _get_by_id_sync(self, key: str) -> Optional[MemoryResult]:
+        """Synchronous id lookup across both lanes/scopes (off-loop callee)."""
         for scope in MemoryScope:
             rows = self._db_for(scope).query(
                 f"""
@@ -748,6 +879,8 @@ def _term_overlap(terms: List[str], content: str) -> float:
 
 
 __all__ = [
+    "CrossPrincipalAccessRefused",
+    "EmptyContentMatchRefused",
     "Episode",
     "EPISODE_RECENCY_HORIZON_DAYS",
     "MAX_MEMORY_CONTENT_BYTES",

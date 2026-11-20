@@ -473,9 +473,12 @@ context:
 |---------|---------|-------------|
 | `code_executor_network_disabled` | `True` | Disable network in sandbox |
 | `code_executor_memory_limit` | `512m` | Memory limit |
-| `code_executor_cpu_shares` | `256` | CPU shares |
+| `code_executor_cpu_shares` | `256` | CPU scheduler weight (relative — not a cap) |
+| `code_executor_cpu_quota` | unset | Hard CPU ceiling for the sandbox container (CFS quota, microseconds per 100ms period; `50000` = 0.5 CPU). Set this when a hard CPU limit is intended — shares alone never cap. |
 | `code_executor_image` | `python:3.11-slim` | Sandbox image (needs `sh`, `stat`, `date`, `timeout`) |
 | `code_executor_idle_ttl_seconds` | `900` | Idle seconds after which the sandbox container removes itself (min 10) |
+| `code_executor_workspace_root` | unset | Host workspace root admitted for sandbox uploads. When set, uploads of paths resolving outside it are refused (symlink escapes included); unset = no workspace check (local single-operator posture). |
+| `code_executor_transfer_byte_limit_bytes` | `67108864` | Byte budget for sandbox transfers in both directions: uploads over the total and downloads of larger files are refused at the host boundary. |
 
 ---
 

@@ -141,3 +141,39 @@ def test_image_has_the_watchdog_toolchain():
         assert sandbox.execute("import time; time.sleep(10)", timeout=1)["exit_code"] == 137
     finally:
         sandbox.dispose()
+
+
+def test_network_egress_is_denied_by_default():
+    """FOU-S2: network_disabled is the default — egress fails inside the container."""
+    sandbox = cet.CodeSandbox()
+    try:
+        result = sandbox.execute(
+            "import urllib.request\n"
+            "try:\n"
+            "    urllib.request.urlopen('https://example.com', timeout=5)\n"
+            "    print('EGRESS')\n"
+            "except Exception as exc:\n"
+            "    print('DENIED', type(exc).__name__)"
+        )
+        out = result["stdout"]
+        assert "EGRESS" not in out
+        assert "DENIED" in out
+    finally:
+        sandbox.dispose()
+
+
+def test_resource_caps_reach_the_container():
+    """FOU-S2: the memory cap is enforced inside the container.
+
+    Proven behaviorally, not via getrlimit: a cgroup memory cap does not
+    project onto RLIMIT_AS (which stays RLIM_INFINITY), so the observable
+    contract is allocation-below-cap succeeds while allocation-above-cap is
+    OOM-killed (exit 137) instead of taking down the host.
+    """
+    sandbox = cet.CodeSandbox(memory_limit="128m", idle_ttl_seconds=600)
+    try:
+        assert sandbox.execute("x = bytearray(64 * 1024 * 1024)")["exit_code"] == 0
+        result = sandbox.execute("x = bytearray(512 * 1024 * 1024)")
+        assert result["exit_code"] == 137  # killed by the 128m cap
+    finally:
+        sandbox.dispose()

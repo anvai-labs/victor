@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 import hashlib
-import importlib
 import json
 import os
 from pathlib import Path
@@ -18,6 +17,7 @@ import platform
 import stat
 import sys
 import time
+from types import ModuleType
 from typing import Any
 
 from victor.core.graph_rag.source_reader import project_source_reader, read_project_source
@@ -76,6 +76,28 @@ _BENCHMARK_MODULE_ALLOWLIST = frozenset(
 )
 
 
+def _import_benchmark_module(module_name: str) -> ModuleType:
+    """Literal-import dispatch over the benchmark producer allowlist.
+
+    Static ``import`` statements instead of ``importlib.import_module`` so
+    every import target is a provable literal (Semgrep non-literal-import):
+    no benchmark input can steer which module this observer loads. The
+    allowlist above remains the single source of truth for what is covered;
+    the terminal branch below fails loudly if the two drift apart.
+    """
+    if module_name == "victor.core.graph_rag.structural_clones":
+        import victor.core.graph_rag.structural_clones as module
+    elif module_name == "victor.core.graph_rag.precise_index":
+        import victor.core.graph_rag.precise_index as module
+    elif module_name == "victor.core.graph_rag.scip_documents":
+        import victor.core.graph_rag.scip_documents as module
+    elif module_name == "victor.core.graph_rag.source_reader":
+        import victor.core.graph_rag.source_reader as module
+    else:
+        raise ValueError(f"Module outside the benchmark allowlist: {module_name}")
+    return module
+
+
 def implementation() -> dict[str, str]:
     result = {}
     # The allowlist is the single source of truth for what this benchmark
@@ -84,9 +106,7 @@ def implementation() -> dict[str, str]:
     for module_name in sorted(_BENCHMARK_MODULE_ALLOWLIST):
         name = module_name.rsplit(".", 1)[-1]
         try:
-            module = importlib.import_module(
-                module_name
-            )  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
+            module = _import_benchmark_module(module_name)
         except ModuleNotFoundError as exc:
             if name == "scip_documents" and exc.name == module_name:
                 continue  # The full-protobuf reference predates this owner.

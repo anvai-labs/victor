@@ -235,6 +235,10 @@ DEFAULT_TOOL_PERMISSIONS: Dict[str, PermissionMode] = {
     # mutate durable memory, so they need workspace-write, not read-only.
     "memory_set": PermissionMode.WORKSPACE_WRITE,
     "memory_forget": PermissionMode.WORKSPACE_WRITE,
+    # Subagent spawn (FOU-A1): delegates a bounded child run that inherits
+    # the parent's active mode through the normal gate — workspace-write and
+    # above allow, read-only denies.
+    "spawn_subagent": PermissionMode.WORKSPACE_WRITE,
     # Danger/full-access tools
     "shell": PermissionMode.DANGER_FULL_ACCESS,
     "code_executor": PermissionMode.DANGER_FULL_ACCESS,

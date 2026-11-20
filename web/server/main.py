@@ -82,6 +82,16 @@ API_KEY = (
 # masked representation or silently generate a second, unrelated secret here.
 if not server_settings.server_session_secret:
     raise RuntimeError("Server session signing secret is required")
+if getattr(server_settings, "server_session_secret_auto_generated", False):
+    # Production honesty (Codex finding 22): the per-process generated
+    # default keeps single-process dev/test working, but tokens signed by
+    # this process cannot verify in another worker. Make that visible.
+    logger.warning(
+        "server.server_session_secret is AUTO-GENERATED for this process: "
+        "session tokens will NOT verify across workers or restarts. Set "
+        "server.server_session_secret explicitly for any multi-worker or "
+        "persistent-session deployment."
+    )
 SESSION_SECRET = server_settings.server_session_secret.get_secret_value()
 SESSION_TTL = server_settings.server_session_ttl_seconds
 MAX_SESSIONS = server_settings.server_max_sessions
