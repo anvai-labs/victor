@@ -197,7 +197,7 @@ The two columns are independent lists (not row-paired):
 
 ### Provider transport migration (Victor → Sandhi) — AnvaiOps ADR-0047 D10
 
-Today Victor **hand-rolls ~28 provider adapters** in Python (`victor/providers/*.py`,
+Today Victor hand-rolls its provider-adapter layer in Python (`victor/providers/*.py`,
 httpx-based) — the same wire layer ProximaDB (Rust `LLMClient`) and AnvaiOps (Python
 `LLMProvider`) *also* re-implement. That triplication sits exactly where metering trust is
 decided (usage / cache-token parsing is provider-specific). This FEP adopts the ADR-0047
