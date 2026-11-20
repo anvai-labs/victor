@@ -334,7 +334,7 @@ def _subagent_orchestrator(self: "AgentOrchestrator") -> Optional[Any]:
         try:
             from victor.agent.subagents import SubAgentOrchestrator
 
-            self._subagent_orchestrator = SubAgentOrchestrator(parent=self)
+            self._subagent_orchestrator = SubAgentOrchestrator(parent_orchestrator=self)
             logger.info("SubAgentOrchestrator initialized")
         except ImportError as e:
             logger.debug(f"SubAgentOrchestrator module not available: {e}")

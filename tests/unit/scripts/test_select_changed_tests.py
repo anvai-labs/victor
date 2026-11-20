@@ -380,6 +380,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
         (
             "victor/config/tool_settings.py",
             [
+                "tests/unit/agent/test_spawn_subagent_wiring.py",
                 "tests/unit/config/test_tool_selection_access.py",
                 "tests/unit/config/test_settings_stratification.py",
                 "tests/unit/security/test_injection_hard_fail.py",
