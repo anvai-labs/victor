@@ -1462,6 +1462,13 @@ RELATED_TESTS = {
         "tests/unit/core/test_tool_base.py",
         *MCP_SCHEMA_TESTS,
     ),
+    # Container sandbox lifecycle quality bar (FOU-S2, ADR-035 item 5): core
+    # owns the bar; the coding vertical delegates (shim re-exports).
+    "victor/tools/sandbox/container_sandbox.py": (
+        "tests/unit/tools/sandbox/test_container_sandbox.py",
+        "tests/unit/agent/test_code_exec_bootstrap.py",
+        "tests/unit/agent/protocols/test_infrastructure_protocols.py",
+    ),
     # 5x'd stamina-budget defaults (2026-10-31): sources without a mirrored
     # test file are pinned by the suites that consume their defaults.
     **dict.fromkeys(
