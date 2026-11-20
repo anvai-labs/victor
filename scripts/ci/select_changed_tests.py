@@ -1295,7 +1295,13 @@ RELATED_TESTS = {
         "tests/unit/config/test_settings_cache.py",
         "tests/unit/config/test_settings_stratification.py",
         "tests/unit/config/test_intent_flag_migration.py",
+        "tests/unit/config/groups/test_subprocess_config.py",
+        "tests/unit/config/test_security_settings.py",
     ),
+    "victor/config/groups/subprocess_config.py": (
+        "tests/unit/config/groups/test_subprocess_config.py",
+    ),
+    "victor/config/security_settings.py": ("tests/unit/config/test_security_settings.py",),
     "victor/config/provider_config_registry.py": (
         "tests/unit/config/test_gateway_resolution_boundary.py",
         "tests/unit/providers/test_subscription_gateway.py",
@@ -1558,6 +1564,24 @@ RELATED_TESTS = {
         "tests/unit/tools/sandbox/test_container_sandbox.py",
         "tests/unit/agent/test_code_exec_bootstrap.py",
         "tests/unit/agent/protocols/test_infrastructure_protocols.py",
+    ),
+    # Codex containment mediums (findings 18/20): the tri-state policy
+    # resolution in backends and the executor's fail-closed launch gate have
+    # no mirrored test file — pinned by the sandbox policy/lifecycle suites
+    # plus the executor integration battery.
+    "victor/tools/sandbox/backends.py": (
+        "tests/unit/tools/sandbox/test_backends.py",
+        "tests/unit/tools/sandbox/test_backends_hardening.py",
+        "tests/unit/tools/sandbox/test_backends_qualification.py",
+        "tests/unit/tools/sandbox/test_posture_flip.py",
+        "tests/unit/tools/sandbox/test_launch_helper.py",
+        "tests/unit/tools/sandbox/test_executor_integration.py",
+    ),
+    "victor/tools/subprocess_executor.py": (
+        "tests/unit/tools/sandbox/test_executor_integration.py",
+        "tests/unit/tools/test_shell_tool.py",
+        "tests/unit/tools/test_shell_async_cache.py",
+        "tests/unit/tools/test_subprocess_process_group.py",
     ),
     # 5x'd stamina-budget defaults (2026-10-31): sources without a mirrored
     # test file are pinned by the suites that consume their defaults.

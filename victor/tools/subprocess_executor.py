@@ -366,12 +366,15 @@ def _resolve_default_sandbox(
 
     Reads ``settings.sandbox`` (ADR-035 fail-closed default). A ``required`` policy that
     cannot be enforced raises :class:`SandboxRequiredUnavailableError` —
-    that refusal is the security boundary and is never swallowed. Any other
-    resolution failure degrades to no sandbox so subprocess execution is
-    never broken by a sandbox bug.
+    that refusal is the security boundary and is never swallowed. An UNKNOWN
+    policy (Codex finding 20: a fault INSIDE effective-policy evaluation, as
+    opposed to the settings-read failure handled first) also refuses — it is
+    never interpreted as an inactive decision. Only a KNOWN explicit
+    ``disabled``/``preferred`` policy can yield :class:`NoneSandbox`, and a
+    backend-selection fault under one still refuses via
+    :class:`PolicyUnavailable` rather than silently passing through.
     """
     from victor.tools.sandbox import (
-        NoneSandbox,
         SandboxRequiredUnavailableError,
         resolve_sandbox_backend,
     )
@@ -398,15 +401,27 @@ def _resolve_default_sandbox(
 
     decision = resolve_required_launch(sandbox_settings)
     if decision.refuse:
-        # HB-02: a resolver/configuration error must not convert a required
-        # policy into disabled isolation.
+        # HB-02 + Codex finding 20: a resolver/configuration error OR an
+        # UNKNOWN policy (evaluation fault) must not convert this launch
+        # into disabled isolation — refuse before any spawn.
         raise SandboxRequiredUnavailableError("resolver_error", decision.reason)
     if decision.required_active:
         return decision.backend
+    # Known non-required policy (explicit disabled / preferred): the
+    # historical resolution. Unknown policy NEVER reaches here — it refuses
+    # above — so this call can only fail on a settings-accessor fault during
+    # backend selection, which is unknown enforcement state, not an
+    # affirmative opt-out. Refuse (fail-closed) rather than silently
+    # returning the passthrough backend.
     try:
         return resolve_sandbox_backend(sandbox_settings)
-    except Exception:  # pragma: no cover - defensive: preferred fail-open
-        return NoneSandbox()
+    except Exception as exc:
+        from victor.tools.sandbox import PolicyUnavailable
+
+        raise PolicyUnavailable(
+            "backend_selection_failed",
+            f"Sandbox backend selection failed ({exc}); refusing execution (fail-closed).",
+        ) from exc
 
 
 def _sandbox_refusal_result(
