@@ -18,13 +18,10 @@ The GEPA trace scanner (``victor.processing.native.trace_scanner``) has a
 Rust path (``scan_usage_file``/``scan_usage_files``, 5-8x on multi-MB logs)
 and a pure-Python reference (``_scan_usage_file_python``). These tests run
 synthetic usage.jsonl corpora (plain, gzip, malformed lines, filtered
-sessions, task classifications) through both paths.
-
-Known pinned divergence: ``scan_usage_files`` with the SAME session id
-appearing in multiple files — the Rust path aggregates per session across
-the whole batch, the Python path concatenates per-file results (duplicate
-session entries). Disjoint-session batches (the real deployment shape) agree
-exactly.
+sessions, task classifications) through both paths — including a session id
+appearing in MULTIPLE files, where both engines aggregate per session across
+the whole batch (the formerly-pinned concatenation divergence in the Python
+fallback was fixed to the native semantics).
 
 Selected by the native-parity CI job (``pytest -m native_parity``).
 """
@@ -179,29 +176,49 @@ class TestMultiFileParity:
         # Descending completion_score in both paths.
         assert native[0].session_id == fallback[0].session_id == "s1"
 
-
-class TestDocumentedDivergence:
     @_requires_native
     def test_duplicate_session_across_files(self, tmp_path):
-        """PINNED divergence: the same session id in two files.
+        """The same session id in two files aggregates across the batch.
 
-        The Rust batch aggregates events per session across the file list;
-        the Python fallback concatenates per-file results, emitting the
-        session once per file it appears in. Disjoint-session batches (the
-        real shape) agree — see TestMultiFileParity. Breaking this pin means
-        one of the scanners changed its cross-file semantics: re-judge the
-        contract, then update this test.
+        The Rust batch folds events per session across the file list; the
+        Python fallback shares one session accumulator across files (fixed
+        from per-file concatenation, which emitted the session once per
+        file). Both engines must agree exactly — counts, failures,
+        classification and score included.
         """
         events = [
             {"session_id": "s1", "event_type": "tool_call", "data": {}},
             {"session_id": "s1", "event_type": "tool_call", "data": {}},
             {"session_id": "s1", "event_type": "tool_result", "data": {"success": True}},
+            {
+                "session_id": "s1",
+                "event_type": "task_classification",
+                "data": {"task_type": "coding"},
+            },
+            # The second file contributes MORE events for the same session:
+            # both engines must merge them into one entry.
+            {"session_id": "s1", "event_type": "tool_call", "data": {}},
+            {"session_id": "s1", "event_type": "tool_result", "data": {"success": False}},
+            # A disjoint session in the second file stays independent.
+            {"session_id": "s2", "event_type": "tool_call", "data": {}},
+            {"session_id": "s2", "event_type": "tool_call", "data": {}},
+            {"session_id": "s2", "event_type": "tool_result", "data": {"success": True}},
         ]
-        first = _write_events(tmp_path / "a.jsonl", events)
-        second = _write_events(tmp_path / "b.jsonl", events)
+        first = _write_events(tmp_path / "a.jsonl", events[:4])
+        second = _write_events(tmp_path / "b.jsonl", events[4:])
 
         native = ts.scan_usage_files([str(first), str(second)])
         fallback = _forced_python(ts.scan_usage_files, [str(first), str(second)])
 
-        assert len(native) == 1, "native aggregates a duplicated session across files"
-        assert len(fallback) == 2, "python concatenates per-file results"
+        assert len(native) == len(fallback) == 2, "exactly one entry per session id"
+        native_map, native_scores = _as_mapping(native)
+        fallback_map, fallback_scores = _as_mapping(fallback)
+        assert native_map == fallback_map
+        for sid, score in native_scores.items():
+            assert score == pytest.approx(fallback_scores[sid], abs=1e-6)
+        # s1 spans both files: 3 tool_calls (2 + 1), 1 failure — merged, not
+        # duplicated (concatenation would double-count the first file's
+        # events).
+        assert native_map["s1"][:2] == (3, 1)
+        assert native_map["s1"][2] == "coding"
+        assert fallback_map["s1"][:2] == (3, 1)
