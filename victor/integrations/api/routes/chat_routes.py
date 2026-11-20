@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, AsyncIterator, Optional
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from victor.core.context import bind_attribution
 from victor.framework.wire_events import stream_sse
 from victor.integrations.api.operator_posture import posture_json_response
 from victor.integrations.api.fastapi_server import (
@@ -57,11 +56,17 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def _admit_chat_turn(
         http_request: Request, messages: list
     ) -> tuple[Optional[str], Optional[JSONResponse]]:
-        """Key verification, posture enforcement and payload validation shared
-        by every conversation-addressing chat handler. Returns the resolved
-        client_id (attribution join) plus the response to return early (a
-        posture refusal), or None when the turn may proceed."""
-        client_id = await server._verify_api_key(http_request)
+        """Posture enforcement and payload validation shared by every
+        conversation-addressing chat handler.
+
+        The client_id is the dependency-resolved principal label
+        (FOU-A4a: ``request.state.client_id`` — the key was already verified
+        and the FEP-0020 attribution bound before the handler runs), so the
+        posture claim (Codex finding 3) consumes the same identity without a
+        per-route re-verification. Returns the client_id plus the response
+        to return early (a posture refusal), or None when the turn may
+        proceed."""
+        client_id = getattr(http_request.state, "client_id", None)
         refusal = _posture_refusal("chat", client_id)
         if refusal is not None:
             return client_id, refusal
@@ -71,10 +76,11 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
     @router.post("/chat", response_model=ChatResponse, tags=["Chat"])
     async def chat(request: ChatRequest, response: Response, http_request: Request) -> ChatResponse:
-        """Chat endpoint (non-streaming)."""
-        # FEP-0020 attribution join: _admit_chat_turn resolves the client_id at
-        # the auth seam so downstream cost/usage records carry the
-        # authenticated subject (None when auth is not configured).
+        """Chat endpoint (non-streaming).
+
+        Authentication and the FEP-0020 attribution join are handled by the
+        server-wide auth dependency (FOU-A4a/A4b); this handler only
+        enforces the shared-state posture (Codex finding 3)."""
         client_id, early = await _admit_chat_turn(http_request, request.messages)
         if early is not None:
             return early
@@ -82,7 +88,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         request_id = _new_chat_request_id()
         response.headers["X-Victor-Request-Id"] = request_id
         client = await server._get_victor_client()
-        with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
+        with request_correlation_id(request_id):
             chat_result = await client.chat(request.messages[-1].content)
 
         content = getattr(chat_result, "content", None) or ""
@@ -120,13 +126,19 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
     async def chat_resume(
         request: ResumeRequest, response: Response, http_request: Request
     ) -> ChatResponse:
-        """Resume a durably-paused chat turn with a human approval decision (FEP-0029)."""
+        """Resume a durably-paused chat turn with a human approval decision (FEP-0029).
+
+        Auth + attribution are owned by the server-wide auth dependency
+        (FOU-A4a/A4b)."""
         from victor.framework.approval_pause import ApprovalDecision
 
-        client_id = await server._verify_api_key(http_request)
+        # Posture claim consumes the dependency-resolved principal label
+        # (FOU-A4a/A4b): no per-route re-verification or binding here.
+        client_id = getattr(http_request.state, "client_id", None)
         refusal = _posture_refusal("chat/resume", client_id)
         if refusal is not None:
             return refusal
+
         request_id = _new_chat_request_id()
         response.headers["X-Victor-Request-Id"] = request_id
         client = await server._get_victor_client()
@@ -140,7 +152,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             responder=request.responder,
         )
         try:
-            with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
+            with request_correlation_id(request_id):
                 result = await resume(request.run_id, decision)
         except ValueError as exc:
             # Unknown or already-resumed run_id.
@@ -163,10 +175,13 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
 
     @router.post("/chat/stream", tags=["Chat"])
     async def chat_stream(request: ChatRequest, http_request: Request) -> StreamingResponse:
-        """Streaming chat endpoint (Server-Sent Events)."""
-        # Authenticate before streaming starts so an invalid key is a plain 401;
-        # the identity is bound inside the generator because the response body
-        # is produced after this handler returns (FEP-0020 attribution join).
+        """Streaming chat endpoint (Server-Sent Events).
+
+        Authentication and the FEP-0020 attribution join are owned by the
+        server-wide auth dependency (FOU-A4a/A4b) — an invalid key is a
+        plain 401 before streaming starts, the dependency's binding stays
+        active inside the response body generator, and this handler only
+        enforces the shared-state posture."""
         client_id, early = await _admit_chat_turn(http_request, request.messages)
         if early is not None:
             return early
@@ -178,7 +193,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
                 client = await server._get_victor_client()
                 yield f'data: {json.dumps({"type": "request", "request_id": request_id})}\n\n'
 
-                with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
+                with request_correlation_id(request_id):
                     async for chunk in client.stream_chat(request.messages[-1].content):
                         if hasattr(chunk, "content") or hasattr(chunk, "tool_calls"):
                             content = getattr(chunk, "content", "")
@@ -234,7 +249,8 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
         verbatim — the same cross-surface schema the TUI wire timeline consumes — so
         remote UIs get reasoning deltas, tool results, member lanes and terminal
         ``stream_end`` semantics with full fidelity (VAS-10/VAS-14 seam). Authentication
-        and the FEP-0020 attribution join mirror ``chat_stream``.
+        and the FEP-0020 attribution join mirror ``chat_stream`` (owned by the
+        server-wide auth dependency, FOU-A4a/A4b).
         """
         client_id, early = await _admit_chat_turn(http_request, request.messages)
         if early is not None:
@@ -246,7 +262,7 @@ def create_router(server: "VictorFastAPIServer") -> APIRouter:
             try:
                 client = await server._get_victor_client()
                 yield (f'data: {json.dumps({"event": "request", "request_id": request_id})}\n\n')
-                with request_correlation_id(request_id), bind_attribution(subject_id=client_id):
+                with request_correlation_id(request_id):
                     async for sse_record in stream_sse(client, request.messages[-1].content):
                         yield sse_record
             except Exception as e:

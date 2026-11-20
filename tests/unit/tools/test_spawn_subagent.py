@@ -43,6 +43,8 @@ from victor.security.permissions import (
 from victor.tools.enums import AccessMode
 from victor.tools.spawn_subagent import (
     SPAWN_SUBAGENT_TOOL_NAME,
+    compute_child_tool_set,
+    mint_child_session_id,
     sanitize_subagent_tool_list,
     spawn_subagent,
 )
@@ -325,3 +327,194 @@ async def test_empty_prompt_refused(exec_ctx, runner):
     assert result["success"] is False
     assert "prompt" in result["error"].lower()
     runner.assert_not_awaited()
+
+
+# =============================================================================
+# Finding (delegation grant widening): requested ∩ role grants ∩ parent
+# =============================================================================
+
+
+def test_compute_child_tool_set_intersects_all_three_grant_sources():
+    """A restrict-list never REPLACES the role list: only tools present in
+    the requested list AND the role grants AND the parent's admitted set
+    survive (alias-resolved, requested order preserved)."""
+    final = compute_child_tool_set(
+        requested=["grep", "read", "write"],
+        role_grants=["read", "grep", "search"],
+        parent_admitted=["read", "grep"],
+    )
+    assert final == ["grep", "read"]
+
+
+def test_compute_child_tool_set_none_requested_uses_bounded_role_defaults():
+    """No explicit list -> role defaults, still intersected with the parent's
+    admitted set (role-provider defaults are selected after the request and
+    must be bounded too)."""
+    final = compute_child_tool_set(
+        requested=None,
+        role_grants=["read", "web_search", "code_search"],
+        parent_admitted=["read", "web_search", "shell"],
+    )
+    assert final == ["read", "web_search"]
+
+
+def test_compute_child_tool_set_resolves_aliases_before_intersecting():
+    """Alias names resolve to canonical form before the intersection."""
+    final = compute_child_tool_set(
+        requested=["execute_bash"],  # alias of "shell"
+        role_grants=["shell"],
+        parent_admitted=["shell"],
+    )
+    assert final == ["shell"]
+
+
+def test_compute_child_tool_set_never_re_admits_spawn_tool():
+    """The spawn tool cannot survive from any source — depth 1 is final."""
+    final = compute_child_tool_set(
+        requested=[SPAWN_SUBAGENT_TOOL_NAME, "read"],
+        role_grants=["read"],
+        parent_admitted=["read", SPAWN_SUBAGENT_TOOL_NAME],
+    )
+    assert final == ["read"]
+
+
+# =============================================================================
+# Finding (spawn session ids): one minted child session id per invocation
+# =============================================================================
+
+
+def test_mint_child_session_id_is_unique_per_invocation():
+    """Overlapping spawns and retries under one parent never share an
+    upstream session key."""
+    a = mint_child_session_id("sess-parent")
+    b = mint_child_session_id("sess-parent")
+    assert a != b
+    assert a.startswith("sess-parent-spawn-")
+    assert b.startswith("sess-parent-spawn-")
+
+
+def test_mint_child_session_id_falls_back_to_context_session():
+    from victor.core.context import get_session_id, session_id, set_session_id
+
+    token = set_session_id("ctx-session")
+    try:
+        minted = mint_child_session_id(None)
+        assert minted.startswith("ctx-session-spawn-")
+        assert get_session_id() == "ctx-session"
+    finally:
+        session_id.reset(token)
+
+
+def test_explicit_child_session_id_wins_over_member_id_derivation():
+    """The minted id is precedence 1: it — not ``{parent}-{member_id}`` —
+    keys the provider session binding."""
+    config = SubAgentConfig(
+        role=SubAgentRole.RESEARCHER,
+        task="t",
+        allowed_tools=["read"],
+        tool_budget=5,
+        context_limit=1000,
+        member_id="spawn_subagent",
+        agent_id="agent_1",
+        parent_session_id="sess-parent",
+        child_session_id="sess-parent-spawn-abc",
+    )
+    assert config.resolve_member_session_id() == "sess-parent-spawn-abc"
+    assert config.to_runtime_context().session_id == "sess-parent-spawn-abc"
+
+
+def test_derivation_without_explicit_id_still_uses_member_identity():
+    """Legacy members (no minted id) keep the documented derivation."""
+    config = SubAgentConfig(
+        role=SubAgentRole.RESEARCHER,
+        task="t",
+        allowed_tools=["read"],
+        tool_budget=5,
+        context_limit=1000,
+        member_id="spawn_subagent",
+        agent_id="agent_1",
+        parent_session_id="sess-parent",
+    )
+    assert config.resolve_member_session_id() == "sess-parent-spawn_subagent"
+
+
+def test_identity_metadata_reports_resolved_session_id():
+    """The returned child-id field reports the RESOLVED session id, not the
+    optional input (which used to read None for every foreground spawn)."""
+    config = SubAgentConfig(
+        role=SubAgentRole.RESEARCHER,
+        task="t",
+        allowed_tools=["read"],
+        tool_budget=5,
+        context_limit=1000,
+        member_id="spawn_subagent",
+        parent_session_id="sess-parent",
+    )
+    member = SubAgent(config, MagicMock())
+    member._resolved_session_id = "sess-parent-spawn-abc"
+    metadata = member._identity_metadata()
+    assert metadata["child_session_id"] == "sess-parent-spawn-abc"
+    assert metadata["session_id"] == "sess-parent-spawn-abc"
+
+
+def test_identity_metadata_falls_back_to_configured_child_session_id():
+    """Before execution binds a session (e.g. construction-time audit), the
+    configured id is still surfaced rather than a null field."""
+    config = SubAgentConfig(
+        role=SubAgentRole.RESEARCHER,
+        task="t",
+        allowed_tools=["read"],
+        tool_budget=5,
+        context_limit=1000,
+        member_id="spawn_subagent",
+        parent_session_id="sess-parent",
+        child_session_id="sess-parent-spawn-abc",
+    )
+    member = SubAgent(config, MagicMock())
+    assert member._identity_metadata()["child_session_id"] == "sess-parent-spawn-abc"
+
+
+# =============================================================================
+# Finding (grant widening, admission layer): the child registry consults the
+# spawn boolean and never admits an out-of-parent tool
+# =============================================================================
+
+
+def test_constrained_registry_skips_spawn_tool_even_when_listed():
+    """A member that cannot spawn is never REGISTERED the spawn tool, even if
+    a caller smuggled it into allowed_tools past the upstream guards."""
+    parent = MagicMock()
+    parent.settings = MagicMock()
+    parent.settings.tool_budget = 50
+    parent.settings.max_context_chars = 100000
+    parent.provider_name = "mock_provider"
+    parent.model = "mock_model"
+    parent.temperature = 0.7
+
+    def _get(name):
+        tool = MagicMock()
+        tool.name = name
+        return tool
+
+    parent.tool_registry = MagicMock()
+    parent.tool_registry.get.side_effect = _get
+    parent.tools = MagicMock()
+    parent.tools.get.side_effect = _get
+
+    config = SubAgentConfig(
+        role=SubAgentRole.RESEARCHER,
+        task="child task",
+        allowed_tools=["read", SPAWN_SUBAGENT_TOOL_NAME],
+        tool_budget=5,
+        context_limit=1000,
+        can_spawn_subagents=False,
+    )
+    subagent = SubAgent(config, parent)
+
+    child_registry = MagicMock()
+    child_orchestrator = MagicMock()
+    child_orchestrator.tool_registry = child_registry
+    subagent._configure_allowed_tools(child_orchestrator)
+
+    registered_names = [call.args[0].name for call in child_registry.register.call_args_list]
+    assert registered_names == ["read"]

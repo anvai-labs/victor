@@ -211,11 +211,28 @@ bare label. Key-only posture is byte-identical from the outside.
     `request.state.client_id` consumers (broadcast owner scoping, route
     owner checks) keep working untouched.
 - Key-store upgrade: `VICTOR_API_KEYS` stays the compatibility source;
-  add an optional keyed principal registry (`~/.victor/api_principals.yaml`
-  or a `server.auth.principals` settings block — Decision D4) mapping
-  key → `{principal_id, kind, subject_label, groups}`. Keys absent from the
-  registry synthesize a `service` principal whose `principal_id` IS the
-  legacy `client_id` — zero-migration for existing operators.
+  add an optional keyed principal registry — **Decision D4 blessed
+  (2026-11-20, modified recommendation)**: versioned YAML, operator-managed,
+  default `/etc/victor/api_principals.yaml`, override
+  `server.auth_principals_path`; the resolved path must live OUTSIDE every
+  sandbox-writable surface (enumerated by
+  `victor.tools.sandbox.writable_surface_roots`: workspace root, Victor
+  state root `~/.victor`, temp dirs, operator allowed mounts) and the
+  server refuses to start with a typed
+  `PrincipalsRegistryPathError` otherwise — the agent must not be able to
+  rewrite its own principals (the exact Codex finding for
+  `~/.victor/api_principals.yaml`). Schema: top-level monotonic integer
+  `revision`; per entry `key` (unique), `principal_id` (unique, becomes
+  `client_id`), `kind: api_key` (only value in the A4a window; A4c adds
+  `oidc`), `subject_label` (FEP-0020 subject), `groups` (unique strings),
+  optional `expiry` (expired entries fail closed with the same 401 as
+  unknown keys). Strict parsing: unknown fields rejected. Loading is
+  read-only; activation is process restart or the explicit
+  `reload_principals_registry()`; operators publish updates via atomic
+  rename (write temp, `os.replace`) so multi-worker deployments converge
+  on the new revision. Keys absent from the registry synthesize a
+  `service` principal whose `principal_id` IS the legacy `client_id` —
+  zero-migration for existing operators.
 - Wiring: `_make_auth_dependency` and `_make_ws_auth_dependency` resolve a
   `VerifiedPrincipal` and store `request.state.principal` (plus the
   `client_id` shim); `_handle_ws_message`'s auth frame does the same on
@@ -393,7 +410,7 @@ evidence discipline.
 | D1 | Auth provider for SSO | Kanidm OIDC — already selected 2026-10-08 (auth-policy doc header); confirm the deployed DS3 registration/issuer/audience before A4c merges | Entra delegated flow (`core/identity/oidc.py`) stays HITL-approver-only |
 | D2 | Token validation strategy + library | RFC 7662 introspection default; RFC 9068 JWT profile as config; `authlib` in optional `victor[sso]` extra | Depends on verified Kanidm deployment capabilities (introspection method, ES256); probe before pinning |
 | D3 | Role model | Named role bundles per VAS-05a (`run_operator`, `run_observer`, `approver`, distinct admins); no hierarchy, no ADMIN shortcut reuse from tool policy | Policy contract section of the auth-policy doc |
-| D4 | Principal/key registry storage | Versioned YAML file (`server.auth.principals` path or `~/.victor/api_principals.yaml`), operator-managed immutable revision, not DB rows | Matches the policy document's revision discipline; avoids a settings-DB schema commitment |
+| D4 | Principal/key registry storage | **BLESSED 2026-11-20 (modified recommendation)**: versioned YAML file at `/etc/victor/api_principals.yaml` by default, `server.auth_principals_path` as the operator override; operator-managed immutable revision, not DB rows; **startup invariant**: refuse to start (typed error naming the colliding surface) if the resolved path falls inside ANY sandbox-writable surface (workspace root, Victor state root `~/.victor`, temp dirs, configured allowed mounts — enumerated by `victor.tools.sandbox.writable_surface_roots`) | `~/.victor/api_principals.yaml` FAILS the invariant by design (the exact Codex finding: the registry must not sit inside agent-writable state — the agent could rewrite its own principals). Matches the policy document's revision discipline; avoids a settings-DB schema commitment |
 | D5 | Attribution subject identity under OIDC | Immutable Victor principal ID derived from verified `(issuer, sub)`; email/username display-only | Auth-policy: caller names/emails are not keys |
 | D6 | Browser session semantics | Server-side session (Secure/HttpOnly cookie, CSRF + Origin checks) issued by `/auth/login`; decide persistence home (project DB vs signed stateless cookie) — recommend DB-backed for revocation | The dormant `ServerSettings` HMAC knobs are the natural seam to wire or formally retire; owner chooses wire-vs-retire |
 | D7 | `client_id` compatibility lifetime | Keep `client_id` as the key-only attribution label indefinitely; OIDC principals get issuer-qualified IDs; no rename of existing fields in A4 window | Protects dashboards/sandhi virtual-key continuity |
@@ -403,6 +420,26 @@ evidence discipline.
 
 Decisions D1/D2/D6 block A4c only; A4a/A4b are executable immediately
 after this design lands; A4d needs D3/D4 confirmed before merge.
+
+## 4.1 Implementation status (2026-11-20)
+
+- **A4a + A4b implemented** on `feat/fou-a4ab-principal-attribution`
+  (rebased onto develop after the #1975–#1990 wave): principal shape as
+  designed, resolved inside the existing dependencies (no ASGI
+  middleware); the `client_id` shim preserved; keyless/exempt behavior
+  byte-identical (pinned); attribution centralized in the dependency with
+  the `/ws` turn binding upgraded to principal subject+group; FEP-0020
+  best-effort rule pinned by tests; dormancy guard via orchestrator- and
+  provider-observed identity (streaming span included).
+- **D4 registry implemented** per the blessed decision above
+  (`auth/principals_registry.py` + `server.auth_principals_path` +
+  startup invariant over `writable_surface_roots`).
+- Reconciliation with #1981: the single-trusted-operator posture claim
+  (`claim_shared_state`) now consumes the dependency-set
+  `request.state.client_id` shim instead of re-calling `_verify_api_key`
+  per route; posture semantics unchanged (enforced by the
+  `test_multi_principal_refusal` suite).
+- A4c (D1/D2/D6) and A4d (D3) remain pending owner decisions.
 
 ## 6. Risks and non-goals
 

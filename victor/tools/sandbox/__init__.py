@@ -44,6 +44,7 @@ from victor.tools.sandbox.backends import (
     resolve_effective_policy,
     resolve_required_launch,
     resolve_sandbox_backend,
+    writable_surface_roots,
 )
 from victor.tools.sandbox.container_sandbox import (
     ContainerSandbox,
@@ -86,6 +87,7 @@ __all__ = [
     "resolve_effective_policy",
     "resolve_required_launch",
     "resolve_sandbox_backend",
+    "writable_surface_roots",
     "ContainerSandbox",
     "ContainerSandboxUnavailableError",
     "SandboxTransferRefused",
