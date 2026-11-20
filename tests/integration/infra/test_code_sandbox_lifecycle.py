@@ -163,15 +163,16 @@ def test_network_egress_is_denied_by_default():
 
 
 def test_resource_caps_reach_the_container():
-    """FOU-S2: caps ride the docker-run invocation, verifiable from inside."""
+    """FOU-S2: the memory cap is enforced inside the container.
+
+    Proven behaviorally, not via getrlimit: a cgroup memory cap does not
+    project onto RLIMIT_AS (which stays RLIM_INFINITY), so the observable
+    contract is allocation-below-cap succeeds while allocation-above-cap is
+    OOM-killed (exit 137) instead of taking down the host.
+    """
     sandbox = cet.CodeSandbox(memory_limit="128m", idle_ttl_seconds=600)
     try:
-        result = sandbox.execute("import resource\nprint(resource.getrlimit(resource.RLIMIT_AS))")
-        # Not a byte-exact pin (kernel/page rounding); the point is that the
-        # cap is present and far below the host's, so memory blowups die in
-        # the container instead of on the host.
-        soft = int(result["stdout"].strip("()\n").split(",")[0])
-        assert 0 < soft < 512 * 1024 * 1024
+        assert sandbox.execute("x = bytearray(64 * 1024 * 1024)")["exit_code"] == 0
         result = sandbox.execute("x = bytearray(512 * 1024 * 1024)")
         assert result["exit_code"] == 137  # killed by the 128m cap
     finally:
