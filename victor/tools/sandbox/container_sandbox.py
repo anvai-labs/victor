@@ -27,8 +27,8 @@ sandbox containers cannot accumulate:
 
 - **Lazy**: constructing a :class:`ContainerSandbox` makes no Docker contact
   and starts nothing. A container is acquired on first
-  ``execute``/``put_files`` (or an explicit ``start``), so bootstrap, tests
-  and sessions that never run code never touch Docker.
+  ``execute``/``put_files``/``get_file`` (or an explicit ``start``), so
+  bootstrap, tests and sessions that never run code never touch Docker.
 - **Owned**: an acquired container is removed by ``stop``/``dispose`` and by
   a ``weakref.finalize`` that fires when the sandbox is garbage-collected or
   the interpreter exits.
@@ -39,9 +39,29 @@ sandbox containers cannot accumulate:
   files do not survive expiry).
 - **Network-disabled by default**: containers are created with
   ``network_disabled=True``; egress is an explicit opt-in.
-- **Capped**: ``mem_limit`` and ``cpu_shares`` ride the container-run
+- **Capped**: ``mem_limit`` and the CPU controls ride the container-run
   invocation itself, so the caps hold regardless of what the executed code
-  does.
+  does. ``cpu_shares`` is a RELATIVE scheduler weight, not a ceiling; when a
+  hard CPU limit is intended, set ``cpu_quota`` (microseconds per 100ms
+  period — ``50000`` caps the container at 0.5 CPU), which Docker enforces
+  via CFS bandwidth control.
+- **Cancellation-safe (owned-handle protocol, Codex finding 11)**: blocking
+  Docker work runs off the event loop and every operation is admitted against
+  the handle. :meth:`~ContainerSandbox.close` (the terminal teardown, wired
+  to session shutdown and the async context manager exit) stops admission —
+  new acquisitions are refused with reason ``closed`` — force-removes the
+  container (terminating any running exec) and joins in-flight workers under
+  a bounded timeout. A worker that races teardown after the close re-check
+  has its just-created container discarded, so a container can never be
+  acquired *after* the caller gave up. When the awaiting task is cancelled,
+  the async helpers call :meth:`~ContainerSandbox.terminate_in_flight` to
+  kill the Docker call the worker is blocked on; the worker then completes
+  with a failure instead of running past the caller's abandonment.
+- **Transfer-bounded**: uploads are authorized at the host boundary — every
+  path must resolve inside the admitted ``workspace_root`` when one is set
+  (symlink escapes included) — and both directions are capped by
+  ``transfer_byte_limit_bytes``, so host-side tar/download buffers can never
+  exceed the configured budget.
 - **Reapable**: containers carry owner labels (host boot id, pid, process
   start time). :func:`reap_orphaned_sandboxes` removes only containers whose
   owner on this host is dead, never a live sandbox of another process.
@@ -55,6 +75,7 @@ available, ``None`` (backend simply not offered) when it is not, and a typed
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import logging
 import os
@@ -62,7 +83,7 @@ import tarfile
 import threading
 import weakref
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from victor.tools.sandbox_ownership import (
     OWNER_HOST_LABEL,
@@ -105,7 +126,22 @@ DEFAULT_IDLE_TTL_SECONDS = 900
 LEGACY_AUTO_REAP_MIN_AGE_SECONDS = 24 * 3600
 LEASE_PATH = "/tmp/.victor_lease"
 _API_TIMEOUT_SECONDS = 120
+# Host-side transfer budget (Codex finding 11): the upload tar and the
+# download buffer are bounded by this ceiling in BOTH directions, so container
+# memory limits cannot be sidestepped through unbounded host buffers.
+DEFAULT_TRANSFER_BYTE_LIMIT_BYTES = 64 * 1024 * 1024
+# Bounded wait for in-flight workers during close. docker-py cannot interrupt
+# a blocking call from another thread; the container is force-removed first,
+# so blocked workers surface errors and finish well inside this budget.
+DEFAULT_CLOSE_JOIN_TIMEOUT_SECONDS = 30.0
 _UNSET: Any = object()
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, "") or default)
+    except ValueError:
+        return default
 
 
 def _connect_timeout() -> float:
@@ -122,8 +158,10 @@ class ContainerSandboxUnavailableError(RuntimeError):
     Raised by :class:`ContainerSandbox` (``require_docker=True``) and
     :func:`resolve_container_sandbox` (``required=True``). ``reason`` is a
     stable machine-readable code — ``binary_missing`` (docker package or
-    binary absent) or ``daemon_unreachable`` (probe failed) — mirroring the
-    typed reasons of :class:`~victor.tools.sandbox.backends.SandboxRequiredUnavailableError`.
+    binary absent), ``daemon_unreachable`` (probe failed), ``closed`` (the
+    owned handle was closed: admission stopped, Codex finding 11) — mirroring
+    the typed reasons of
+    :class:`~victor.tools.sandbox.backends.SandboxRequiredUnavailableError`.
     Callers must treat this as a refusal (zero container execution), never as
     permission to run code unsandboxed.
     """
@@ -131,6 +169,17 @@ class ContainerSandboxUnavailableError(RuntimeError):
     def __init__(self, reason: str, message: str) -> None:
         super().__init__(message)
         self.reason = reason
+
+
+class SandboxTransferRefused(ContainerSandboxUnavailableError):
+    """A sandbox transfer was refused at the host boundary (Codex finding 11).
+
+    Raised by upload authorization (a host path resolving outside the
+    admitted workspace root — reason ``path_outside_workspace``) or by the
+    byte budget in either direction (reason ``transfer_limit_exceeded``).
+    Subclasses :class:`ContainerSandboxUnavailableError` so existing typed
+    refusals handling keeps working.
+    """
 
 
 def watchdog_command(idle_ttl_seconds: int) -> List[str]:
@@ -259,7 +308,11 @@ class ContainerSandbox:
         network_disabled: bool = True,
         memory_limit: Optional[str] = _UNSET,
         cpu_shares: Optional[int] = None,
+        cpu_quota: Optional[int] = None,
         idle_ttl_seconds: int = DEFAULT_IDLE_TTL_SECONDS,
+        workspace_root: Optional[str] = None,
+        transfer_byte_limit_bytes: Optional[int] = None,
+        close_join_timeout_seconds: Optional[float] = None,
     ):
         self.docker_image = docker_image
         self.container: Optional[Any] = None
@@ -278,11 +331,53 @@ class ContainerSandbox:
             )
         except ValueError:
             self.cpu_shares = None
+        # Explicit hard CPU ceiling (CFS quota, microseconds per 100ms
+        # period). None = no quota — shares alone are only a weight, never a
+        # cap, so a hard limit must be configured explicitly.
+        try:
+            self.cpu_quota = (
+                int(os.getenv("VICTOR_CODE_EXECUTOR_CPU_QUOTA", "0")) or None
+                if cpu_quota is None
+                else cpu_quota
+            )
+        except ValueError:
+            self.cpu_quota = None
         self.idle_ttl_seconds = max(1, int(idle_ttl_seconds))
+        # Host-boundary transfer policy (Codex finding 11). ``workspace_root``
+        # is the admitted host filesystem scope for uploads: when set, every
+        # upload path must resolve inside it (following symlinks), so a model
+        # -supplied path cannot read arbitrary host files into the container.
+        # None disables the workspace check (local single-operator posture);
+        # the byte budget below always applies.
+        self.workspace_root = str(Path(workspace_root).resolve()) if workspace_root else None
+        if transfer_byte_limit_bytes is None:
+            try:
+                transfer_byte_limit_bytes = int(
+                    os.getenv(
+                        "VICTOR_SANDBOX_TRANSFER_BYTE_LIMIT",
+                        str(DEFAULT_TRANSFER_BYTE_LIMIT_BYTES),
+                    )
+                )
+            except ValueError:
+                transfer_byte_limit_bytes = DEFAULT_TRANSFER_BYTE_LIMIT_BYTES
+        self.transfer_byte_limit = max(1, int(transfer_byte_limit_bytes))
+        if close_join_timeout_seconds is None:
+            close_join_timeout_seconds = _env_float(
+                "VICTOR_SANDBOX_CLOSE_JOIN_TIMEOUT", DEFAULT_CLOSE_JOIN_TIMEOUT_SECONDS
+            )
+        self.close_join_timeout_seconds = float(close_join_timeout_seconds)
         self._lock = threading.RLock()
         self._client: Any = None
         self._probed = False
         self._finalizer: Optional[weakref.finalize] = None
+        # Owned-handle admission state (Codex finding 11): ``_closed`` stops
+        # admission; the op counter tracks in-flight workers so close() can
+        # join them under a bounded timeout.
+        self._closed = False
+        self._ops_lock = threading.Lock()
+        self._active_ops = 0
+        self._ops_idle = threading.Event()
+        self._ops_idle.set()
 
         if not DOCKER_AVAILABLE:
             self._probed = True
@@ -324,6 +419,40 @@ class ContainerSandbox:
     def docker_available(self) -> bool:
         return self.docker_client is not None
 
+    # -- Owned-handle admission protocol (Codex finding 11) ------------------
+
+    def _admit_operation(self, op_name: str) -> None:
+        """Count an in-flight operation; refuse new work once the handle is closed."""
+        with self._ops_lock:
+            if self._closed:
+                raise ContainerSandboxUnavailableError(
+                    "closed",
+                    f"Sandbox handle is closed: '{op_name}' refused (admission stopped "
+                    "on close).",
+                )
+            self._active_ops += 1
+            self._ops_idle.clear()
+
+    def _release_operation(self) -> None:
+        with self._ops_lock:
+            self._active_ops = max(0, self._active_ops - 1)
+            if self._active_ops == 0:
+                self._ops_idle.set()
+
+    @contextlib.contextmanager
+    def _operation(self, op_name: str) -> Iterator[None]:
+        """Admit a blocking operation and guarantee its release on any exit."""
+        self._admit_operation(op_name)
+        try:
+            yield
+        finally:
+            self._release_operation()
+
+    @property
+    def closed(self) -> bool:
+        """Whether :meth:`close` stopped admission on this handle."""
+        return self._closed
+
     # -- Container lifecycle -------------------------------------------------
 
     def _labels(self) -> Dict[str, str]:
@@ -348,31 +477,69 @@ class ContainerSandbox:
     def _ensure_container(self) -> Optional[Any]:
         """Return a live container, acquiring one if needed; None if Docker is unavailable."""
         with self._lock:
+            if self._closed:
+                # Codex finding 11: a closed handle never acquires a container.
+                raise ContainerSandboxUnavailableError(
+                    "closed",
+                    "Sandbox handle is closed: container acquisition refused "
+                    "(admission stopped on close).",
+                )
             client = self.docker_client
             if client is None:
                 return None
             if self.container is not None:
                 try:
                     self.container.reload()
+                except NotFound:
+                    # CONFIRMED deletion (idle TTL + auto_remove): the finalizer
+                    # would target a gone container — detach and fall through to
+                    # the replacement acquisition below.
+                    self._forget_container()
+                except Exception as exc:  # noqa: BLE001 - ambiguous daemon error
+                    # Codex finding 18: a transient/unreachable daemon is NOT
+                    # evidence the container died. Detaching the finalizer here
+                    # would leave a live container unowned until its TTL (a
+                    # leak); replacing could also duplicate sandboxes. Keep
+                    # ownership and surface the error — the next use retries.
+                    logger.warning(
+                        "Sandbox container state unknown after daemon error (%s); "
+                        "retaining ownership and retrying on next use.",
+                        exc,
+                    )
+                    raise
+                else:
                     if self.container.status in ("created", "running", "restarting"):
                         return self.container
-                except Exception:  # noqa: BLE001 - expired and auto-removed
-                    pass
-                self._forget_container()
+                    self._forget_container()  # reload confirmed dead/exited: replace
             _reap_once(client)
             self._ensure_image(client)
-            container = client.containers.run(
-                self.docker_image,
-                command=watchdog_command(self.idle_ttl_seconds),
-                detach=True,
-                auto_remove=True,
-                init=True,
-                working_dir=self.working_dir,
-                network_disabled=self.network_disabled,
-                mem_limit=self.memory_limit,
-                cpu_shares=self.cpu_shares,
-                labels=self._labels(),
-            )
+            run_kwargs: Dict[str, Any] = {
+                "command": watchdog_command(self.idle_ttl_seconds),
+                "detach": True,
+                "auto_remove": True,
+                "init": True,
+                "working_dir": self.working_dir,
+                "network_disabled": self.network_disabled,
+                "mem_limit": self.memory_limit,
+                "cpu_shares": self.cpu_shares,
+                "labels": self._labels(),
+            }
+            if self.cpu_quota is not None:
+                # Hard CPU ceiling: CFS quota over the default 100000us period
+                # (docker-py leaves cpu_period at the kernel default when unset).
+                run_kwargs["cpu_quota"] = int(self.cpu_quota)
+            container = client.containers.run(self.docker_image, **run_kwargs)
+            if self._closed:
+                # Teardown raced the acquisition (Codex finding 11): the close
+                # re-check under the same lock that stopped admission means a
+                # container can never survive the handle's teardown — discard
+                # the just-created container instead of adopting it.
+                _remove_container(container)
+                raise ContainerSandboxUnavailableError(
+                    "closed",
+                    "Sandbox handle closed while a container was being acquired; "
+                    "the new container was discarded (no post-teardown acquisition).",
+                )
             self.container = container
             self._finalizer = weakref.finalize(self, _remove_container, container)
             logger.debug("Acquired sandbox container: %s", container.short_id)
@@ -382,11 +549,13 @@ class ContainerSandbox:
         """Acquire the container now (idempotent). Normally implicit on first use."""
         try:
             self._ensure_container()
+        except ContainerSandboxUnavailableError:
+            raise
         except Exception as exc:  # noqa: BLE001 - degraded, retried on next use
             logger.warning("Sandbox container could not be started: %s", exc)
 
-    def stop(self) -> None:
-        """Remove the container (idempotent). The next use acquires a new one."""
+    def _remove_owned_container(self) -> None:
+        """Detach the finalizer and force-remove the current container, if any."""
         with self._lock:
             container, finalizer = self.container, self._finalizer
             self.container, self._finalizer = None, None
@@ -394,6 +563,51 @@ class ContainerSandbox:
             finalizer()  # runs _remove_container exactly once
         elif container is not None:
             _remove_container(container)
+
+    def stop(self) -> None:
+        """Remove the container (idempotent). The next use acquires a new one."""
+        self._remove_owned_container()
+
+    def close(self, join_timeout: Optional[float] = None) -> None:
+        """Terminal teardown of the owned handle (Codex finding 11).
+
+        Stops admission (new operations are refused with reason ``closed``),
+        force-removes the container — terminating any exec/transfer a worker
+        is blocked on — then joins in-flight workers under a bounded timeout.
+        The docker SDK cannot interrupt a blocked call from another thread, so
+        the guarantee is: after ``close`` returns, no worker can acquire a
+        container or start new work, and every worker either finished inside
+        the join budget or had its Docker call fail under the removed
+        container. Idempotent.
+        """
+        with self._ops_lock:
+            self._closed = True
+        self._remove_owned_container()
+        timeout = self.close_join_timeout_seconds if join_timeout is None else join_timeout
+        if not self._ops_idle.wait(timeout):
+            with self._ops_lock:
+                remaining = self._active_ops
+            logger.warning(
+                "Sandbox close: %d operation(s) still active after %.1fs; the container "
+                "was force-removed so the work fails instead of leaking.",
+                remaining,
+                timeout,
+            )
+
+    def terminate_in_flight(self) -> None:
+        """Best-effort termination of in-flight operations (caller gave up).
+
+        Called by the async helpers when the awaiting task is cancelled while
+        a worker runs off-loop: docker-py cannot interrupt the blocking call,
+        but force-removing the container kills the exec/transfer underneath
+        it, so the worker surfaces an error and completes. Admission is
+        untouched — :meth:`close` owns the admission decision.
+        """
+        self._remove_owned_container()
+
+    async def aclose(self) -> None:
+        """Async :meth:`close`: the blocking teardown runs off the event loop."""
+        await asyncio.to_thread(self.close)
 
     dispose = stop
 
@@ -405,70 +619,207 @@ class ContainerSandbox:
         self.stop()
 
     async def __aenter__(self) -> "ContainerSandbox":
-        self.start()
+        # Lifecycle I/O off the event loop (Codex finding 11).
+        await asyncio.to_thread(self.start)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.stop()
+        # The close protocol must complete even when the body was cancelled:
+        # a teardown that could itself be abandoned would leave admission
+        # open. Run the close on the executor directly (cancelling the await
+        # cannot cancel a running executor future) and keep waiting through
+        # delivery of any further cancellation until it finishes — bounded by
+        # the join timeout and the Docker API timeouts.
+        close_future = asyncio.get_running_loop().run_in_executor(None, self.close)
+        while True:
+            try:
+                await asyncio.shield(close_future)
+                return
+            except asyncio.CancelledError:
+                if close_future.done():
+                    return
+                continue
 
     # -- Operations ----------------------------------------------------------
 
     def execute(self, code: str, timeout: int = 60) -> dict:
         """Run ``code`` with ``python -c`` in the sandbox, killed after ``timeout`` seconds."""
-        try:
-            container = self._ensure_container()
-        except Exception as exc:  # noqa: BLE001
-            return {"exit_code": 1, "stdout": "", "stderr": f"Sandbox could not start: {exc}"}
-        if container is None:
-            return {
-                "exit_code": 1,
-                "stdout": "",
-                "stderr": "Docker is not available. Code execution in containers is disabled.",
-            }
+        with self._operation("execute"):
+            try:
+                container = self._ensure_container()
+            except Exception as exc:  # noqa: BLE001
+                return {"exit_code": 1, "stdout": "", "stderr": f"Sandbox could not start: {exc}"}
+            if container is None:
+                return {
+                    "exit_code": 1,
+                    "stdout": "",
+                    "stderr": "Docker is not available. Code execution in containers is disabled.",
+                }
 
-        # The code is passed as $0, never interpolated into the shell script.
-        script = f'touch {LEASE_PATH}; exec timeout -s KILL {int(timeout)} python -c "$0"'
-        exec_result = container.exec_run(["sh", "-c", script, code], demux=True)
+            # The code is passed as $0, never interpolated into the shell script.
+            script = f'touch {LEASE_PATH}; exec timeout -s KILL {int(timeout)} python -c "$0"'
+            exec_result = container.exec_run(["sh", "-c", script, code], demux=True)
 
-        out, err = exec_result.output or (None, None)
-        stdout = out.decode("utf-8") if out else ""
-        stderr = err.decode("utf-8") if err else ""
-        if exec_result.exit_code == 137:
-            stderr += f"\n[sandbox] killed: exceeded {int(timeout)}s or the memory limit"
-        return {"exit_code": exec_result.exit_code, "stdout": stdout, "stderr": stderr}
+            out, err = exec_result.output or (None, None)
+            stdout = out.decode("utf-8") if out else ""
+            stderr = err.decode("utf-8") if err else ""
+            if exec_result.exit_code == 137:
+                stderr += f"\n[sandbox] killed: exceeded {int(timeout)}s or the memory limit"
+            return {"exit_code": exec_result.exit_code, "stdout": stdout, "stderr": stderr}
 
-    def put_files(self, file_paths: List[str]) -> None:
-        """Copy local files into the sandbox working directory."""
-        container = self._ensure_container()
-        if container is None:
-            return
+    def _authorize_upload_paths(self, file_paths: List[str]) -> List[Path]:
+        """Validate and authorize host paths at the boundary (Codex finding 11).
 
+        Every path must exist, must resolve inside the admitted
+        ``workspace_root`` when one is set (``resolve`` follows symlinks, so
+        an in-workspace symlink escaping to the host is refused), and the
+        combined size must fit the transfer byte budget. Runs entirely on the
+        host, BEFORE any tar is built or Docker is contacted.
+        """
+        root = Path(self.workspace_root).resolve() if self.workspace_root else None
+        resolved: List[Path] = []
+        total_bytes = 0
+        for file_path in file_paths:
+            p = Path(file_path)
+            if not p.exists():
+                raise FileNotFoundError(f"Local file not found: {file_path}")
+            resolved_path = p.resolve()
+            if root is not None:
+                try:
+                    resolved_path.relative_to(root)
+                except ValueError:
+                    raise SandboxTransferRefused(
+                        "path_outside_workspace",
+                        f"Upload refused: '{file_path}' resolves to {resolved_path}, "
+                        f"outside the admitted workspace root {root}.",
+                    ) from None
+            if resolved_path.is_dir():
+                # Directories keep their historical recursive-tar behavior;
+                # the budget accounts for every contained file.
+                for dirpath, _dirnames, filenames in os.walk(resolved_path):
+                    for name in filenames:
+                        try:
+                            total_bytes += (Path(dirpath) / name).stat().st_size
+                        except OSError:
+                            continue  # raced deletion; the tar build re-checks
+            else:
+                total_bytes += resolved_path.stat().st_size
+            resolved.append(resolved_path)
+        if total_bytes > self.transfer_byte_limit:
+            raise SandboxTransferRefused(
+                "transfer_limit_exceeded",
+                f"Upload refused: {total_bytes} bytes exceeds the "
+                f"{self.transfer_byte_limit}-byte sandbox transfer limit.",
+            )
+        return resolved
+
+    def _build_upload_tar(self, paths: List[Path]) -> bytes:
+        """Tar the admitted files under the byte budget (bounded host buffer)."""
         tar_stream = io.BytesIO()
         with tarfile.open(fileobj=tar_stream, mode="w") as tar:
-            for file_path in file_paths:
-                p = Path(file_path)
-                if not p.exists():
-                    raise FileNotFoundError(f"Local file not found: {file_path}")
-                tar.add(str(p), arcname=p.name)
+            for path in paths:
+                if path.is_dir():
+                    tar.add(str(path), arcname=path.name)
+                else:
+                    info = tar.gettarinfo(str(path), arcname=path.name)
+                    with path.open("rb") as fh:
+                        tar.addfile(info, fh)
+                # A file grown between the pre-flight stat and this read (or
+                # a directory's contents) is still caught here: the host
+                # buffer never exceeds the budget before Docker is contacted.
+                if tar_stream.tell() > self.transfer_byte_limit:
+                    raise SandboxTransferRefused(
+                        "transfer_limit_exceeded",
+                        f"Upload aborted: the tar for {len(paths)} path(s) exceeded the "
+                        f"{self.transfer_byte_limit}-byte sandbox transfer limit.",
+                    )
+        return tar_stream.getvalue()
 
-        tar_stream.seek(0)
-        container.put_archive(self.working_dir, tar_stream)
-        container.exec_run(["touch", LEASE_PATH])
+    def put_files(self, file_paths: List[str]) -> None:
+        """Copy local files into the sandbox working directory.
+
+        Host paths are authorized at the boundary and the byte-budgeted tar
+        is built BEFORE any Docker contact (Codex finding 11). Raises:
+
+        * :class:`FileNotFoundError` — a local path does not exist.
+        * :class:`SandboxTransferRefused` — a path resolves outside the
+          admitted workspace root (reason ``path_outside_workspace``) or the
+          combined size exceeds the transfer byte budget (reason
+          ``transfer_limit_exceeded``).
+        * :class:`ContainerSandboxUnavailableError` — no container can be
+          acquired (typed upload failure, Codex finding 18) or the handle is
+          closed (reason ``closed``). The historical silent ``return`` let
+          callers proceed believing files existed inside the container; the
+          async :func:`upload_files` helper then formatted the no-op as
+          success. Fail-closed instead.
+        """
+        admitted = self._authorize_upload_paths(file_paths)
+        with self._operation("upload"):
+            tar_stream = io.BytesIO(self._build_upload_tar(admitted))
+            container = self._ensure_container()
+            if container is None:
+                raise ContainerSandboxUnavailableError(
+                    "daemon_unreachable" if DOCKER_AVAILABLE else "binary_missing",
+                    "Cannot upload files: the Docker container sandbox is unavailable; "
+                    "refusing the upload instead of reporting success (fail-closed). "
+                    "Verify: docker ps.",
+                )
+            tar_stream.seek(0)
+            container.put_archive(self.working_dir, tar_stream)
+            container.exec_run(["touch", LEASE_PATH])
 
     def get_file(self, remote_path: str) -> bytes:
-        """Retrieve a single file from the sandbox."""
-        container = self._ensure_container()
-        if container is None:
-            return b""
+        """Retrieve a single file from the sandbox under the download byte budget.
 
-        bits, _ = container.get_archive(remote_path)
-        with io.BytesIO(b"".join(bits)) as tar_stream:
-            with tarfile.open(fileobj=tar_stream, mode="r") as tar:
-                member = tar.getmembers()[0]
-                file_obj = tar.extractfile(member)
-                if file_obj:
-                    return file_obj.read()
-        raise FileNotFoundError(f"File not found in container: {remote_path}")
+        Raises:
+        * :class:`SandboxTransferRefused` — the file exceeds the transfer
+          byte budget (reason ``transfer_limit_exceeded``).
+        * :class:`ContainerSandboxUnavailableError` — no container can be
+          acquired (typed download failure; the ``get_file`` residual of
+          Codex finding 18). The historical silent ``b""`` return let
+          callers read "no Docker" as an empty-but-successful payload.
+          Fail-closed instead.
+
+        The daemon-reported size is checked before a byte is read, and the
+        stream is read chunk-wise with a cumulative cap (defense in depth
+        against a misreported size), so the host download buffer is bounded.
+        """
+        with self._operation("download"):
+            container = self._ensure_container()
+            if container is None:
+                raise ContainerSandboxUnavailableError(
+                    "daemon_unreachable" if DOCKER_AVAILABLE else "binary_missing",
+                    "Cannot retrieve files: the Docker container sandbox is unavailable; "
+                    "refusing the download instead of returning empty bytes as success "
+                    "(fail-closed). Verify: docker ps.",
+                )
+
+            stream, stat = container.get_archive(remote_path)
+            reported_size = int((stat or {}).get("size", 0))
+            if reported_size > self.transfer_byte_limit:
+                raise SandboxTransferRefused(
+                    "transfer_limit_exceeded",
+                    f"Download refused: '{remote_path}' is {reported_size} bytes, over the "
+                    f"{self.transfer_byte_limit}-byte sandbox transfer limit.",
+                )
+            chunks: List[bytes] = []
+            received = 0
+            for chunk in stream:
+                received += len(chunk)
+                if received > self.transfer_byte_limit:
+                    raise SandboxTransferRefused(
+                        "transfer_limit_exceeded",
+                        f"Download aborted: the stream for '{remote_path}' exceeded the "
+                        f"{self.transfer_byte_limit}-byte sandbox transfer limit.",
+                    )
+                chunks.append(chunk)
+            with io.BytesIO(b"".join(chunks)) as tar_stream:
+                with tarfile.open(fileobj=tar_stream, mode="r") as tar:
+                    member = tar.getmembers()[0]
+                    file_obj = tar.extractfile(member)
+                    if file_obj:
+                        return file_obj.read()
+            raise FileNotFoundError(f"File not found in container: {remote_path}")
 
 
 # -- Capability gating (FOU-S2) -----------------------------------------------
@@ -512,8 +863,17 @@ def sandbox_kwargs_from_settings(settings: Any) -> Dict[str, Any]:
         "network_disabled": bool(_setting("code_executor_network_disabled", True)),
         "memory_limit": _setting("code_executor_memory_limit", "512m"),
         "cpu_shares": _setting("code_executor_cpu_shares", 256),
+        "cpu_quota": _setting("code_executor_cpu_quota", None),
         "idle_ttl_seconds": int(
             _setting("code_executor_idle_ttl_seconds", DEFAULT_IDLE_TTL_SECONDS)
+        ),
+        "workspace_root": _setting("code_executor_workspace_root", None),
+        "transfer_byte_limit_bytes": int(
+            _setting(
+                "code_executor_transfer_byte_limit_bytes",
+                DEFAULT_TRANSFER_BYTE_LIMIT_BYTES,
+            )
+            or DEFAULT_TRANSFER_BYTE_LIMIT_BYTES
         ),
     }
 
@@ -560,8 +920,17 @@ async def execute_code(sandbox: ContainerSandbox, code: str) -> str:
     """Execute Python code in the sandbox, offloading the blocking call to a thread.
 
     Shared formatting contract with the coding vertical's ``sandbox`` tool.
+    Cancellation-safe (Codex finding 11): cancelling this coroutine cannot
+    interrupt the worker thread, so the cancellation path terminates the
+    Docker work the worker is blocked on (the container is force-removed and
+    the blocked call fails) before re-raising — the worker never keeps
+    running unowned past the caller's abandonment.
     """
-    result = await asyncio.to_thread(sandbox.execute, code)
+    try:
+        result = await asyncio.to_thread(sandbox.execute, code)
+    except asyncio.CancelledError:
+        sandbox.terminate_in_flight()
+        raise
     output = f"Exit Code: {result['exit_code']}\n"
     if result["stdout"]:
         output += f"--- STDOUT ---\n{result['stdout']}\n"
@@ -571,10 +940,17 @@ async def execute_code(sandbox: ContainerSandbox, code: str) -> str:
 
 
 async def upload_files(sandbox: ContainerSandbox, file_paths: List[str]) -> str:
-    """Upload files to the sandbox, offloading the blocking call to a thread."""
+    """Upload files to the sandbox, offloading the blocking call to a thread.
+
+    Cancellation-safe: see :func:`execute_code` — a cancelled upload
+    terminates the in-flight transfer instead of leaving its worker running.
+    """
     try:
         await asyncio.to_thread(sandbox.put_files, file_paths)
         return f"Successfully uploaded {len(file_paths)} files to the sandbox."
+    except asyncio.CancelledError:
+        sandbox.terminate_in_flight()
+        raise
     except Exception as e:
         return f"Error uploading files: {e}"
 
@@ -583,8 +959,10 @@ __all__ = [
     "DOCKER_AVAILABLE",
     "ContainerSandbox",
     "ContainerSandboxUnavailableError",
+    "DEFAULT_CLOSE_JOIN_TIMEOUT_SECONDS",
     "DEFAULT_IDLE_TTL_SECONDS",
     "DEFAULT_IMAGE",
+    "DEFAULT_TRANSFER_BYTE_LIMIT_BYTES",
     "IDLE_TTL_LABEL",
     "LEGACY_AUTO_REAP_MIN_AGE_SECONDS",
     "LEASE_PATH",
@@ -604,6 +982,7 @@ __all__ = [
     "process_start_marker",
     "reap_orphaned_sandboxes",
     "resolve_container_sandbox",
+    "SandboxTransferRefused",
     "sandbox_kwargs_from_settings",
     "upload_files",
     "watchdog_command",

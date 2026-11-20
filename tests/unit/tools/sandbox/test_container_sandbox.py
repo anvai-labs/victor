@@ -25,8 +25,11 @@ in tests/integration/infra/ (skipif no Docker).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
 import os
+import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -36,6 +39,7 @@ import victor.tools.sandbox.container_sandbox as cs
 from victor.tools.sandbox.container_sandbox import (
     ContainerSandbox,
     ContainerSandboxUnavailableError,
+    SandboxTransferRefused,
     find_orphaned_sandboxes,
     process_start_marker,
     reap_orphaned_sandboxes,
@@ -95,10 +99,65 @@ class TestDegradedMode:
     def test_degraded_lifecycle_is_inert(self):
         with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
             with ContainerSandbox() as sandbox:
-                sandbox.put_files(["/nonexistent"])  # no-op, no raise
-                assert sandbox.get_file("/app/x") == b""
+                # Local-path validation happens BEFORE any Docker contact.
+                with pytest.raises(FileNotFoundError):
+                    sandbox.put_files(["/nonexistent"])
+                # Downloads refuse typed, never a silent empty-bytes success.
+                with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                    sandbox.get_file("/app/x")
+                assert excinfo.value.reason == "binary_missing"
             sandbox.dispose()
         assert sandbox.container is None
+
+    def test_upload_without_daemon_is_a_typed_failure_not_success(self, tmp_path):
+        """Codex finding 18 (negative): the historical silent return let
+        upload_files format a no-op as success. Without a daemon the upload
+        must fail with a typed reason."""
+        src = tmp_path / "real.py"
+        src.write_text("x = 1")
+        with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
+            sandbox = ContainerSandbox()
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                sandbox.put_files([str(src)])
+        assert excinfo.value.reason == "binary_missing"
+        assert sandbox.container is None
+        # The async helper surfaces the failure as an error, never as
+        # "Successfully uploaded".
+        result = asyncio.run(cs.upload_files(sandbox, [str(src)]))
+        assert "Successfully uploaded" not in result
+        assert "Error uploading files" in result
+
+    def test_get_file_without_docker_is_a_typed_failure_not_success(self):
+        """get_file residual of Codex finding 18 (negative): the historical
+        silent ``b""`` return let callers read "no Docker" as an empty-but-
+        successful download. Without the docker package the download must
+        refuse with a typed reason."""
+        with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
+            sandbox = ContainerSandbox()
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                sandbox.get_file("/app/out.txt")
+        assert excinfo.value.reason == "binary_missing"
+        assert sandbox.container is None
+
+    def test_get_file_refusal_is_handled_as_a_structured_error_not_a_crash(self):
+        """Caller contract: a get_file refusal surfaces as a structured error
+        result carrying the typed reason — never as an empty-but-successful
+        payload and never as an unhandled crash."""
+        with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
+            sandbox = ContainerSandbox()
+
+            def download(remote_path: str) -> dict:
+                try:
+                    data = sandbox.get_file(remote_path)
+                except ContainerSandboxUnavailableError as exc:
+                    return {"ok": False, "reason": exc.reason, "error": str(exc)}
+                return {"ok": True, "data": data}
+
+            result = download("/app/out.txt")
+        assert result["ok"] is False
+        assert result["reason"] == "binary_missing"
+        assert "unavailable" in result["error"].lower()
+        assert "data" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +270,20 @@ class TestRunInvocationQualityBar:
         assert kwargs["mem_limit"] == "256m"
         assert kwargs["cpu_shares"] == 128
 
+    def test_cpu_shares_alone_is_a_weight_never_a_quota(self, docker_env):
+        """Codex finding 18: cpu_shares is a relative scheduler weight. With
+        no explicit quota configured, NO hard CPU limit is promised — no
+        quota must reach the run invocation."""
+        ContainerSandbox().start()
+        assert "cpu_quota" not in docker_env.client.containers.run.call_args.kwargs
+
+    def test_explicit_cpu_quota_reaches_the_run_invocation(self, docker_env):
+        """Codex finding 18 (positive): a promised hard CPU limit is enforced
+        with an explicit CFS quota on the container-run invocation."""
+        ContainerSandbox(cpu_quota=50000).start()  # 0.5 CPU
+        kwargs = docker_env.client.containers.run.call_args.kwargs
+        assert kwargs["cpu_quota"] == 50000
+
     def test_cap_defaults_match_the_settings_defaults(self, docker_env):
         ContainerSandbox().start()
         kwargs = docker_env.client.containers.run.call_args.kwargs
@@ -282,6 +355,40 @@ class TestOwnership:
         assert sandbox.execute("print(1)")["exit_code"] == 0
         assert len(docker_env.created) == 2
         docker_env.created[0].remove.assert_not_called()  # already gone; finalizer detached
+
+    def test_transient_reload_error_retains_ownership(self, docker_env):
+        """Codex finding 18: an ambiguous daemon error (transient reload
+        failure) must NOT detach the finalizer or spawn a replacement — the
+        container may still be alive, and dropping ownership would leak it
+        until TTL."""
+
+        def _transient_error(*_args):  # fresh instance per call: no lingering
+            raise RuntimeError("connection reset by peer")  # traceback handles
+
+        sandbox = ContainerSandbox()
+        sandbox.start()
+        container = docker_env.created[0]
+        container.reload.side_effect = _transient_error
+
+        result = sandbox.execute("print(1)")
+        assert result["exit_code"] == 1  # degraded, retryable — no execution
+        container.remove.assert_not_called()
+        assert sandbox.container is container  # ownership retained
+        assert len(docker_env.created) == 1  # no duplicate replacement spawned
+
+        # The zero-leak guarantee survives the ambiguous error: the finalizer
+        # was never detached (peek returns the registered (obj, func, args,
+        # kwargs) tuple while attached) and it still targets THIS container,
+        # so an explicit stop removes the possibly-live container.
+        # (GC-based firing is pinned by
+        # test_abandoned_sandbox_is_removed_by_the_finalizer on the clean
+        # path; it is environment-sensitive after a caught exception.)
+        registry = sandbox._finalizer.peek()
+        assert registry is not None
+        assert registry[0] is sandbox
+        assert registry[2] == (container,)
+        sandbox.stop()
+        container.remove.assert_called_once_with(force=True)
 
     def test_failed_start_degrades_and_retries_next_use(self, docker_env):
         docker_env.client.containers.run.side_effect = [RuntimeError("no space"), _mock_container()]
@@ -371,7 +478,12 @@ class _ExecutorSettings:
             code_executor_network_disabled=kw.get("code_executor_network_disabled", True),
             code_executor_memory_limit=kw.get("code_executor_memory_limit", "512m"),
             code_executor_cpu_shares=kw.get("code_executor_cpu_shares", 256),
+            code_executor_cpu_quota=kw.get("code_executor_cpu_quota", None),
             code_executor_idle_ttl_seconds=kw.get("code_executor_idle_ttl_seconds", 900),
+            code_executor_workspace_root=kw.get("code_executor_workspace_root", None),
+            code_executor_transfer_byte_limit_bytes=kw.get(
+                "code_executor_transfer_byte_limit_bytes", 64 * 1024 * 1024
+            ),
         )
 
 
@@ -425,6 +537,48 @@ class TestCapabilityGating:
         assert sandbox.memory_limit == "1g"
         assert sandbox.cpu_shares == 512
         assert sandbox.idle_ttl_seconds == 60
+
+    def test_cpu_quota_setting_reaches_the_resolved_sandbox(self, docker_env):
+        """Codex finding 18: the explicit hard-CPU-limit knob threads through
+        the settings cascade to the sandbox (and then to the run invocation)."""
+        sandbox = resolve_container_sandbox(_ExecutorSettings(code_executor_cpu_quota=100000))
+        assert sandbox.cpu_quota == 100000
+        sandbox.start()
+        assert docker_env.client.containers.run.call_args.kwargs["cpu_quota"] == 100000
+
+    def test_no_daemon_upload_is_a_typed_failure(self, tmp_path):
+        """Codex finding 18 (negative): with the docker package present but
+        the daemon unreachable, upload must fail with a typed
+        daemon_unreachable reason — never a silent no-op success."""
+        from docker.errors import DockerException
+
+        src = tmp_path / "m.py"
+        src.write_text("x = 1")
+        with (
+            patch(f"{MODULE}.DOCKER_AVAILABLE", True),
+            patch(f"{MODULE}.docker") as mock_docker,
+        ):
+            mock_docker.from_env.side_effect = DockerException("daemon down mid-session")
+            sandbox = ContainerSandbox()
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                sandbox.put_files([str(src)])
+        assert excinfo.value.reason == "daemon_unreachable"
+
+    def test_no_daemon_get_file_is_a_typed_failure(self):
+        """get_file residual of Codex finding 18 (negative): with the docker
+        package present but the daemon unreachable, download must fail with a
+        typed daemon_unreachable reason — never a silent ``b""`` success."""
+        from docker.errors import DockerException
+
+        with (
+            patch(f"{MODULE}.DOCKER_AVAILABLE", True),
+            patch(f"{MODULE}.docker") as mock_docker,
+        ):
+            mock_docker.from_env.side_effect = DockerException("daemon down mid-session")
+            sandbox = ContainerSandbox()
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                sandbox.get_file("/app/out.txt")
+        assert excinfo.value.reason == "daemon_unreachable"
 
     def test_daemon_available_false_without_docker_package(self):
         with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
@@ -539,3 +693,306 @@ class TestAsyncHelpers:
         sandbox.put_files.side_effect = RuntimeError("disk full")
         result = asyncio.run(upload_files(sandbox, ["/a.py"]))
         assert "disk full" in result
+
+
+# ---------------------------------------------------------------------------
+# Codex finding 11: the owned-handle cancellation protocol
+# ---------------------------------------------------------------------------
+
+
+def _wait_off_loop(event: threading.Event, timeout: float = 10.0) -> None:
+    """Block a helper thread (never the event loop) until ``event`` is set."""
+    if not event.wait(timeout):
+        raise AssertionError("timed out waiting for a worker to reach its gate")
+
+
+class TestCancellationProtocol:
+    """Cancel during acquisition, during execution and during close: the
+    worker either completes or is terminated and joined — it never keeps
+    running (or acquires a container) after the caller gave up."""
+
+    @staticmethod
+    def _gated_run(created, entered, release, joined):
+        def _run(*_args, **_kwargs):
+            entered.set()
+            release.wait(timeout=10)
+            try:
+                container = _mock_container(f"c{len(created)}ffee")
+                created.append(container)
+                return container
+            finally:
+                joined.set()
+
+        return _run
+
+    async def test_cancel_during_acquisition_discards_the_raced_container(
+        self, docker_env, tmp_path
+    ):
+        entered, release, joined = threading.Event(), threading.Event(), threading.Event()
+        docker_env.client.containers.run.side_effect = self._gated_run(
+            docker_env.created, entered, release, joined
+        )
+        sandbox = ContainerSandbox(close_join_timeout_seconds=0.2)
+
+        task = asyncio.create_task(cs.execute_code(sandbox, "print(1)"))
+        await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # Terminal teardown while the acquisition worker is still parked in
+        # containers.run: admission stops, the join budget elapses.
+        await sandbox.aclose()
+        release.set()
+        _wait_off_loop(joined)
+
+        # The close re-check discarded the just-created container: nothing
+        # was acquired after the caller gave up.
+        assert len(docker_env.created) == 1
+        docker_env.created[0].remove.assert_called_once_with(force=True)
+        assert sandbox.container is None
+        # Admission stays stopped: no further acquisition, typed refusals.
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.execute("print(1)")
+        src = tmp_path / "late.py"
+        src.write_text("x = 1")
+        with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+            sandbox.put_files([str(src)])
+        assert excinfo.value.reason == "closed"
+        assert len(docker_env.created) == 1
+
+    async def test_cancel_during_execution_terminates_the_worker(self, docker_env):
+        entered, release = threading.Event(), threading.Event()
+        container = _mock_container()
+        docker_env.client.containers.run.side_effect = lambda *a, **k: container
+
+        def _gated_exec(*_args, **_kwargs):
+            entered.set()
+            release.wait(timeout=10)
+            return MagicMock(exit_code=0, output=(b"late\n", b""))
+
+        container.exec_run.side_effect = _gated_exec
+        sandbox = ContainerSandbox(close_join_timeout_seconds=5.0)
+
+        task = asyncio.create_task(cs.execute_code(sandbox, "print(1)"))
+        await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # The cancellation path terminated the Docker call the worker was
+        # blocked on by force-removing the container.
+        container.remove.assert_called_once_with(force=True)
+
+        # The worker surfaces after its blocked call completes and close
+        # joins it; no container is left owned.
+        release.set()
+        await sandbox.aclose()
+        assert sandbox.container is None
+        container.remove.assert_called_once_with(force=True)  # exactly once
+
+    async def test_cancel_during_close_still_completes_the_teardown(self, docker_env):
+        remove_entered, remove_gate, remove_done = (
+            threading.Event(),
+            threading.Event(),
+            threading.Event(),
+        )
+        container = _mock_container()
+        docker_env.client.containers.run.side_effect = lambda *a, **k: container
+
+        def _gated_remove(*_args, **_kwargs):
+            remove_entered.set()
+            remove_gate.wait(timeout=10)
+            remove_done.set()
+
+        container.remove.side_effect = _gated_remove
+        sandbox = ContainerSandbox(close_join_timeout_seconds=0.2)
+        sandbox.start()
+
+        close_task = asyncio.create_task(sandbox.aclose())
+        await asyncio.to_thread(remove_entered.wait, 5)
+        close_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await close_task
+
+        # Admission stopped the moment close began, even though the caller
+        # then cancelled the close itself.
+        assert sandbox.closed is True
+        with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+            sandbox.put_files([])  # refused before any Docker contact
+        assert excinfo.value.reason == "closed"
+
+        remove_gate.set()
+        _wait_off_loop(remove_done)
+        await asyncio.sleep(0.05)  # let the close thread finish its join
+        assert sandbox.container is None
+        container.remove.assert_called_once_with(force=True)
+
+    async def test_close_is_idempotent_and_refuses_later_operations(self, docker_env, tmp_path):
+        sandbox = ContainerSandbox()
+        sandbox.start()
+        sandbox.close()
+        sandbox.close()  # idempotent
+        docker_env.created[0].remove.assert_called_once_with(force=True)
+        assert sandbox.closed is True
+        src = tmp_path / "a.py"
+        src.write_text("x = 1")
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.put_files([str(src)])
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.get_file("/app/a.py")
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.execute("print(1)")
+        docker_env.client.containers.run.assert_called_once()  # no re-acquisition
+
+    async def test_async_context_manager_closes_the_owned_handle(self, docker_env):
+        async with ContainerSandbox() as sandbox:
+            assert sandbox.container is docker_env.created[0]
+            assert sandbox.closed is False
+        assert sandbox.closed is True
+        assert sandbox.container is None
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.get_file("/app/x")
+
+    async def test_lifecycle_io_runs_off_the_event_loop(self, docker_env):
+        ticks = 0
+
+        async def _tick():
+            nonlocal ticks
+            while True:
+                ticks += 1
+                await asyncio.sleep(0)
+
+        def _slow_run(*_args, **_kwargs):
+            time.sleep(0.05)  # long enough for the loop to spin while blocked
+            container = _mock_container()
+            docker_env.created.append(container)
+            return container
+
+        docker_env.client.containers.run.side_effect = _slow_run
+        container = None
+        ticker = asyncio.create_task(_tick())
+        try:
+            async with ContainerSandbox() as sandbox:
+                ticks_at_enter = ticks
+                container = sandbox.container
+            ticks_at_exit = ticks
+        finally:
+            ticker.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await ticker
+        assert container is not None
+        # aenter acquired the container off-loop: the loop kept running.
+        assert ticks_at_enter >= 10
+        # aexit's blocking teardown was likewise off-loop.
+        assert ticks_at_exit > ticks_at_enter
+
+
+class TestUploadAuthorization:
+    """Codex finding 11: uploads are authorized at the host boundary and
+    byte-budgeted in BOTH directions — before any Docker contact."""
+
+    async def test_workspace_root_admits_inside_paths(self, docker_env, tmp_path):
+        import tarfile
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        src = workspace / "ok.py"
+        src.write_text("x = 1")
+        sandbox = ContainerSandbox(workspace_root=str(workspace))
+        sandbox.put_files([str(src)])
+        docker_env.client.containers.run.assert_called_once()
+        container = docker_env.created[0]
+        container.put_archive.assert_called_once()
+        archive = container.put_archive.call_args.args[1]
+        archive.seek(0)
+        with tarfile.open(fileobj=archive, mode="r") as tar:
+            assert tar.getnames() == ["ok.py"]
+
+    async def test_path_outside_workspace_refused_before_docker_contact(self, docker_env, tmp_path):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        outside = tmp_path / "secret.txt"
+        outside.write_text("s")
+        sandbox = ContainerSandbox(workspace_root=str(workspace))
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.put_files([str(outside)])
+        assert excinfo.value.reason == "path_outside_workspace"
+        docker_env.docker.from_env.assert_not_called()
+        docker_env.client.containers.run.assert_not_called()
+
+    async def test_symlink_escape_from_workspace_is_refused(self, docker_env, tmp_path):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        outside = tmp_path / "real.txt"
+        outside.write_text("s")
+        link = workspace / "link.txt"
+        link.symlink_to(outside)
+        sandbox = ContainerSandbox(workspace_root=str(workspace))
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.put_files([str(link)])
+        assert excinfo.value.reason == "path_outside_workspace"
+        docker_env.client.containers.run.assert_not_called()
+
+    async def test_upload_over_budget_refused_before_docker_contact(self, docker_env, tmp_path):
+        big = tmp_path / "big.bin"
+        big.write_bytes(b"x" * 64)
+        sandbox = ContainerSandbox(transfer_byte_limit_bytes=8)
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.put_files([str(big)])
+        assert excinfo.value.reason == "transfer_limit_exceeded"
+        docker_env.docker.from_env.assert_not_called()
+
+    async def test_download_over_reported_size_refused_without_reading(self, docker_env):
+        class _StreamThatMustNotBeRead:
+            def __iter__(self):  # pragma: no cover - guard, not a data path
+                raise AssertionError("download stream read despite the budget refusal")
+
+        sandbox = ContainerSandbox(transfer_byte_limit_bytes=16)
+        sandbox.start()
+        docker_env.created[0].get_archive.return_value = (
+            _StreamThatMustNotBeRead(),
+            {"size": 999},
+        )
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.get_file("/app/big.bin")
+        assert excinfo.value.reason == "transfer_limit_exceeded"
+
+    async def test_download_stream_cap_aborts_mid_stream(self, docker_env):
+        sandbox = ContainerSandbox(transfer_byte_limit_bytes=16)
+        sandbox.start()
+        # Misreported stat: the cumulative stream cap is the backstop.
+        docker_env.created[0].get_archive.return_value = (
+            iter([b"a" * 10, b"a" * 10]),
+            {"size": 0},
+        )
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.get_file("/app/big.bin")
+        assert excinfo.value.reason == "transfer_limit_exceeded"
+
+    async def test_directory_upload_keeps_recursive_behavior_under_the_budget(
+        self, docker_env, tmp_path
+    ):
+        import tarfile
+
+        workspace = tmp_path / "workspace"
+        (workspace / "pkg").mkdir(parents=True)
+        (workspace / "pkg" / "m.py").write_text("y = 2")
+        sandbox = ContainerSandbox(
+            workspace_root=str(workspace), transfer_byte_limit_bytes=1_000_000
+        )
+        sandbox.put_files([str(workspace / "pkg")])
+        archive = docker_env.created[0].put_archive.call_args.args[1]
+        archive.seek(0)
+        with tarfile.open(fileobj=archive, mode="r") as tar:
+            assert "pkg/m.py" in tar.getnames()
+
+    def test_transfer_policy_settings_reach_the_sandbox(self, docker_env, tmp_path):
+        sandbox = resolve_container_sandbox(
+            _ExecutorSettings(
+                code_executor_workspace_root=str(tmp_path),
+                code_executor_transfer_byte_limit_bytes=1024,
+            )
+        )
+        assert sandbox.workspace_root == str(tmp_path)
+        assert sandbox.transfer_byte_limit == 1024

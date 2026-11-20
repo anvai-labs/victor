@@ -319,6 +319,10 @@ class ToolBuildersMixin:
                 "http_connection_pool_total_timeout",
                 60,
             ),
+            # Destination policy for research page fetches (Codex finding
+            # 12): empty list = allow-all default, non-empty = enforced
+            # across HTTP, redirects and browser navigation.
+            web_fetch_allowed_hosts=list(self._tool_setting("web_fetch_allowed_hosts", []) or []),
         )
         executor.update_context(tool_config=tool_config)
 

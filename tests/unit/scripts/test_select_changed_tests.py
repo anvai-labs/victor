@@ -202,6 +202,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
                 "tests/unit/agent/services/test_stream_turn_guards.py",
                 "tests/unit/agent/services/test_streaming_act_port.py",
                 "tests/unit/agent/services/test_streaming_act_adapter.py",
+                "tests/unit/agent/test_memory_delivery_provider_messages.py",
             },
         ),
         (
@@ -385,6 +386,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
                 "tests/unit/config/test_tool_selection_access.py",
                 "tests/unit/config/test_settings_stratification.py",
                 "tests/unit/security/test_injection_hard_fail.py",
+                "tests/unit/tools/test_web_fetch_destination_policy.py",
             ],
         ),
         (

@@ -39,7 +39,7 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c GREEN (injection screen: annotation-only, in-envelope highlighting, corpus-pinned false-positive discipline); S3d MERGED (#1959) + S3d FOLLOW-UP MERGED (fix/injection-homoglyph-normalize): homoglyph pre-pass + quote-guard abuse carve-out closed both designed FN classes → battery re-run verdict = GRADUATE_HARD_FAIL_CANDIDATE (0 FP / 155 benign, 35 TP / 0 FN / 35 adversarial); **hard-fail WIRING SHIPPED flag-gated default-OFF (`ToolSettings.untrusted_content_hard_fail`, False): a tool call whose arguments echo content from a family flagged earlier in the session hard-fails through the same containment gate as canary blocking — flip = field data per ADR-036**; **S3b canary binding RESTORED (Codex fix wave 1, #1983): session-owned canary bound around every turn — the dispatch floor now fires on real sessions, not only tests** | #1908, #1911, #1983 |
 | FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | PART-BLOCKED | `effect_gated_completion` graduation LOCKED OUT by the 2026-08-03 negative A/B (on 0.847 vs off 0.864, overlapping CIs — do NOT graduate, codified #884). `per_turn_auditor` deterministic battery SHIPPED (`victor/evaluation/auditor_ab.py` + 13-test suite): verdict **ESCALATE_LIVE_AB_REQUIRED** — wiring verified (flag resolves + edge-model judge injected on BOTH execution paths; a buffered-path wiring gap — `turn_execution_runtime` resolved the effect gate but never the auditor — found and fixed in the same change; OFF arm strict no-op pinned by negative test; placement audit guards the dormant-flag class) and cost known (max 1 edge-model call per COMPLETE turn, ≤1780-char bounded prompt, 128-token output cap, 0 main-loop token overhead; the deterministic heuristic alarm skips the judge; `max_alarms` bounds downgrades then annotate-and-allow). Judge QUALITY (premature-completion catch vs false-downgrade) is undecidable offline → default stays OFF; graduation requires the documented live A/B: `python -m victor.evaluation.flag_ab --flag per_turn_auditor --base-url <ollama> --model qwen3-coder-tools:30b --corpus effect-gate --variants 2` then `assess_graduation()` (EVR-5 oracle) + catch/false-downgrade rates. No default flipped |
 | FOU-A1 | Subagent-spawn tool (Task-tool pattern) | A | ledger §A1 design | FOU-D2 | A1 phase-1 (foreground) IN REVIEW — see §FOU-A1 evidence | #1977 |
-| FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | A2a MERGED (`PreferenceEpisodicStore` + `MemoryType.PREFERENCE/EPISODE` + two-database schema (memory_preference/memory_episode) + adapter lanes; 33-test suite: round-trip, scope isolation (negative), secret/oversize refusal, forget-by-id/content, thread queries, coordinator interop, db placement). A2b MERGED (#1952: `memory_set`/`memory_forget` tools, workspace-write gated + `DEFAULT_TOOL_PERMISSIONS`; `MemoryConsolidator` propose/commit/discard hook in Session service, confirm-by-default with `memory_auto_capture` default off; secret-scanner word-boundary fix — generic keyword patterns now require a `[=:]` value-bearing delimiter, benign prose no longer refused, dual-path (native+Python) parity tests). A2c MERGED (#1954: `MemoryBlockBuilder` PERCEIVE injection via PerceptionIntegration `memory_injector` collaborator — scoped coordinator queries, 500-token hard cap by rank exclusion, off-when-empty byte-identical negative, flag + `VICTOR_MEMORY_ENABLED` env re-resolved at every read; BudgetManager additive context-block registration so memory competes by priority (evict weaker-only, refit, starve); `victor/evaluation/memory_ab.py` deterministic A/B battery (flag_ab.py documented as too LLM-heavy for the wiring gate) over seeded fixtures → snapshots + ADR-036 verdict `KEEP_DEFAULT_ON` (usefulness 1.0, max 20 tokens, 0 false surfaces, baseline 0 injections); 48-test suite; production container wiring deferred per the FEP's additive-optional hook parameter). A2d MERGED (#1956: `/memory` slash command — list preferences with scope/source/confidence + recent episodes + staged proposals, set with user-scope default/`--project`, forget by id/content, confirm/discard; API routes GET/POST/DELETE `/memory` + `/memory/proposals` list/confirm/discard with sibling management-route auth posture and structured 4xx refusals that never echo the matched secret; shared consolidator handle on `MemoryConsolidator` reached from the client layer via the new `victor.framework.memory` seam, bootstrap SessionService now binds it (confirm-by-default, auto-capture only from `settings.memory.memory_auto_capture`) so end_session stages onto the handle the surfaces confirm; `PreferenceEpisodicStore.recent_episodes` public listing read; 45-test suite; docs in quickstart + http-api). **Codex review wave 1 (2026-11-20): enforced single-trusted-operator posture over /memory (typed 409 on a second credential) + store-level cross-principal guard (`principal_id`/`on_behalf_of` → `CrossPrincipalAccessRefused`) + `EmptyContentMatchRefused` for empty/whitespace `content_match` forgets (pinned from store, API and tool); full ownership remains A4a+ paused pending D4 — see §Codex review fix wave 1** | #1951; A2b MERGED #1952; A2c MERGED #1954; A2d MERGED #1956 |
+| FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | A2a MERGED (`PreferenceEpisodicStore` + `MemoryType.PREFERENCE/EPISODE` + two-database schema (memory_preference/memory_episode) + adapter lanes; 33-test suite: round-trip, scope isolation (negative), secret/oversize refusal, forget-by-id/content, thread queries, coordinator interop, db placement). A2b MERGED (#1952: `memory_set`/`memory_forget` tools, workspace-write gated + `DEFAULT_TOOL_PERMISSIONS`; `MemoryConsolidator` propose/commit/discard hook in Session service, confirm-by-default with `memory_auto_capture` default off; secret-scanner word-boundary fix — generic keyword patterns now require a `[=:]` value-bearing delimiter, benign prose no longer refused, dual-path (native+Python) parity tests). A2c MERGED (#1954: `MemoryBlockBuilder` PERCEIVE injection via PerceptionIntegration `memory_injector` collaborator — scoped coordinator queries, 500-token hard cap by rank exclusion, off-when-empty byte-identical negative, flag + `VICTOR_MEMORY_ENABLED` env re-resolved at every read; BudgetManager additive context-block registration so memory competes by priority (evict weaker-only, refit, starve); `victor/evaluation/memory_ab.py` deterministic A/B battery (flag_ab.py documented as too LLM-heavy for the wiring gate) over seeded fixtures → snapshots + ADR-036 verdict `KEEP_DEFAULT_ON` (usefulness 1.0, max 20 tokens, 0 false surfaces, baseline 0 injections); 48-test suite; production container wiring deferred per the FEP's additive-optional hook parameter). A2d MERGED (#1956: `/memory` slash command — list preferences with scope/source/confidence + recent episodes + staged proposals, set with user-scope default/`--project`, forget by id/content, confirm/discard; API routes GET/POST/DELETE `/memory` + `/memory/proposals` list/confirm/discard with sibling management-route auth posture and structured 4xx refusals that never echo the matched secret; shared consolidator handle on `MemoryConsolidator` reached from the client layer via the new `victor.framework.memory` seam, bootstrap SessionService now binds it (confirm-by-default, auto-capture only from `settings.memory.memory_auto_capture`) so end_session stages onto the handle the surfaces confirm; `PreferenceEpisodicStore.recent_episodes` public listing read; 45-test suite; docs in quickstart + http-api). **Codex review wave 1 (2026-11-20): enforced single-trusted-operator posture over /memory (typed 409 on a second credential) + store-level cross-principal guard (`principal_id`/`on_behalf_of` → `CrossPrincipalAccessRefused`) + `EmptyContentMatchRefused` for empty/whitespace `content_match` forgets (pinned from store, API and tool); full ownership remains A4a+ paused pending D4 — see §Codex review fix wave 1). **Codex review wave 2 (2026-11-20): findings 6/19 FIXED — the PERCEIVE block now REACHES provider messages (enveloped `wrap_untrusted` MEMORY source class, exactly once, both buffered `_execute_model_turn` and streamed `assembled_messages_for_call` seams, turn-scoped candidate, session-canary envelope); binding supplies the actual project path + the active context-block `BudgetManager` (lazy factory — registration observed, exhausted allowance → byte-identical prompt); adapter reads are off-loop (`asyncio.to_thread`) and lane-selected before reading — see §Codex review fix wave 1 — memory delivery + off-loop reads** | #1951; A2b MERGED #1952; A2c MERGED #1954; A2d MERGED #1956 |
 | FOU-A3 | SCIP precise tier auto-on + impact-analysis benchmark publication | A | ADR-032 | — | FUNCTIONAL + OPT-IN (ADR-032 rev 1.8/1.9) | Tier-3 SCIP harvesting works end-to-end and stays opt-in by the ADR-032 decision (`--precise`/`--no-precise`/`--precise-timeout` on `victor index graph index`; polyglot providers shipped — scip-python + scip-typescript + rust-analyzer, rev 1.6 corpus: 146,211 compiler refs @ 76.9%/67.4%/89.2% join rates; CLI drivability fixed rev 1.8 — settings resolve through `Settings.from_sources()` so config files can enable tier 3, per-provider harvest outcomes visible in index summary/`graph stats`/watch manifest; rev 1.9 hardening). REMAINING = two owner decisions, not code: auto-on flip of `enable_precise_index` and impact-analysis benchmark publication | — |
 | FOU-A4 | RBAC/SSO wired into FastAPI middleware; per-user attribution | A | FEP-0020 (unblocks) + [A4 design doc](fou-a4-rbac-sso-design.md) | — | DESIGN LANDED (2026-11-19) — phased plan A4a–A4d recorded; A4a ready for implementation | Design doc: inventory (live auth seam `_include_with_auth`/`_make_auth_dependency` at `fastapi_server.py:582-686`; VAS-05j/k owner scoping; FEP-0020 attribution join subject-only today, `group_id` never bound; VAS-05a contracts design-only — no `VerifiedPrincipal`/OIDC/policy code exists) + gap analysis + two dormancy findings (`api/middleware.py` aiohttp stack zero callers; `ServerSettings` session-token knobs never wired). Phases: A4a principal resolution at the auth seam (behavior-neutral), A4b verified subject+group into FEP-0020 events, A4c Kanidm OIDC entry (`server.auth.mode` default `api_key`), A4d strict policy/role enforcement (`server.auth.policy_path` default off). Decision register D1–D10 with recommended defaults; D1/D2/D6 block A4c only; A4d needs D3/D4 | — |
 | FOU-A5 | Research stack: search API adapters + page-read + browser tool; example cleanup | A | — | — | phase-1 IN REVIEW — search adapters + page-read (see §FOU-A5 evidence below) | #1979 |
@@ -759,3 +759,293 @@ building ownership.
   `chat_routes.py`. Gates: black 26.10.1 + ruff clean;
   tests/unit/integrations/api + tests/unit/storage/memory + tests/unit/tools
   4235 passed; collect-only 42,018 clean.
+
+## Codex review fix wave 1 — memory delivery + off-loop reads (#1987, 2026-11-20)
+
+Codex v0.32.0-candidate review findings 6 (HIGH) and 19 (MEDIUM): the
+PERCEIVE memory block was rendered into perception metadata with no named
+production consumer, the binding supplied neither the session project path
+nor the active budget manager, and both memory lane adapters ran synchronous
+SQLite scans + Python ranking ON the event loop.
+
+- **Finding 6 FIXED (#1987) — provider-message delivery, provenance-tagged, exactly
+  once**: `PerceptionIntegration.perceive` now records a turn-scoped
+  `MemoryDelivery` (query, block) — overwritten on EVERY perceive, so a
+  previous turn's block can never leak into a later turn. The named
+  production consumer is `memory_injection.insert_memory_delivery_message`,
+  called from BOTH provider-message assembly seams: `assembled_messages_for_call`
+  (streaming ACT via `get_assembled_messages`) and `TurnExecutor._execute_model_turn`
+  (buffered turns). The block enters as an ADR-037 canonical envelope
+  (`wrap_untrusted`, new `UntrustedSourceClass.MEMORY`, origin
+  `long_term_memory/<scopes>`), canary from the session containment state
+  ChatService binds around every turn — provenance-tagged data, never raw
+  system-prompt input. Exactly once: structural delivery marker skips
+  already-delivered assemblies, insertion is transient (conversation history
+  never mutated, no accumulation across turns/intra-turn calls), positioned
+  after the leading system message(s) before history. The history-serialization
+  projection in `chat_stream_executor._get_conversation_history` opts OUT
+  (`include_memory_block=False`) — analysis context stays memory-free.
+  Binding fix: `bind_orchestrator_memory_injector` now supplies the ACTUAL
+  session project path (explicit session workspace or composition cwd) and
+  the ACTIVE context-block `BudgetManager` (container `IBudgetManager`,
+  resolved lazily via `budget_manager_factory` because the service layer
+  initializes after the composition-root binding).
+- **Finding 19 FIXED (#1987) — off-loop, lane-selected reads**: `PreferenceEpisodicAdapter.search`
+  (both lanes) pushes its lane into the query (`filters["kind"]`) so the
+  store selects the lane BEFORE reading (the PREFERENCE lane never opens the
+  episode table, and vice versa — each scope's scan is bounded to its lane),
+  and offloads the synchronous SQLite scan + Python ranking through
+  `asyncio.to_thread`; `PreferenceEpisodicStore.get` factors its sync lookups
+  into `_get_by_id_sync` behind the same hop. The event loop never blocks on
+  a memory read.
+- Tests RED-first: `tests/unit/agent/test_memory_delivery_provider_messages.py`
+  (11) — buffered AND streamed turns capture the final provider messages and
+  pin the enveloped block EXACTLY ONCE (position after system before
+  history, envelope + origin + session-bound canary, transient insertion);
+  negatives (memory disabled, empty store, refused wrong-owner write, wrong
+  workspace, exhausted context-block allowance, stale-turn block) each yield
+  NO envelope and a byte-identical assembly (pre-/post-perceive snapshot);
+  budget registration observed on the resolved active manager; stream
+  history-serialization projection excludes the envelope.
+  `tests/unit/storage/memory/test_preference_adapters_offloop.py` (5) —
+  scan thread ≠ event-loop thread, differential parity of the hop, lane
+  selected before reading (monkey-pinned table exclusivity), off-loop point
+  lookups. Dormancy test `test_memory_injection_production_wiring.py`
+  re-verified green in this environment (22.8s, no timeout hardening needed).
+  RELATED_TESTS entries added/extended for `memory_injection.py`,
+  `context_assembly.py`, `orchestrator_context.py`, `perception_integration`
+  group, `turn_execution_runtime` group, `chat_stream_executor.py`,
+  `containment.py`, `adapters.py`, `preference_episodic.py`.
+  Gates: black 26.10.1 + ruff clean; tests/unit/agent (5,924 passed),
+  tests/unit/storage + tests/unit/security and tests/unit/evaluation green;
+  collect-only clean.
+
+
+## Codex review fix wave 2 — consolidation wiring, dormancy cleanup, EventBridge owner binding (#1986, 2026-11-20)
+
+Fixes findings 15 and 22 (MEDIUM) and finding 9 (HIGH) from the v0.32.0
+candidate Codex review (`~/code/victor-review-findings.md`), branch
+`fix/w2-api-dormancy-consolidation` off `origin/develop` @ `fcb1f8f3a8`.
+
+- **Finding 9 (HIGH) — EventBridge owner binding**: the /ws/events socket
+  authenticated a key but registered a RANDOM connection id with no
+  principal; delivery checked only type + correlation. The WS auth
+  dependency stamps the verified principal onto `websocket.state.client_id`
+  (constant-time compare; /ws keeps its message-level auth); `/ws/events`
+  binds it to each subscription record at registration
+  (`ClientConnection.owner_client_id`, immutable — subscribe frames cannot
+  rebind); `BridgeEvent.owner_client_id`/`resource_owner` (also honored
+  from `data["owner_client_id"]`) marks protected events and `accepts()`
+  RECHECKS at delivery time against the live record — fail closed for
+  unbound clients, ended leases (removed connections) are never consulted.
+  Replay is owner-scoped (`get_recent_events(owner_client_id=…)`,
+  `/events/recent`). `EventBusAdapter` maps internal owners into protected
+  bridge events. Two principals receiving simultaneous events on BOTH WS
+  transports (real TestClient /ws/events sockets with two keys +
+  cross-owner negative; /ws `_broadcast_ws` two-principal positive).
+  #1980 bounded-queue drop-oldest + single-writer guarantees untouched.
+  Evidence: `test_event_bridge_owner_binding.py` (10).
+- **Finding 15 (MEDIUM) — consolidation wiring**: stable proposal IDs
+  (uuid5 per session+summary) with session/owner membership; staging is
+  per-SESSION on the shared consolidator (was one process-wide list) with
+  a retention bound (oldest evicted); confirmation commits bucket-head-
+  first so a mid-commit DB error leaves only the uncommitted remainder
+  staged and a retry never duplicates the committed prefix (committed-ID
+  set makes re-offers no-ops; refused proposals dropped, not retried
+  forever); session-scoped confirm/discard on the Session-service seam
+  (incl. after end_session and after a newer session started — negative
+  guard); the ACTUAL conversation source is wired at session end
+  (memory-manager context messages when no ledger was registered);
+  `get_shared_memory_consolidator` no longer freezes auto-capture at
+  first construction. Confirm / discard / retry / opt-out across TWO
+  sessions on one shared consolidator.
+  Evidence: `test_memory_consolidation_sessions.py` (14).
+- **Finding 22 (MEDIUM) — dormancy cleanup**: external compatibility
+  audit found ZERO consumers of the aiohttp-era middleware names in core,
+  vscode-victor, web/, docs or tests — shims kept, every access emits
+  `DeprecationWarning`. CORRECTION (post-CI): the session-token settings
+  are NOT dead — the web UI serving path (`web/server/main.py`) consumes
+  `server_session_secret` (HMAC token signing/verification),
+  `server_session_ttl_seconds`, `server_max_sessions` and
+  `server_max_message_bytes`; the initial audit scope (victor/ +
+  vscode-victor) missed `web/`, and the first commit's autogeneration
+  removal broke the web server's fail-fast (caught by
+  test_vscode_extension_contract on CI). Disposition as merged:
+  autogeneration RESTORED as a visible dev/test default — generation is
+  recorded on `server_session_secret_auto_generated`, the web server
+  warns loudly at startup when the secret is auto-generated (tokens will
+  not verify across workers), and the posture reports the secret's
+  provenance; a multi-worker production deployment must set it
+  explicitly (per the D6 direction). `server_api_key` WIRED at its
+  actual owner (merged into the FastAPI auth credential map; precedence
+  pinned); `server_max_message_bytes` WIRED on the /ws + /ws/events
+  receive paths (typed refusal; normal-frame negative guard);
+  `rate_limit_rpm` declared-but-not-enforced with a disposition note;
+  NEW effective-posture surface: `VictorFastAPIServer.effective_posture()`
+  reports enforced vs declared-not-enforced for EVERY advertised control,
+  logged at lifespan startup and attached to `/status`
+  (Evidence: `test_server_effective_posture.py` (14)).
+- RELATED_TESTS entries added for `event_bridge.py`, `middleware.py`,
+  `websocket_routes.py`, `fastapi_server.py`, `server_config.py`,
+  `system_routes.py`, `memory_consolidation.py`, `session_service.py`.
+- Gates: black 26.10.1 + ruff clean; tests/unit/integrations/api +
+  tests/unit/agent/services + tests/unit/config 2643 passed (only 9
+  failures = pre-existing `ANTHROPIC_API_KEY` env noise, byte-identical
+  on the untouched baseline tree); collect-only clean (42,133).
+
+## Codex review fix wave 2 — containment/sandbox mediums (2026-11-20)
+
+Fixes Codex v0.32-candidate review findings 17, 18 and 20 (MEDIUM,
+containment/sandbox) in one PR (#1985, `fix/w2-containment-mediums` off
+`origin/develop` @ `fcb1f8f3a`), each with positive + negative tests:
+
+- **Finding 17 — homoglyph normalization offset map**
+  (`victor/security/injection_screen.py`): the ASCII fast path allocates
+  a pair of offsets per character (4,205,808 traced bytes peak for a
+  32,768-char tool output) and the non-ASCII path records one pair per
+  ORIGINAL character even when normalization emits several, so later
+  annotations can point at wrong source text. Fix: ASCII short-circuits
+  to `(text, ())` — identity, no map allocation, `_map_span` treats an
+  empty map as identity; non-ASCII records ONE entry PER EMITTED
+  normalized character so `len(index_map) == len(normalized)` and any
+  match after an expansion (ligature → two chars) maps onto the exact
+  source text. Measured and recorded in-test (tracemalloc +
+  perf_counter): ASCII 32,768 peak 48 bytes (<100K bound); 512KB
+  realistic ASCII full screen ~90 ms (<2 s bound); 32,768-char
+  typography-heavy non-ASCII normalize peaked ~4.34 MB with an aligned
+  per-emitted-char map (<8 MB bound, linear by construction).
+- **Finding 18 — container daemon-error ownership**
+  (`victor/tools/sandbox/container_sandbox.py`): any Docker reload
+  error detached the existing finalizer and permitted replacement
+  (live container unowned until TTL, duplicate-sandbox risk); upload to
+  an unavailable container returned normally and the async helper
+  formatted it as success; `cpu_shares` is a relative weight, not a
+  ceiling. Fix: reload distinguishes CONFIRMED deletion (`NotFound` →
+  detach + replace) from AMBIGUOUS daemon errors (retain ownership +
+  raise, retry next use — #1563 zero-leak guarantees preserved);
+  `put_files` validates local paths before any Docker contact and
+  raises the typed `ContainerSandboxUnavailableError`
+  (`binary_missing`/`daemon_unreachable`) when no container can be
+  acquired; explicit hard CPU ceiling `cpu_quota` (CFS microseconds per
+  100 ms period) reaches the container-run invocation only when
+  configured, threaded through `sandbox_kwargs_from_settings` +
+  `code_executor_cpu_quota` (subprocess/security settings groups +
+  flat alias + configuration docs, default None = no quota promised).
+- **Finding 20 — policy-eval fail-open** (`victor/tools/sandbox/backends.py`
+  + `victor/tools/subprocess_executor.py`): an exception INSIDE
+  effective-policy evaluation returned an inactive, non-refusing
+  decision (the settings-LOAD failure was already handled correctly —
+  this is the eval-time gap), and the canonical executor's remaining
+  fallback could return the passthrough backend. Fix: tri-state policy
+  resolution — `resolve_effective_policy` → `PolicyResolution`
+  (known | unknown; the `required` default applies only on a successful
+  read); `resolve_required_launch` REFUSES on unknown before launch
+  (typed reason); `_resolve_default_sandbox` drops the final
+  `except: NoneSandbox()` fallback — a backend-selection fault under a
+  known non-required policy raises the typed
+  `PolicyUnavailable("backend_selection_failed")`. Independently
+  tested: settings object loads, policy FIELD faults, inert launcher
+  (spawn trap) — separate from the existing settings-load and
+  missing-backend tests (`TestPolicyEvalFaultRefusesBeforeLaunch`,
+  `TestPolicyResolutionTriState`).
+
+Tests: `TestNormalizationOffsetMap` (6, incl. the typography-before-a-
+later-match span-exactness positive and the map/emitted-length
+misalignment negative), container sandbox +6 (ownership retention with
+the finalizer still targeting the container, typed upload failure via
+`put_files` AND the `upload_files` helper, quota-present/absent run
+kwargs, settings threading; `test_degraded_lifecycle_is_inert` updated
+to the typed-failure contract), executor + posture tri-state +8. All
+#1976 lifecycle/gating/reaper tests unchanged and green. RELATED_TESTS
+entries added for `backends.py`, `subprocess_executor.py`,
+`subprocess_config.py`, `security_settings.py` (+ the two config suites
+onto the `settings.py` entry). Gates: security + sandbox + tools 1084
+passed (16 skipped); no new env-noise vs origin/develop (9 known
+`tests/unit/config` account-credentials failures verified pre-existing
+on a pristine develop worktree); collect-only 42,116 clean; black
+26.10.1 + ruff clean on changed files.
+
+## Codex review fix wave 2 — container cancellation + research destination policy (#1990, 2026-11-20)
+
+Fixes Codex v0.32-candidate review findings 11 and 12 (HIGH, the last
+unassigned findings) in one PR (#1990, `fix/f11-f12-container-cancellation-research-policy`
+off `origin/develop` @ `0950fc861`), each with positive + negative tests:
+
+- **Finding 11 — container cancellation protocol + host-boundary transfers**
+  (`victor/tools/sandbox/container_sandbox.py`): owned-handle protocol —
+  `close()` stops admission (typed reason `closed` on `execute`/`put_files`/
+  `get_file`/`start`/acquisition), force-removes the container (terminating
+  the exec/transfer a worker is blocked on) and joins in-flight workers under
+  a bounded timeout (`close_join_timeout_seconds`, env
+  `VICTOR_SANDBOX_CLOSE_JOIN_TIMEOUT`); every blocking op is admitted through
+  an op counter, and `_ensure_container` re-checks the closed flag under the
+  acquisition lock, discarding a container that raced teardown — nothing is
+  acquired after the caller gave up. Async helpers terminate the in-flight
+  Docker work on caller cancellation (`terminate_in_flight`); async context
+  entry/exit run lifecycle I/O off-loop and `__aexit__` completes the
+  teardown through delivery of further cancellation. Session shutdown (both
+  `lifecycle_manager` release paths) prefers `close()` for a real
+  `ContainerSandbox`; other managers keep `stop()`. Uploads are authorized
+  at the host boundary — paths must resolve inside the admitted
+  `code_executor_workspace_root` (symlink escapes refused; unset = local
+  single-operator posture) — and BOTH directions are byte-budgeted
+  (`code_executor_transfer_byte_limit_bytes`, default 64 MiB): pre-flight
+  stat + budget-checked tar build before any Docker contact; downloads check
+  the daemon-reported size before reading and cap the chunk stream
+  cumulatively. New `SandboxTransferRefused` typed refusal
+  (`path_outside_workspace` / `transfer_limit_exceeded`); directory uploads
+  keep recursive-tar behavior under the budget.
+- **Finding 12 — research destination policy**
+  (`victor/tools/web_search_tool.py`): `tools.web_fetch_allowed_hosts`
+  (Settings → ToolConfig → `_get_web_config`; empty = allow-all default so
+  local single-operator behavior is unchanged; non-empty = exact-or-subdomain
+  host match, case-insensitive, non-http(s) refused). Enforced at the
+  `web_fetch` entry point BEFORE the result cache, re-checked at EVERY
+  redirect hop (the HTTP path follows redirects manually under a bounded hop
+  budget instead of `follow_redirects=True`) and on the browser render path's
+  final URL (`page.url`); violations return a structured error naming the
+  destination (`destination_policy_denied` / `denied_host` / `denied_url`).
+
+Tests: `TestCancellationProtocol` (fake docker module pattern, gated
+workers — cancel during acquisition/execution/close, idempotent close,
+async-context close, off-loop lifecycle proven by a loop-spin counter),
+`TestUploadAuthorization` (workspace admits/outsides/symlink escape,
+upload budget pre-Docker, download size refusal without reading, stream
+cap, recursive directory upload under the budget, settings threading),
+`test_web_fetch_destination_policy.py` (19 respx tests — default posture,
+denied entry host with route-not-called, cache-bypass, browser
+pre-Playwright refusal, denied redirect hop, allowed chain, relative
+Location resolution, hop budget, settings wiring), lifecycle-manager
+close-preference and bootstrap knob tests; vertical delegation battery
+14/14 green. #1985 typed-failure and #1563 zero-leak guarantees
+preserved; the #1989 `get_file` typed download refusal is carried into the rewritten `get_file` (typed refusal replaces the historical `b""`).
+RELATED_TESTS entries added/extended (`web_search_tool.py`,
+`container_sandbox.py`, new `lifecycle_manager.py` entry, `base.py`,
+`subprocess_config.py`, `tool_settings.py` + selector-test expectation);
+`code_executor_workspace_root` / `code_executor_transfer_byte_limit_bytes`
+documented in configuration-options. Gates: sandbox + tools + affected
+agent/config suites green (4,000+ passed); collect-only 42,166 clean;
+black 26.10.1 + ruff clean on changed files.
+**Residual follow-up (#1989, `fix/container-getfile-typed-failure` off
+`origin/develop` @ `0950fc861`)**: the documented `get_file` residual of
+finding 18 — the download side still returned the historical silent
+`b""` when no container could be acquired, the same
+silent-empty-as-success shape the upload fix closed. Fix: `get_file`
+raises the typed `ContainerSandboxUnavailableError` with the matching
+reason (`binary_missing`/`daemon_unreachable`), never `b""` as success;
+the success path is unchanged. No production caller consumed the
+`b""` (grep: zero `get_file` call sites on the sandbox in `victor/` +
+`verticals/`); the caller contract is pinned by a structured-error test
+(typed refusal → `{ok: false, reason, error}`, no `data` field, not a
+crash). Tests RED-first mirroring the `put_files` typed-failure pair:
+no-docker → `binary_missing`, daemon-unreachable → `daemon_unreachable`,
+caller handling, success path re-pinned unchanged;
+`test_degraded_lifecycle_is_inert` moved to the typed contract; the
+`test_docker_availability.py` integration battery (via the vertical's
+`CodeSandbox` alias) updated — its `put_files` sibling had been stale
+since #1985 (asserted a silent early return). RELATED_TESTS
+`container_sandbox.py` entry extended with the docker-availability
+integration file. Gates: sandbox unit suite 180 passed / 9 skipped;
+selector-mapped suites green; collect-only 42,119 clean; docker-
+availability degraded battery 10 passed with the vertical on
+PYTHONPATH; black 26.10.1 + ruff clean on changed files.
