@@ -436,9 +436,9 @@ selects (no cross-path comparison).
 | context_fitter | `fit_context`, `truncate_message`, `batch_score_messages`, `MessageSlot`, `FitResult` | `processing/native/context_fitter.py` | Differential: `test_context_fitter_parity.py` (`batch_score_messages`: wrapper tests only) |
 | ccg_extract | `extract_statements_batch`, `build_ccg_batch`, `StatementRecord`, `EdgeRecord`, `CcgFileResult` | `core/indexing/ccg_builder.py` walk (oracle) | Differential over repo/golden fixtures: `test_ccg_extract.py` + control-dependence suites (native-parity job, second command) |
 | plugin_ccg | `extract_plugin_statements_batch`, `PluginStatementRecord` | victor-coding builder tables (goldens) | Differential (golden corpus, python + typescript): per the Option-B record above |
-| secrets | `scan_secrets`, `has_secrets`, `get_secret_types`, `mask_secrets`, `list_secret_patterns`, `scan_secrets_summary`, `SecretMatch` | `security/safety/secrets.py` `SecretScanner` | **NEW (FOU-C3)** `test_secrets_parity.py`: full agreement corpus + benign corpus through both paths, `has_secrets`/mask-leak properties, registry-divergence ledger pinned; plus the FOU-A2b scanner suite. Mask STYLE differs by design (Rust partial-masks, Python `[REDACTED]`) — the contract is leak-freedom |
+| secrets | `scan_secrets`, `has_secrets`, `get_secret_types`, `mask_secrets`, `list_secret_patterns`, `scan_secrets_summary`, `SecretMatch` | `security/safety/secrets.py` `SecretScanner` | **NEW (FOU-C3)** `test_secrets_parity.py`: full agreement corpus + benign corpus through both paths, `has_secrets`/mask-leak properties; plus the FOU-A2b scanner suite. The FOU-C3 registry-divergence ledger was FIXED in #1975: both registries now detect the union (Rust gained bearer/PGP/bare-40-char-AWS; Python gained the vendor families and registered the refresh token + real-shape Slack pattern), pinned as exact per-engine label sets in `TestRegistryParity`; dispatch-path assertions skip with reason on wheels predating the port (behavioral probe). Mask STYLE differs by design (Rust partial-masks, Python `[REDACTED]`) — the contract is leak-freedom |
 | graph_algo | `pagerank`, `weighted_pagerank`, `betweenness_centrality`, `connected_components`, `detect_cycles` | `victor/native/python/graph_algo.py` | **NEW (FOU-C3)** `test_graph_algo_parity.py`: deterministic graphs through both sides; PageRank within 1e-6 (never bit-exact — ahash iteration order varies per-process), Brandes within 1e-9, structural results exact |
-| trace_scanner | `scan_usage_file`, `scan_usage_files`, `SessionStats` | `_scan_usage_file_python` | **NEW (FOU-C3)** `test_trace_scanner_parity.py`: plain/gzip/malformed/filtering corpora both paths; same-session-across-files divergence pinned (native aggregates, Python concatenates) |
+| trace_scanner | `scan_usage_file`, `scan_usage_files`, `SessionStats` | `_scan_usage_file_python` | **NEW (FOU-C3)** `test_trace_scanner_parity.py`: plain/gzip/malformed/filtering corpora both paths; the same-session-across-files divergence was FIXED in #1975 — the Python fallback now shares one session accumulator across the file list (native cross-file aggregation semantics) and the duplicate-session case is asserted as strict equality |
 | embeddings | `quantize_embedding`, `batch_quantize_embeddings`, `dequantize_embedding`, `quantized_cosine_similarity`, `batch_quantized_cosine_similarity`, `matmul_vector`, `batch_matmul_vector`, `random_projection`, `pairwise_distances`, `knn_graph`, `QuantizedEmbedding` | none in-repo (native-only surface) — spec reference implemented in NumPy f32 in the test | **NEW (FOU-C3)** `test_embeddings_parity.py`: quantization bit-parity (incl. half-away-from-zero rounding), integer-space cosine, LCG projection reproduced bit-exactly (matmul tolerance ~1e-4), pairwise/KNN vs NumPy reference |
 | dedup | `normalize_block`, `rolling_hash_blocks`, `find_duplicate_blocks` | `processing/native/deduplication.py` | **NEW (FOU-C3)** `test_text_pipeline_parity.py`: normalization bytes, block splits, duplicate flags/indices identical; digest VALUES pinned as divergent by design (xxHash3 vs MD5) |
 | hashing | `compute_signature`, `compute_batch_signatures`, `signature_similarity` | `processing/native/deduplication.py` | **NEW (FOU-C3)** same file: determinism, key-order independence, length/format, similarity extremes; digests divergent by design (as above) |
@@ -460,12 +460,14 @@ differential (protocol/ccg/tokenizer/context-fitter/secret-scanner), ~20 dual-ba
 wrapper-level. **Remaining uncovered differentials for a future increment:** `EmbeddingIndex`,
 `batch_score_messages` (dedicated corpus), streaming_filter, thinking, pattern_match, extractor,
 sanitizer, yaml_loader, and the remaining chunking/arg_normalizer batch ops. **Findings recorded
-by the FOU-C3 suites** (pinned, not hidden): Python `repair_json` string-content corruption;
-`coerce_string_type` install-shape split; xxHash3-vs-MD5 digest divergence (structure-level
-contract); `scan_usage_files` same-session aggregation vs concatenation; secret-registry
-divergences on both sides (Rust-only vendor families: anthropic/openai/twilio/sendgrid/slack-
-webhook/heroku/discord; Python-only: bearer, PGP header, bare-40-char AWS secret, refresh-token
-and real-shape Slack gaps).
+by the FOU-C3 suites**: Python `repair_json` string-content corruption (FIXED #1960);
+`coerce_string_type` install-shape split (FIXED #1962); `scan_usage_files` same-session
+aggregation vs concatenation (FIXED #1975 — Python fallback adopts the native cross-file
+aggregation); secret-registry divergences on both sides (FIXED #1975 — both registries detect
+the union: Rust gained bearer/PGP/bare-40-char-AWS; Python gained anthropic/openai/twilio/
+sendgrid/slack-webhook/heroku/discord, the registered refresh token, and the real-shape Slack
+pattern). Remaining BY DESIGN: xxHash3-vs-MD5 digest divergence (the structure-level contract —
+normalized bytes, duplicate markers and indices are identical; only digest values differ).
 
 ### Harvest environment constraint (2026-10-25, landed)
 
