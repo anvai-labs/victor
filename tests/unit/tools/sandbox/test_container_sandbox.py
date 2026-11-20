@@ -25,8 +25,11 @@ in tests/integration/infra/ (skipif no Docker).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
 import os
+import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -36,6 +39,7 @@ import victor.tools.sandbox.container_sandbox as cs
 from victor.tools.sandbox.container_sandbox import (
     ContainerSandbox,
     ContainerSandboxUnavailableError,
+    SandboxTransferRefused,
     find_orphaned_sandboxes,
     process_start_marker,
     reap_orphaned_sandboxes,
@@ -476,6 +480,10 @@ class _ExecutorSettings:
             code_executor_cpu_shares=kw.get("code_executor_cpu_shares", 256),
             code_executor_cpu_quota=kw.get("code_executor_cpu_quota", None),
             code_executor_idle_ttl_seconds=kw.get("code_executor_idle_ttl_seconds", 900),
+            code_executor_workspace_root=kw.get("code_executor_workspace_root", None),
+            code_executor_transfer_byte_limit_bytes=kw.get(
+                "code_executor_transfer_byte_limit_bytes", 64 * 1024 * 1024
+            ),
         )
 
 
@@ -685,3 +693,306 @@ class TestAsyncHelpers:
         sandbox.put_files.side_effect = RuntimeError("disk full")
         result = asyncio.run(upload_files(sandbox, ["/a.py"]))
         assert "disk full" in result
+
+
+# ---------------------------------------------------------------------------
+# Codex finding 11: the owned-handle cancellation protocol
+# ---------------------------------------------------------------------------
+
+
+def _wait_off_loop(event: threading.Event, timeout: float = 10.0) -> None:
+    """Block a helper thread (never the event loop) until ``event`` is set."""
+    if not event.wait(timeout):
+        raise AssertionError("timed out waiting for a worker to reach its gate")
+
+
+class TestCancellationProtocol:
+    """Cancel during acquisition, during execution and during close: the
+    worker either completes or is terminated and joined — it never keeps
+    running (or acquires a container) after the caller gave up."""
+
+    @staticmethod
+    def _gated_run(created, entered, release, joined):
+        def _run(*_args, **_kwargs):
+            entered.set()
+            release.wait(timeout=10)
+            try:
+                container = _mock_container(f"c{len(created)}ffee")
+                created.append(container)
+                return container
+            finally:
+                joined.set()
+
+        return _run
+
+    async def test_cancel_during_acquisition_discards_the_raced_container(
+        self, docker_env, tmp_path
+    ):
+        entered, release, joined = threading.Event(), threading.Event(), threading.Event()
+        docker_env.client.containers.run.side_effect = self._gated_run(
+            docker_env.created, entered, release, joined
+        )
+        sandbox = ContainerSandbox(close_join_timeout_seconds=0.2)
+
+        task = asyncio.create_task(cs.execute_code(sandbox, "print(1)"))
+        await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # Terminal teardown while the acquisition worker is still parked in
+        # containers.run: admission stops, the join budget elapses.
+        await sandbox.aclose()
+        release.set()
+        _wait_off_loop(joined)
+
+        # The close re-check discarded the just-created container: nothing
+        # was acquired after the caller gave up.
+        assert len(docker_env.created) == 1
+        docker_env.created[0].remove.assert_called_once_with(force=True)
+        assert sandbox.container is None
+        # Admission stays stopped: no further acquisition, typed refusals.
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.execute("print(1)")
+        src = tmp_path / "late.py"
+        src.write_text("x = 1")
+        with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+            sandbox.put_files([str(src)])
+        assert excinfo.value.reason == "closed"
+        assert len(docker_env.created) == 1
+
+    async def test_cancel_during_execution_terminates_the_worker(self, docker_env):
+        entered, release = threading.Event(), threading.Event()
+        container = _mock_container()
+        docker_env.client.containers.run.side_effect = lambda *a, **k: container
+
+        def _gated_exec(*_args, **_kwargs):
+            entered.set()
+            release.wait(timeout=10)
+            return MagicMock(exit_code=0, output=(b"late\n", b""))
+
+        container.exec_run.side_effect = _gated_exec
+        sandbox = ContainerSandbox(close_join_timeout_seconds=5.0)
+
+        task = asyncio.create_task(cs.execute_code(sandbox, "print(1)"))
+        await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # The cancellation path terminated the Docker call the worker was
+        # blocked on by force-removing the container.
+        container.remove.assert_called_once_with(force=True)
+
+        # The worker surfaces after its blocked call completes and close
+        # joins it; no container is left owned.
+        release.set()
+        await sandbox.aclose()
+        assert sandbox.container is None
+        container.remove.assert_called_once_with(force=True)  # exactly once
+
+    async def test_cancel_during_close_still_completes_the_teardown(self, docker_env):
+        remove_entered, remove_gate, remove_done = (
+            threading.Event(),
+            threading.Event(),
+            threading.Event(),
+        )
+        container = _mock_container()
+        docker_env.client.containers.run.side_effect = lambda *a, **k: container
+
+        def _gated_remove(*_args, **_kwargs):
+            remove_entered.set()
+            remove_gate.wait(timeout=10)
+            remove_done.set()
+
+        container.remove.side_effect = _gated_remove
+        sandbox = ContainerSandbox(close_join_timeout_seconds=0.2)
+        sandbox.start()
+
+        close_task = asyncio.create_task(sandbox.aclose())
+        await asyncio.to_thread(remove_entered.wait, 5)
+        close_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await close_task
+
+        # Admission stopped the moment close began, even though the caller
+        # then cancelled the close itself.
+        assert sandbox.closed is True
+        with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+            sandbox.put_files([])  # refused before any Docker contact
+        assert excinfo.value.reason == "closed"
+
+        remove_gate.set()
+        _wait_off_loop(remove_done)
+        await asyncio.sleep(0.05)  # let the close thread finish its join
+        assert sandbox.container is None
+        container.remove.assert_called_once_with(force=True)
+
+    async def test_close_is_idempotent_and_refuses_later_operations(self, docker_env, tmp_path):
+        sandbox = ContainerSandbox()
+        sandbox.start()
+        sandbox.close()
+        sandbox.close()  # idempotent
+        docker_env.created[0].remove.assert_called_once_with(force=True)
+        assert sandbox.closed is True
+        src = tmp_path / "a.py"
+        src.write_text("x = 1")
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.put_files([str(src)])
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.get_file("/app/a.py")
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.execute("print(1)")
+        docker_env.client.containers.run.assert_called_once()  # no re-acquisition
+
+    async def test_async_context_manager_closes_the_owned_handle(self, docker_env):
+        async with ContainerSandbox() as sandbox:
+            assert sandbox.container is docker_env.created[0]
+            assert sandbox.closed is False
+        assert sandbox.closed is True
+        assert sandbox.container is None
+        with pytest.raises(ContainerSandboxUnavailableError, match="closed"):
+            sandbox.get_file("/app/x")
+
+    async def test_lifecycle_io_runs_off_the_event_loop(self, docker_env):
+        ticks = 0
+
+        async def _tick():
+            nonlocal ticks
+            while True:
+                ticks += 1
+                await asyncio.sleep(0)
+
+        def _slow_run(*_args, **_kwargs):
+            time.sleep(0.05)  # long enough for the loop to spin while blocked
+            container = _mock_container()
+            docker_env.created.append(container)
+            return container
+
+        docker_env.client.containers.run.side_effect = _slow_run
+        container = None
+        ticker = asyncio.create_task(_tick())
+        try:
+            async with ContainerSandbox() as sandbox:
+                ticks_at_enter = ticks
+                container = sandbox.container
+            ticks_at_exit = ticks
+        finally:
+            ticker.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await ticker
+        assert container is not None
+        # aenter acquired the container off-loop: the loop kept running.
+        assert ticks_at_enter >= 10
+        # aexit's blocking teardown was likewise off-loop.
+        assert ticks_at_exit > ticks_at_enter
+
+
+class TestUploadAuthorization:
+    """Codex finding 11: uploads are authorized at the host boundary and
+    byte-budgeted in BOTH directions — before any Docker contact."""
+
+    async def test_workspace_root_admits_inside_paths(self, docker_env, tmp_path):
+        import tarfile
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        src = workspace / "ok.py"
+        src.write_text("x = 1")
+        sandbox = ContainerSandbox(workspace_root=str(workspace))
+        sandbox.put_files([str(src)])
+        docker_env.client.containers.run.assert_called_once()
+        container = docker_env.created[0]
+        container.put_archive.assert_called_once()
+        archive = container.put_archive.call_args.args[1]
+        archive.seek(0)
+        with tarfile.open(fileobj=archive, mode="r") as tar:
+            assert tar.getnames() == ["ok.py"]
+
+    async def test_path_outside_workspace_refused_before_docker_contact(self, docker_env, tmp_path):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        outside = tmp_path / "secret.txt"
+        outside.write_text("s")
+        sandbox = ContainerSandbox(workspace_root=str(workspace))
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.put_files([str(outside)])
+        assert excinfo.value.reason == "path_outside_workspace"
+        docker_env.docker.from_env.assert_not_called()
+        docker_env.client.containers.run.assert_not_called()
+
+    async def test_symlink_escape_from_workspace_is_refused(self, docker_env, tmp_path):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        outside = tmp_path / "real.txt"
+        outside.write_text("s")
+        link = workspace / "link.txt"
+        link.symlink_to(outside)
+        sandbox = ContainerSandbox(workspace_root=str(workspace))
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.put_files([str(link)])
+        assert excinfo.value.reason == "path_outside_workspace"
+        docker_env.client.containers.run.assert_not_called()
+
+    async def test_upload_over_budget_refused_before_docker_contact(self, docker_env, tmp_path):
+        big = tmp_path / "big.bin"
+        big.write_bytes(b"x" * 64)
+        sandbox = ContainerSandbox(transfer_byte_limit_bytes=8)
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.put_files([str(big)])
+        assert excinfo.value.reason == "transfer_limit_exceeded"
+        docker_env.docker.from_env.assert_not_called()
+
+    async def test_download_over_reported_size_refused_without_reading(self, docker_env):
+        class _StreamThatMustNotBeRead:
+            def __iter__(self):  # pragma: no cover - guard, not a data path
+                raise AssertionError("download stream read despite the budget refusal")
+
+        sandbox = ContainerSandbox(transfer_byte_limit_bytes=16)
+        sandbox.start()
+        docker_env.created[0].get_archive.return_value = (
+            _StreamThatMustNotBeRead(),
+            {"size": 999},
+        )
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.get_file("/app/big.bin")
+        assert excinfo.value.reason == "transfer_limit_exceeded"
+
+    async def test_download_stream_cap_aborts_mid_stream(self, docker_env):
+        sandbox = ContainerSandbox(transfer_byte_limit_bytes=16)
+        sandbox.start()
+        # Misreported stat: the cumulative stream cap is the backstop.
+        docker_env.created[0].get_archive.return_value = (
+            iter([b"a" * 10, b"a" * 10]),
+            {"size": 0},
+        )
+        with pytest.raises(SandboxTransferRefused) as excinfo:
+            sandbox.get_file("/app/big.bin")
+        assert excinfo.value.reason == "transfer_limit_exceeded"
+
+    async def test_directory_upload_keeps_recursive_behavior_under_the_budget(
+        self, docker_env, tmp_path
+    ):
+        import tarfile
+
+        workspace = tmp_path / "workspace"
+        (workspace / "pkg").mkdir(parents=True)
+        (workspace / "pkg" / "m.py").write_text("y = 2")
+        sandbox = ContainerSandbox(
+            workspace_root=str(workspace), transfer_byte_limit_bytes=1_000_000
+        )
+        sandbox.put_files([str(workspace / "pkg")])
+        archive = docker_env.created[0].put_archive.call_args.args[1]
+        archive.seek(0)
+        with tarfile.open(fileobj=archive, mode="r") as tar:
+            assert "pkg/m.py" in tar.getnames()
+
+    def test_transfer_policy_settings_reach_the_sandbox(self, docker_env, tmp_path):
+        sandbox = resolve_container_sandbox(
+            _ExecutorSettings(
+                code_executor_workspace_root=str(tmp_path),
+                code_executor_transfer_byte_limit_bytes=1024,
+            )
+        )
+        assert sandbox.workspace_root == str(tmp_path)
+        assert sandbox.transfer_byte_limit == 1024

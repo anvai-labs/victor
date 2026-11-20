@@ -919,6 +919,67 @@ passed (16 skipped); no new env-noise vs origin/develop (9 known
 on a pristine develop worktree); collect-only 42,116 clean; black
 26.10.1 + ruff clean on changed files.
 
+## Codex review fix wave 2 — container cancellation + research destination policy (#1990, 2026-11-20)
+
+Fixes Codex v0.32-candidate review findings 11 and 12 (HIGH, the last
+unassigned findings) in one PR (#1990, `fix/f11-f12-container-cancellation-research-policy`
+off `origin/develop` @ `0950fc861`), each with positive + negative tests:
+
+- **Finding 11 — container cancellation protocol + host-boundary transfers**
+  (`victor/tools/sandbox/container_sandbox.py`): owned-handle protocol —
+  `close()` stops admission (typed reason `closed` on `execute`/`put_files`/
+  `get_file`/`start`/acquisition), force-removes the container (terminating
+  the exec/transfer a worker is blocked on) and joins in-flight workers under
+  a bounded timeout (`close_join_timeout_seconds`, env
+  `VICTOR_SANDBOX_CLOSE_JOIN_TIMEOUT`); every blocking op is admitted through
+  an op counter, and `_ensure_container` re-checks the closed flag under the
+  acquisition lock, discarding a container that raced teardown — nothing is
+  acquired after the caller gave up. Async helpers terminate the in-flight
+  Docker work on caller cancellation (`terminate_in_flight`); async context
+  entry/exit run lifecycle I/O off-loop and `__aexit__` completes the
+  teardown through delivery of further cancellation. Session shutdown (both
+  `lifecycle_manager` release paths) prefers `close()` for a real
+  `ContainerSandbox`; other managers keep `stop()`. Uploads are authorized
+  at the host boundary — paths must resolve inside the admitted
+  `code_executor_workspace_root` (symlink escapes refused; unset = local
+  single-operator posture) — and BOTH directions are byte-budgeted
+  (`code_executor_transfer_byte_limit_bytes`, default 64 MiB): pre-flight
+  stat + budget-checked tar build before any Docker contact; downloads check
+  the daemon-reported size before reading and cap the chunk stream
+  cumulatively. New `SandboxTransferRefused` typed refusal
+  (`path_outside_workspace` / `transfer_limit_exceeded`); directory uploads
+  keep recursive-tar behavior under the budget.
+- **Finding 12 — research destination policy**
+  (`victor/tools/web_search_tool.py`): `tools.web_fetch_allowed_hosts`
+  (Settings → ToolConfig → `_get_web_config`; empty = allow-all default so
+  local single-operator behavior is unchanged; non-empty = exact-or-subdomain
+  host match, case-insensitive, non-http(s) refused). Enforced at the
+  `web_fetch` entry point BEFORE the result cache, re-checked at EVERY
+  redirect hop (the HTTP path follows redirects manually under a bounded hop
+  budget instead of `follow_redirects=True`) and on the browser render path's
+  final URL (`page.url`); violations return a structured error naming the
+  destination (`destination_policy_denied` / `denied_host` / `denied_url`).
+
+Tests: `TestCancellationProtocol` (fake docker module pattern, gated
+workers — cancel during acquisition/execution/close, idempotent close,
+async-context close, off-loop lifecycle proven by a loop-spin counter),
+`TestUploadAuthorization` (workspace admits/outsides/symlink escape,
+upload budget pre-Docker, download size refusal without reading, stream
+cap, recursive directory upload under the budget, settings threading),
+`test_web_fetch_destination_policy.py` (19 respx tests — default posture,
+denied entry host with route-not-called, cache-bypass, browser
+pre-Playwright refusal, denied redirect hop, allowed chain, relative
+Location resolution, hop budget, settings wiring), lifecycle-manager
+close-preference and bootstrap knob tests; vertical delegation battery
+14/14 green. #1985 typed-failure and #1563 zero-leak guarantees
+preserved; the #1989 `get_file` typed download refusal is carried into the rewritten `get_file` (typed refusal replaces the historical `b""`).
+RELATED_TESTS entries added/extended (`web_search_tool.py`,
+`container_sandbox.py`, new `lifecycle_manager.py` entry, `base.py`,
+`subprocess_config.py`, `tool_settings.py` + selector-test expectation);
+`code_executor_workspace_root` / `code_executor_transfer_byte_limit_bytes`
+documented in configuration-options. Gates: sandbox + tools + affected
+agent/config suites green (4,000+ passed); collect-only 42,166 clean;
+black 26.10.1 + ruff clean on changed files.
 **Residual follow-up (#1989, `fix/container-getfile-typed-failure` off
 `origin/develop` @ `0950fc861`)**: the documented `get_file` residual of
 finding 18 — the download side still returned the historical silent

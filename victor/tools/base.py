@@ -196,6 +196,7 @@ class ToolConfig:
         http_connection_pool_max_connections_per_host: int = 10,
         http_connection_pool_connection_timeout: int = 30,
         http_connection_pool_total_timeout: int = 60,
+        web_fetch_allowed_hosts: Optional[List[str]] = None,
     ):
         """Initialize tool configuration.
 
@@ -215,6 +216,11 @@ class ToolConfig:
             http_connection_pool_max_connections_per_host: Max pooled connections per host
             http_connection_pool_connection_timeout: HTTP connect timeout in seconds
             http_connection_pool_total_timeout: Total HTTP timeout in seconds
+            web_fetch_allowed_hosts: Destination allowlist for research page
+                fetches (Codex finding 12). Empty = all destinations admitted
+                (local single-operator default); non-empty = only the listed
+                hosts (exact or subdomain), re-checked at every redirect hop
+                and on the browser render path.
         """
         self.provider = provider
         self.model = model
@@ -222,6 +228,7 @@ class ToolConfig:
         self.web_fetch_top = web_fetch_top
         self.web_fetch_pool = web_fetch_pool
         self.max_content_length = max_content_length
+        self.web_fetch_allowed_hosts = list(web_fetch_allowed_hosts or [])
         self.batch_concurrency = batch_concurrency
         self.batch_max_files = batch_max_files
         self.generic_result_cache_enabled = generic_result_cache_enabled

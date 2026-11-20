@@ -1338,6 +1338,8 @@ RELATED_TESTS = {
     ),
     "victor/config/groups/subprocess_config.py": (
         "tests/unit/config/groups/test_subprocess_config.py",
+        "tests/unit/tools/sandbox/test_container_sandbox.py",
+        "tests/unit/agent/test_code_exec_bootstrap.py",
     ),
     "victor/config/security_settings.py": ("tests/unit/config/test_security_settings.py",),
     "victor/config/provider_config_registry.py": (
@@ -1375,6 +1377,7 @@ RELATED_TESTS = {
         "tests/unit/tools/test_web_search_fallback_unit.py",
         "tests/unit/tools/test_web_search_provider_dispatch.py",
         "tests/unit/tools/test_web_fetch_page_read.py",
+        "tests/unit/tools/test_web_fetch_destination_policy.py",
         "tests/unit/tools/test_web_tool.py",
     ),
     "victor/tools/search_providers/__init__.py": (
@@ -1401,6 +1404,7 @@ RELATED_TESTS = {
         "tests/unit/config/test_settings_stratification.py",
         "tests/unit/security/test_injection_hard_fail.py",
         "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/tools/test_web_fetch_destination_policy.py",
     ),
     "victor/framework/agent_factory.py": (
         "tests/unit/framework/test_skill_registry_wiring.py",
@@ -1595,6 +1599,7 @@ RELATED_TESTS = {
     "victor/tools/base.py": (
         *DEPRECATION_NOTICE_TESTS,
         "tests/unit/core/test_tool_base.py",
+        "tests/unit/tools/test_web_fetch_destination_policy.py",
         *MCP_SCHEMA_TESTS,
     ),
     # Container sandbox lifecycle quality bar (FOU-S2, ADR-035 item 5): core
@@ -1602,10 +1607,17 @@ RELATED_TESTS = {
     "victor/tools/sandbox/container_sandbox.py": (
         "tests/unit/tools/sandbox/test_container_sandbox.py",
         "tests/unit/agent/test_code_exec_bootstrap.py",
+        "tests/unit/agent/test_lifecycle_manager.py",
         "tests/unit/agent/protocols/test_infrastructure_protocols.py",
         # get_file/put_files typed-unavailable contract, via the vertical's
         # CodeSandbox alias (skips when victor_coding is not installed).
         "tests/integration/infra/test_docker_availability.py",
+    ),
+    # Codex finding 11: session shutdown prefers the owned-handle close
+    # protocol for the container sandbox.
+    "victor/agent/lifecycle_manager.py": (
+        "tests/unit/agent/test_lifecycle_manager.py",
+        "tests/unit/agent/test_code_exec_bootstrap.py",
     ),
     # Codex containment mediums (findings 18/20): the tri-state policy
     # resolution in backends and the executor's fail-closed launch gate have

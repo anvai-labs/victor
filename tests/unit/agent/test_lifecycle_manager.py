@@ -262,6 +262,23 @@ class TestLifecycleManager:
         assert result["code_manager_stopped"] is True
 
     @pytest.mark.asyncio
+    async def test_graceful_shutdown_prefers_the_owned_handle_close(self, lifecycle_manager):
+        """Codex finding 11: a real container sandbox is released through the
+        close protocol (stop admission, terminate in-flight operations,
+        bounded join), not the re-acquirable bare stop()."""
+        from victor.tools.sandbox.container_sandbox import ContainerSandbox
+
+        code_manager = ContainerSandbox()
+        lifecycle_manager._code_manager = code_manager
+        lifecycle_manager._flush_analytics = MagicMock(return_value={})
+        lifecycle_manager._stop_health_monitoring = AsyncMock(return_value=True)
+
+        result = await lifecycle_manager.graceful_shutdown()
+
+        assert result["code_manager_stopped"] is True
+        assert code_manager.closed is True  # admission stopped on session close
+
+    @pytest.mark.asyncio
     async def test_graceful_shutdown_survives_sandbox_stop_failure(self, lifecycle_manager):
         code_manager = MagicMock()
         code_manager.stop.side_effect = RuntimeError("daemon gone")
