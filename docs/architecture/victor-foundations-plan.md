@@ -540,6 +540,52 @@ candidate (this ledger's rows above carry the detail):
   FUNCTIONAL + OPT-IN (ADR-032 rev 1.8/1.9) with the two owner-decision
   remainders (auto-on flip + impact-analysis benchmark publication).
 
+## Codex review fix wave 1 — delegation + tool contracts (2026-11-20, #1982)
+
+Fixes Codex-review findings 5, 10 and 14 (all HIGH) from the v0.32.0
+candidate review (`~/code/victor-review-findings.md`).
+
+- **Finding 5 — delegation grant widening.** The `spawn_subagent`
+  restrict-list used to REPLACE the researcher role list, a tool missing
+  from the parent could be instantiated from shared discovery, and depth
+  was never checked on the final tool set. Now: `compute_child_tool_set`
+  intersects requested ∩ effective role grants ∩ parent-admitted after
+  alias resolution (parent-admitted read from the enabled+folded session
+  registry, failing CLOSED when not enumerable — `tool_builders.py`);
+  depth-1 enforced at child ADMISSION on the final set (`SubAgentOrchestrator.spawn`
+  typed refusal, member never constructed; `stream_spawn` strips);
+  `_configure_allowed_tools` consults the copied `can_spawn_subagents`
+  boolean before registering anything. Depth-1 phase-1 enforcement from
+  #1977 intact (A1 battery + wiring tests unchanged and green).
+- **Finding 10 — code executor context contract.** The vertical sandbox
+  tool expected an ordinary `context` argument the executor never
+  supplies, so live dispatches returned SUCCESS with "Error: Context not
+  provided." and a mock manager received zero calls. The tool now accepts
+  the reserved `_exec_ctx` injection (schema advertises no context
+  parameter) and raises `ToolExecutionError` (category `tool_execution`
+  + recovery hint) for missing context/`code_manager`/operation
+  arguments — failures are never success-shaped. Tests dispatch through
+  the adapter's normal injection and assert the manager actually executed.
+- **Finding 14 — spawn session ids.** Every foreground spawn passed the
+  same member id (`spawn_subagent`), so the substrate derivation
+  collapsed to one shared upstream session/cache key and the returned
+  `child_session_id` read an optional input that was never supplied. Each
+  spawn now mints a unique child session id (`mint_child_session_id`)
+  threaded to provider binding (derivation precedence 1), the
+  `SubAgentResult` and the identity/audit metadata; `_identity_metadata`
+  reports the RESOLVED session id. Pinned by two overlapping spawns +
+  one retry through the real wiring (three distinct ids, binding ==
+  result).
+
+Evidence: `tests/unit/tools/test_spawn_subagent.py`,
+`tests/unit/agent/test_spawn_subagent_wiring.py`,
+`tests/unit/agent/subagents/test_orchestrator.py`,
+`verticals/victor-coding/tests/tools/test_code_executor_tool.py`.
+Gates: tests/unit/tools + tests/unit/agent 13,542 passed; victor-coding
+vertical suite 1,373 passed; collect-only 42,004 clean; black 26.10.1 +
+ruff clean; RELATED_TESTS entries added for
+`victor/agent/subagents/{orchestrator,base}.py`.
+
 ## Codex review fix wave 1 — containment enforcement at dispatch (2026-11-20, fix/containment-dispatch-enforcement)
 
 Codex v0.32.0-candidate review findings 1/2/16 (HIGH/HIGH/MEDIUM), ADR-037

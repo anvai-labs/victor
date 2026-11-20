@@ -389,6 +389,18 @@ RELATED_TESTS = {
         "tests/unit/tools/test_spawn_subagent.py",
         "tests/unit/agent/test_spawn_subagent_wiring.py",
     ),
+    "victor/agent/subagents/orchestrator.py": (
+        "tests/unit/agent/subagents/test_orchestrator.py",
+        "tests/unit/agent/subagents/test_orchestrator_workspace.py",
+        "tests/unit/tools/test_spawn_subagent.py",
+        "tests/unit/agent/test_spawn_subagent_wiring.py",
+    ),
+    "victor/agent/subagents/base.py": (
+        "tests/unit/agent/subagents/test_base_session_binding.py",
+        "tests/unit/agent/subagents/test_base_usage.py",
+        "tests/unit/agent/subagents/test_orchestrator.py",
+        "tests/unit/tools/test_spawn_subagent.py",
+    ),
     "victor/agent/factory/tool_builders.py": (
         "tests/unit/agent/test_spawn_subagent_wiring.py",
         "tests/unit/agent/runtime/test_component_assembler.py",

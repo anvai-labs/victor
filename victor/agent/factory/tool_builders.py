@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from unittest.mock import Mock
 
 from victor.config.tool_selection_access import is_semantic_tool_selection_enabled
@@ -64,6 +64,39 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _MISSING = object()
+
+
+def _parent_admitted_tool_names(orchestrator: Any) -> List[str]:
+    """Canonical names of the tools the parent session actually admits.
+
+    Delegation grant widening guard: a child's tool set must be a subset of
+    what the parent can use, so a spawn can never instantiate a tool the
+    session never had (the shared discovery registry would otherwise
+    happily build one). Uses the enabled + available registry entries
+    (folded tools included — they stay executable for the parent).
+
+    A registry that cannot be enumerated admits NOTHING: unknown parent
+    capability never widens the child (fail closed, with a warning).
+    """
+    registry = getattr(orchestrator, "tools", None)
+    list_tools = getattr(registry, "list_tools", None)
+    if not callable(list_tools):
+        logger.warning(
+            "spawn_subagent: parent registry is not enumerable (%s); "
+            "admitting no tools into the child",
+            type(registry).__name__,
+        )
+        return []
+    try:
+        admitted = list_tools(only_enabled=True, include_folded=True)
+    except Exception as exc:  # noqa: BLE001 - delegation must fail closed
+        logger.warning(
+            "spawn_subagent: parent registry enumeration failed (%s); "
+            "admitting no tools into the child",
+            exc,
+        )
+        return []
+    return [name for name in (getattr(t, "name", None) for t in admitted or []) if name]
 
 
 class ToolBuildersMixin:
@@ -152,15 +185,38 @@ class ToolBuildersMixin:
                 return None
 
             from victor.core.shared_types import SubAgentRole
+            from victor.tools.spawn_subagent import (
+                compute_child_tool_set,
+                mint_child_session_id,
+            )
+
+            # Delegation grant widening guard: the requested restrict-list
+            # never REPLACES the role grants. Final child tool set =
+            # requested ∩ effective role grants ∩ parent-admitted, after
+            # alias resolution (the substrate re-checks depth at admission
+            # on this final set).
+            role_name = SubAgentRole.RESEARCHER.value
+            final_tools = compute_child_tool_set(
+                sanitize_subagent_tool_list(tools),
+                role_grants=subagent_orchestrator.get_role_tools(role_name),
+                parent_admitted=_parent_admitted_tool_names(orchestrator),
+            )
+
+            # Spawn session ids: one unique child session id per invocation,
+            # threaded into the substrate (provider session binding), the
+            # SubAgentResult and the identity/audit metadata — concurrent
+            # spawns and retries never share an upstream session key.
+            child_session_id = mint_child_session_id(getattr(orchestrator, "session_id", None))
 
             spawn_kwargs: Dict[str, Any] = {
                 "role": SubAgentRole.RESEARCHER,
                 "task": prompt,
                 "tool_budget": tool_budget,
-                "allowed_tools": sanitize_subagent_tool_list(tools),
+                "allowed_tools": final_tools,
                 "can_spawn_subagents": False,
                 "parent_session_id": getattr(orchestrator, "session_id", None),
                 "member_id": "spawn_subagent",
+                "child_session_id": child_session_id,
             }
             if model:
                 # Resolve the override through the parent's provider lane;
