@@ -11,10 +11,10 @@ Prepared package version: **0.32.0**.
 
 ### Changed
 
-- Pin the coordinated `sandhi-gateway==0.22.1` release and consume its clean
-  version-1 semantic thinking contract. OpenAI SDK-shaped `reasoning_effort`
-  input now becomes `thinking: {enabled, effort}` inside Victor; the removed
-  neutral field and legacy extension dual-write are no longer emitted.
+- Pin `sandhi-gateway==0.23.0`. Sandhi-backed providers share one portable
+  request path and delegate exact model admission, provider-specific request
+  encoding, and native cache-marker placement to Sandhi. Victor expresses
+  reasoning effort through the version-1 `thinking` control.
 - Derive `supports_reasoning_effort(model)` from exact Sandhi model metadata.
   Direct transports use the binding descriptor and gateway transports use the
   key-scoped `/v1/models` page; missing, malformed, offline, or unsupported

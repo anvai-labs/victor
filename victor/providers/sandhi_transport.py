@@ -1663,8 +1663,9 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
         request = _typed_request_from_openai_payload(payload)
         native = request.get("extensions", {}).get("openai")
         if native:
+            unsupported = ", ".join(sorted(native))
             raise ValueError(
-                f"call options have no portable Sandhi representation: {', '.join(sorted(native))}"
+                f"native call options have no portable Sandhi representation: {unsupported}"
             )
         return request
 

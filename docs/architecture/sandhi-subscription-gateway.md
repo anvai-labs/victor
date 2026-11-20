@@ -626,8 +626,9 @@ profile defaults. An explicit request requires no discovery in the transport.
 
 One neutral request path serves Victor's Sandhi-backed providers. Sandhi owns
 provider encoding, including Messages cache marker placement and sampling
-constraints. A portable request refuses options that require a native SDK dialect. A selected gateway dialect must be able to express a requested
-control for it to reach the server. The prepared binding qualifies adaptive
+constraints. A portable request refuses options that require a native SDK dialect.
+A selected gateway dialect must be able to express a requested control for it
+to reach the server. The prepared binding qualifies adaptive
 thinking for Claude Sonnet 4.6 and thinking levels for Gemini 3 Flash Preview.
 
 ## Streaming body-budget preflight (2026-11-17)
@@ -646,9 +647,8 @@ before partial JSON generation instead of timing out minutes later. Authenticate
 model discovery can expose the sanitized effective limits without revealing
 backend URLs, credentials or provider references.
 
-Exact-policy comparison and sanitized discovery were introduced by Sandhi 0.21
-and are retained by 0.22.1. Victor's embedded `sandhi-gateway==0.22.1` binding
-remains wire-compatible.
+Sandhi 0.21 introduced exact-policy comparison and sanitized discovery. Victor's
+embedded `sandhi-gateway==0.23.0` binding retains wire compatibility.
 Enable the declared 600-second planning budget only after the target gateway
 reports an effective policy that admits it.
 

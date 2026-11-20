@@ -19,7 +19,7 @@ evaluation loop and gating every change on it over adding new capabilities.
 !!! info "Reconciled 2026-11-20"
 
     **Promotion candidate:** Victor AI/native 0.32.0, 2026-11-20,
-    aligning the embedded consumer with published
+    aligning the embedded consumer with the prepared
     `sandhi-gateway==0.23.0`. **Published:** [Victor AI 0.31.0](https://github.com/anvai-labs/victor/releases/tag/v0.31.0),
     2026-11-18, which pinned `sandhi-gateway==0.20.0`. Source preparation,
     protected promotion, artifact publication and live-service acceptance remain
