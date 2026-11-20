@@ -311,6 +311,24 @@ def turn_memory_delivery_block(
     return delivery.block
 
 
+def memory_delivered_messages(
+    orchestrator: Any,
+    base_messages: List[Any],
+) -> List[Message]:
+    """Provider messages for one buffered model call, memory block inserted.
+
+    Buffered-turn assembly seam (Codex finding 6): the buffered model call is
+    one of the two provider-message assembly seams (streaming inserts at
+    ``assembled_messages_for_call``). Transient — the conversation history is
+    never mutated; any suppression (disabled, empty store, budget refusal,
+    stale turn) leaves the list byte-identical. Lives here (not on the
+    TurnExecutor) so the orchestration hotspot keeps its size ratchet.
+    """
+    if orchestrator is None:
+        return base_messages
+    return insert_memory_delivery_message(orchestrator, base_messages)
+
+
 def insert_memory_delivery_message(
     orchestrator: Any,
     messages: List[Any],
@@ -726,6 +744,7 @@ __all__ = [
     "insert_memory_delivery_message",
     "memory_prompt_suffix",
     "memory_scopes_from_context",
+    "memory_delivered_messages",
     "orchestrator_active_budget_manager",
     "orchestrator_session_project_path",
     "resolve_memory_enabled",
