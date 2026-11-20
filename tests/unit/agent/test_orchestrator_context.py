@@ -141,6 +141,7 @@ class TestAssemblyDelegation:
             "selected_tools": ["t"],
             "planned_tools": ["p"],
             "goals": ["g"],
+            "include_memory_block": True,
         }
 
 

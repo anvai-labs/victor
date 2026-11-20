@@ -42,8 +42,11 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
 
+from victor.core.provider_messages import Message
+from victor.security.containment import UntrustedSourceClass, wrap_untrusted
 from victor.storage.memory.preference_episodic import MemoryScope
 from victor.storage.memory.unified import MemoryType
 
@@ -76,6 +79,17 @@ MEMORY_BUDGET_BLOCK_NAME = "memory_perceive"
 #: lower number = more important). Memory sits below core grounding but
 #: above the weakest enhancement blocks.
 MEMORY_BLOCK_PRIORITY = 3
+
+#: ADR-037 provenance envelope: memory enters provider-message assembly as
+#: untrusted-adjacent user data — enveloped (source class ``memory``), never
+#: as raw system-prompt input.
+MEMORY_SOURCE_CLASS = UntrustedSourceClass.MEMORY
+MEMORY_ENVELOPE_ORIGIN = "long_term_memory"
+
+#: Metadata key marking the one-shot memory delivery Message. The inserted
+#: message carries it so repeated assembly can never stack a second envelope,
+#: and tests can pin exactly-once delivery.
+MEMORY_DELIVERY_METADATA_KEY = "memory_delivery"
 
 _POSITIVE_ENV = ("1", "true", "yes", "on")
 
@@ -188,10 +202,186 @@ def memory_prompt_suffix(block: Optional[MemoryInjectionBlock]) -> str:
     memory off, or an empty store, or a budget-refused block, the prompt is
     ``base + memory_prompt_suffix(None)`` — byte-identical to the pre-memory
     prompt.
+
+    Observability/metadata only: provider-message delivery goes through
+    :func:`insert_memory_delivery_message` (enveloped, exactly once).
     """
     if block is None or not block.text:
         return ""
     return block.text + "\n\n"
+
+
+@dataclass(frozen=True)
+class MemoryDelivery:
+    """Turn-scoped delivery candidate produced at PERCEIVE (Codex finding 6).
+
+    ``PerceptionIntegration.perceive`` records one instance per run so the
+    provider-message assembly seam can consume the CURRENT turn's block —
+    never a stale block from a previous turn (the query is the turn key).
+
+    Attributes:
+        query: The query PERCEIVE ran for (the turn identity).
+        block: The block built for that query (``None`` clears any previous
+            turn's candidate — off-when-empty holds across turns).
+    """
+
+    query: str
+    block: Optional[MemoryInjectionBlock]
+
+
+def envelop_memory_block(
+    block: MemoryInjectionBlock,
+    *,
+    canary: Optional[str] = None,
+) -> str:
+    """Wrap a memory block in the canonical ADR-037 provenance envelope.
+
+    Memory content is user-authored free-form data: under the containment
+    contract it must reach the model as provenance-tagged data — enveloped
+    with the ``memory`` source class and a stable origin identifier — never
+    as raw prompt input. The canary defaults to the session containment
+    state bound around the turn (ChatService binds it for every turn), so
+    an exfiltration echo of memory content in an outbound tool call is
+    deterministically blockable.
+    """
+    origin = f"{MEMORY_ENVELOPE_ORIGIN}/{'+'.join(block.scopes) or 'none'}"
+    return wrap_untrusted(
+        block.text,
+        source_class=MEMORY_SOURCE_CLASS,
+        origin=origin,
+        canary=canary,
+    )
+
+
+def build_memory_delivery_message(
+    block: MemoryInjectionBlock,
+    *,
+    canary: Optional[str] = None,
+) -> Message:
+    """Build the one-shot provider Message carrying the enveloped block.
+
+    Role ``system`` (it frames the conversation, it is not a user turn),
+    tagged with :data:`MEMORY_DELIVERY_METADATA_KEY` so exactly-once
+    delivery is checkable structurally.
+    """
+    return Message(
+        role="system",
+        content=envelop_memory_block(block, canary=canary),
+        metadata={
+            MEMORY_DELIVERY_METADATA_KEY: True,
+            "memory_scopes": list(block.scopes),
+            "memory_tokens": block.token_estimate,
+        },
+    )
+
+
+def _last_genuine_user_query(messages: Sequence[Any]) -> str:
+    """The last genuine (non-internal) user message text, ``""`` when none."""
+    from victor.agent.conversation.history_metadata import is_user_turn
+
+    for message in reversed(list(messages)):
+        role = getattr(message, "role", None)
+        if role != "user":
+            continue
+        if is_user_turn(role, getattr(message, "metadata", None)):
+            return str(getattr(message, "content", "") or "")
+    return ""
+
+
+def turn_memory_delivery_block(
+    orchestrator: Any,
+    messages: Sequence[Any],
+) -> Optional[MemoryInjectionBlock]:
+    """Resolve the CURRENT turn's memory block for provider assembly.
+
+    Consumes the turn-scoped :class:`MemoryDelivery` recorded at PERCEIVE
+    through the orchestrator binding. The candidate is matched against the
+    last genuine user message in ``messages``: a block perceived for a
+    different query (a previous turn) is never delivered.
+    """
+    runtime_intelligence = getattr(orchestrator, "_runtime_intelligence", None)
+    integration = getattr(runtime_intelligence, "perception_integration", None)
+    delivery = getattr(integration, "_memory_delivery", None)
+    if delivery is None or delivery.block is None:
+        return None
+    if not delivery.block.text:
+        return None
+    if delivery.query != _last_genuine_user_query(messages):
+        return None
+    return delivery.block
+
+
+def memory_delivered_messages(
+    orchestrator: Any,
+    base_messages: List[Any],
+) -> List[Message]:
+    """Provider messages for one buffered model call, memory block inserted.
+
+    Buffered-turn assembly seam (Codex finding 6): the buffered model call is
+    one of the two provider-message assembly seams (streaming inserts at
+    ``assembled_messages_for_call``). Transient — the conversation history is
+    never mutated; any suppression (disabled, empty store, budget refusal,
+    stale turn) leaves the list byte-identical. Lives here (not on the
+    TurnExecutor) so the orchestration hotspot keeps its size ratchet.
+    """
+    if orchestrator is None:
+        return base_messages
+    return insert_memory_delivery_message(orchestrator, base_messages)
+
+
+def insert_memory_delivery_message(
+    orchestrator: Any,
+    messages: List[Any],
+) -> List[Message]:
+    """Insert the enveloped memory block into provider messages, EXACTLY ONCE.
+
+    The named production consumer of the PERCEIVE memory block (Codex review
+    finding 6): called from the two message-assembly seams —
+    ``assembled_messages_for_call`` (streaming ACT) and
+    ``TurnExecutor._execute_model_turn`` (buffered turns). Semantics:
+
+    - **Exactly once**: a list already carrying a delivery message is
+      returned unchanged, and insertion is transient — the orchestrator's
+      conversation history is never mutated, so the block cannot accumulate
+      across turns or intra-turn provider calls.
+    - **Provenance-tagged**: the block travels inside the canonical
+      ``wrap_untrusted`` envelope (``source="memory"``), never as raw
+      system-prompt input (ADR-037).
+    - **Position**: after the leading system message(s), before history.
+    - **Off-when-quiet**: any suppression (memory disabled, empty store,
+      budget refusal, stale turn, wrong scope/owner/workspace) resolves to
+      ``messages`` unchanged — byte-identical prompts.
+
+    Args:
+        orchestrator: The session orchestrator (its perception integration
+            holds the turn-scoped delivery candidate).
+        messages: The provider messages for one call (not mutated).
+
+    Returns:
+        A new message list with the delivery message inserted, or
+        ``messages`` unchanged.
+    """
+    if not messages:
+        return messages
+    for message in messages:
+        metadata = getattr(message, "metadata", None)
+        if isinstance(metadata, dict) and metadata.get(MEMORY_DELIVERY_METADATA_KEY):
+            return messages  # already delivered in this assembly
+
+    block = turn_memory_delivery_block(orchestrator, messages)
+    if block is None:
+        return messages
+
+    delivery_message = build_memory_delivery_message(block)
+    insert_at = 0
+    for index, message in enumerate(messages):
+        if getattr(message, "role", None) == "system":
+            insert_at = index + 1
+        else:
+            break
+    assembled = list(messages)
+    assembled.insert(insert_at, delivery_message)
+    return assembled
 
 
 def _estimate_tokens(text: str) -> int:
@@ -245,6 +435,11 @@ class MemoryBlockBuilder:
         budget_manager: When provided, the block registers its token estimate
             through ``register_context_block`` and is refit/dropped to the
             remaining allowance instead of free-riding.
+        budget_manager_factory: Zero-arg callable resolving the ACTIVE
+            ``BudgetManager`` lazily at build time — for bindings made at
+            composition-root construction, before the session's service
+            layer (which owns the manager) exists. Takes precedence over
+            ``budget_manager`` when both resolve.
     """
 
     def __init__(
@@ -255,11 +450,13 @@ class MemoryBlockBuilder:
         max_tokens: Optional[int] = None,
         max_entries: int = 8,
         budget_manager: Optional["BudgetManager"] = None,
+        budget_manager_factory: Optional[Any] = None,
     ):
         self.coordinator = coordinator
         self.settings = settings
         self.max_entries = max(1, int(max_entries))
         self.budget_manager = budget_manager
+        self._budget_manager_factory = budget_manager_factory
         if max_tokens is not None:
             self.max_tokens = max(MIN_BLOCK_TOKENS, int(max_tokens))
         else:
@@ -279,6 +476,7 @@ class MemoryBlockBuilder:
         *,
         settings: Any = None,
         budget_manager: Optional["BudgetManager"] = None,
+        budget_manager_factory: Optional[Any] = None,
         project_path: Any = None,
         max_entries: int = 8,
     ) -> "MemoryBlockBuilder":
@@ -302,11 +500,30 @@ class MemoryBlockBuilder:
             settings=settings,
             max_entries=max_entries,
             budget_manager=budget_manager,
+            budget_manager_factory=budget_manager_factory,
         )
 
     # ------------------------------------------------------------------
     # Block assembly
     # ------------------------------------------------------------------
+
+    def resolve_budget_manager(self) -> Optional["BudgetManager"]:
+        """The ACTIVE ``BudgetManager`` for this session (``None`` = free-ride).
+
+        Directly injected managers win; otherwise the factory supplied at the
+        binding is resolved at build time — the session's service layer (the
+        manager's owner) exists by the first PERCEIVE even though the binding
+        itself happens during orchestrator construction.
+        """
+        if self.budget_manager is not None:
+            return self.budget_manager
+        factory = self._budget_manager_factory
+        if factory is None:
+            return None
+        try:
+            return factory() or None
+        except Exception:  # noqa: BLE001 — budget unavailability must not break injection
+            return None
 
     async def build(
         self,
@@ -378,8 +595,9 @@ class MemoryBlockBuilder:
         ranked = sorted(results, key=lambda pair: pair[1].relevance, reverse=True)
 
         cap = self.max_tokens
-        if self.budget_manager is not None:
-            remaining = int(self.budget_manager.remaining_context_block_tokens())
+        budget = self.resolve_budget_manager()
+        if budget is not None:
+            remaining = int(budget.remaining_context_block_tokens())
             cap = min(cap, remaining)
             if cap < MIN_BLOCK_TOKENS:
                 # Context is saturated with higher-priority blocks: memory
@@ -421,8 +639,8 @@ class MemoryBlockBuilder:
         text = "\n".join(lines)
         token_estimate = _estimate_tokens(text)
 
-        if self.budget_manager is not None:
-            registered = self.budget_manager.register_context_block(
+        if budget is not None:
+            registered = budget.register_context_block(
                 MEMORY_BUDGET_BLOCK_NAME, token_estimate, priority=MEMORY_BLOCK_PRIORITY
             )
             if not registered:
@@ -446,6 +664,7 @@ def bind_production_memory_injector(
     settings: Any = None,
     project_path: Any = None,
     budget_manager: Optional["BudgetManager"] = None,
+    budget_manager_factory: Optional[Any] = None,
 ) -> Optional["MemoryBlockBuilder"]:
     """Bind a production ``MemoryBlockBuilder`` onto a ``PerceptionIntegration``.
 
@@ -476,6 +695,9 @@ def bind_production_memory_injector(
             to the process working directory, matching production sessions).
         budget_manager: Optional ``BudgetManager`` so the block competes for
             context tokens instead of free-riding.
+        budget_manager_factory: Zero-arg callable resolving the ACTIVE
+            ``BudgetManager`` lazily at build time (for bindings made before
+            the session's service layer exists).
 
     Returns:
         The bound builder, or ``None`` when memory is disabled or binding
@@ -488,6 +710,7 @@ def bind_production_memory_injector(
         builder = MemoryBlockBuilder.from_environment(
             settings=settings,
             budget_manager=budget_manager,
+            budget_manager_factory=budget_manager_factory,
             project_path=project_path,
         )
         perception.set_memory_injector(builder)
@@ -506,16 +729,69 @@ __all__ = [
     "DEFAULT_MEMORY_INJECTION_MAX_TOKENS",
     "MEMORY_BLOCK_HEADER",
     "MEMORY_BLOCK_PRIORITY",
+    "MEMORY_DELIVERY_METADATA_KEY",
+    "MEMORY_ENVELOPE_ORIGIN",
+    "MEMORY_SOURCE_CLASS",
     "MemoryBlockBuilder",
+    "MemoryDelivery",
     "MemoryInjectionBlock",
     "MAX_ENTRY_CHARS",
     "MIN_BLOCK_TOKENS",
+    "bind_orchestrator_memory_injector",
     "bind_production_memory_injector",
+    "build_memory_delivery_message",
+    "envelop_memory_block",
+    "insert_memory_delivery_message",
     "memory_prompt_suffix",
     "memory_scopes_from_context",
+    "memory_delivered_messages",
+    "orchestrator_active_budget_manager",
+    "orchestrator_session_project_path",
     "resolve_memory_enabled",
     "resolve_memory_scope_enabled",
+    "turn_memory_delivery_block",
 ]
+
+
+def orchestrator_session_project_path(orchestrator: Any) -> Any:
+    """The session's project root for the project-scope memory database.
+
+    An explicit ``project_path`` on the orchestrator (session-configured
+    workspace) wins; otherwise the composition-root working directory — the
+    same root ``get_project_database`` resolves for the rest of the session
+    (Codex finding 6: the binding must supply the ACTUAL project, not defer
+    to an implicit default).
+    """
+    explicit = getattr(orchestrator, "project_path", None)
+    if explicit is not None:
+        return Path(explicit)
+    return Path.cwd()
+
+
+def orchestrator_active_budget_manager(orchestrator: Any) -> Optional["BudgetManager"]:
+    """The session's ACTIVE context-block ``BudgetManager``.
+
+    The DI container owns the one scoped manager for the session
+    (``IBudgetManager`` → ``create_budget_manager``); its context-block
+    allowance is what the memory block registers against. Falls back to the
+    ToolService manager only when it actually carries the context-block
+    surface (the tool-count budget class does not). Returns ``None`` when
+    no such manager exists (memory then free-rides rather than failing).
+    """
+    container = getattr(orchestrator, "_container", None)
+    if container is not None:
+        try:
+            from victor.agent.protocols import IBudgetManager
+
+            manager = container.get_optional(IBudgetManager)
+            if manager is not None and hasattr(manager, "register_context_block"):
+                return manager
+        except Exception:  # noqa: BLE001 — budget unavailability never breaks memory
+            pass
+    manager = getattr(getattr(orchestrator, "_tool_service", None), "_budget_manager", None)
+    if manager is not None and hasattr(manager, "register_context_block"):
+        return manager
+    return None
 
 
 def bind_orchestrator_memory_injector(
@@ -525,13 +801,24 @@ def bind_orchestrator_memory_injector(
 
     Navigates the orchestrator's own collaborators so the chat composition
     root stays within its hotspot line ratchet: one import + one call there.
-    Skips when disabled (resolved before any store opens), degrades to
-    no-injection on failure — memory never breaks session start.
+    Supplies the ACTUAL session project path (explicit session workspace or
+    the composition cwd) and the ACTIVE ``BudgetManager`` — Codex finding 6:
+    an unparameterized binding shipped neither. Skips when disabled
+    (resolved before any store opens), degrades to no-injection on failure —
+    memory never breaks session start.
     """
     runtime_intelligence = getattr(orchestrator, "_runtime_intelligence", None)
     perception = getattr(runtime_intelligence, "perception_integration", None)
     if perception is None:
         return None
     return bind_production_memory_injector(
-        perception, settings=settings or getattr(orchestrator, "settings", None)
+        perception,
+        settings=settings or getattr(orchestrator, "settings", None),
+        project_path=orchestrator_session_project_path(orchestrator),
+        budget_manager_factory=(
+            # The service layer (and its active BudgetManager) initializes
+            # AFTER this binding in the composition root, so the manager is
+            # resolved lazily at the first PERCEIVE, not at construction.
+            lambda: orchestrator_active_budget_manager(orchestrator)
+        ),
     )

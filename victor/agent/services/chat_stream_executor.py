@@ -739,7 +739,9 @@ class StreamingChatExecutor:
         assembled_getter = getattr(orch, "get_assembled_messages", None)
         if callable(assembled_getter):
             try:
-                messages = assembled_getter(current_query=user_message)
+                # Analysis projection, not a provider call: no memory block
+                # (Codex finding 6 delivery is provider-assembly-only).
+                messages = assembled_getter(current_query=user_message, include_memory_block=False)
             except Exception as exc:
                 logger.debug("Falling back to raw conversation history: %s", exc)
 

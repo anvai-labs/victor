@@ -98,7 +98,10 @@ class TestDegradedMode:
                 # Local-path validation happens BEFORE any Docker contact.
                 with pytest.raises(FileNotFoundError):
                     sandbox.put_files(["/nonexistent"])
-                assert sandbox.get_file("/app/x") == b""
+                # Downloads refuse typed, never a silent empty-bytes success.
+                with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                    sandbox.get_file("/app/x")
+                assert excinfo.value.reason == "binary_missing"
             sandbox.dispose()
         assert sandbox.container is None
 
@@ -119,6 +122,38 @@ class TestDegradedMode:
         result = asyncio.run(cs.upload_files(sandbox, [str(src)]))
         assert "Successfully uploaded" not in result
         assert "Error uploading files" in result
+
+    def test_get_file_without_docker_is_a_typed_failure_not_success(self):
+        """get_file residual of Codex finding 18 (negative): the historical
+        silent ``b""`` return let callers read "no Docker" as an empty-but-
+        successful download. Without the docker package the download must
+        refuse with a typed reason."""
+        with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
+            sandbox = ContainerSandbox()
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                sandbox.get_file("/app/out.txt")
+        assert excinfo.value.reason == "binary_missing"
+        assert sandbox.container is None
+
+    def test_get_file_refusal_is_handled_as_a_structured_error_not_a_crash(self):
+        """Caller contract: a get_file refusal surfaces as a structured error
+        result carrying the typed reason — never as an empty-but-successful
+        payload and never as an unhandled crash."""
+        with patch(f"{MODULE}.DOCKER_AVAILABLE", False):
+            sandbox = ContainerSandbox()
+
+            def download(remote_path: str) -> dict:
+                try:
+                    data = sandbox.get_file(remote_path)
+                except ContainerSandboxUnavailableError as exc:
+                    return {"ok": False, "reason": exc.reason, "error": str(exc)}
+                return {"ok": True, "data": data}
+
+            result = download("/app/out.txt")
+        assert result["ok"] is False
+        assert result["reason"] == "binary_missing"
+        assert "unavailable" in result["error"].lower()
+        assert "data" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +554,22 @@ class TestCapabilityGating:
             sandbox = ContainerSandbox()
             with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
                 sandbox.put_files([str(src)])
+        assert excinfo.value.reason == "daemon_unreachable"
+
+    def test_no_daemon_get_file_is_a_typed_failure(self):
+        """get_file residual of Codex finding 18 (negative): with the docker
+        package present but the daemon unreachable, download must fail with a
+        typed daemon_unreachable reason — never a silent ``b""`` success."""
+        from docker.errors import DockerException
+
+        with (
+            patch(f"{MODULE}.DOCKER_AVAILABLE", True),
+            patch(f"{MODULE}.docker") as mock_docker,
+        ):
+            mock_docker.from_env.side_effect = DockerException("daemon down mid-session")
+            sandbox = ContainerSandbox()
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                sandbox.get_file("/app/out.txt")
         assert excinfo.value.reason == "daemon_unreachable"
 
     def test_daemon_available_false_without_docker_package(self):
