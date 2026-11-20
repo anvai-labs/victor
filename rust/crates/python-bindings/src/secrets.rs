@@ -407,7 +407,11 @@ mod tests {
     fn test_pgp_private_key_detection() {
         let text = "-----BEGIN PGP PRIVATE KEY BLOCK-----";
         let types: Vec<String> = get_secret_types(text);
-        assert!(types.iter().any(|t| t == "pgp_private_key"), "got {:?}", types);
+        assert!(
+            types.iter().any(|t| t == "pgp_private_key"),
+            "got {:?}",
+            types
+        );
         // The generic private_key family must NOT absorb the PGP variant
         // (distinct families, mirroring the Python registry).
         assert!(!types.iter().any(|t| t == "private_key"), "got {:?}", types);
@@ -417,7 +421,11 @@ mod tests {
     fn test_bare_aws_secret_detection() {
         let text = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         let types: Vec<String> = get_secret_types(text);
-        assert!(types.iter().any(|t| t == "aws_secret_key"), "got {:?}", types);
+        assert!(
+            types.iter().any(|t| t == "aws_secret_key"),
+            "got {:?}",
+            types
+        );
     }
 
     #[test]
