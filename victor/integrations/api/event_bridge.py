@@ -82,12 +82,35 @@ class BridgeEventType(str, Enum):
 
 @dataclass
 class BridgeEvent:
-    """Event to be sent to clients."""
+    """Event to be sent to clients.
+
+    ``owner_client_id`` marks a PROTECTED event: when set, only clients
+    registered with the same verified principal (the stored resource owner
+    on their subscription record) are admitted at delivery time (Codex
+    finding 9 — the /ws chat broadcast owner scoping must hold on this
+    transport too). ``None`` keeps the historical all-authenticated
+    behavior for broadcasts with no bound resource owner (internal agent
+    events).
+    """
 
     type: BridgeEventType
     data: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    owner_client_id: Optional[str] = None
+
+    @property
+    def resource_owner(self) -> Optional[str]:
+        """The stored resource owner this protected event belongs to.
+
+        Producers may bind the owner either on the event field or inside
+        ``data["owner_client_id"]`` (the shape route call sites already
+        use); the event field wins when both are present.
+        """
+        if self.owner_client_id:
+            return self.owner_client_id
+        data_owner = self.data.get("owner_client_id")
+        return data_owner if isinstance(data_owner, str) and data_owner else None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -105,12 +128,23 @@ class BridgeEvent:
 
 @dataclass
 class ClientConnection:
-    """Represents a connected WebSocket client."""
+    """Represents a connected WebSocket client.
+
+    ``owner_client_id`` is the VERIFIED principal this subscription record
+    is bound to (resolved from the transport's authentication, e.g. the
+    ``/ws/events`` WS auth dependency); it is set once at registration and
+    is immutable for the life of the connection — subscription updates
+    cannot rebind it. Protected events (a stored resource owner) are only
+    ever admitted to a client whose bound owner matches, so one
+    authenticated principal cannot receive another's events (Codex
+    finding 9).
+    """
 
     id: str
     send: Callable[[str], None]  # Async send function
     subscriptions: Set[str] = field(default_factory=lambda: {"*"})  # Event types subscribed to
     correlation_id: Optional[str] = None
+    owner_client_id: Optional[str] = None
     connected_at: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
     sender_queue: Optional[asyncio.Queue[Optional[str]]] = None
@@ -122,8 +156,23 @@ class ClientConnection:
         return event_type in self.subscriptions or "*" in self.subscriptions
 
     def accepts(self, event: BridgeEvent) -> bool:
-        """Check whether the client should receive this event."""
+        """Check whether the client should receive this event.
+
+        Owner admission runs BEFORE the correlation narrowing and is a
+        delivery-time recheck against the LIVE record: the caller iterates
+        the current registry, so a connection whose lease has ended
+        (disconnected/removed) is never consulted, and the bound owner is
+        re-read on every event rather than captured at registration.
+        """
         if not self.is_subscribed(event.type.value):
+            return False
+
+        # Protected event: only the stored resource owner's connection is
+        # admitted. Fail closed — an unbound client (``owner_client_id``
+        # is None, i.e. keyless or not yet authenticated) never receives a
+        # protected event.
+        event_owner = event.resource_owner
+        if event_owner is not None and self.owner_client_id != event_owner:
             return False
 
         if not self.correlation_id:
@@ -283,12 +332,14 @@ class ClientRegistry:
         send_func: Callable[[str], None],
         subscriptions: Optional[Set[str]] = None,
         correlation_id: Optional[str] = None,
+        owner_client_id: Optional[str] = None,
     ) -> ClientConnection:
         client = ClientConnection(
             id=client_id,
             send=send_func,
             subscriptions=subscriptions or {"*"},
             correlation_id=correlation_id,
+            owner_client_id=owner_client_id,
         )
         self._clients[client_id] = client
         logger.info(f"Client connected: {client_id}")
@@ -306,6 +357,12 @@ class ClientRegistry:
         subscriptions: Set[str],
         correlation_id: Optional[str] = None,
     ) -> None:
+        """Update a client's event types and correlation narrowing.
+
+        The bound owner is deliberately NOT updatable here: the verified
+        principal is fixed at registration time, so a client message can
+        never widen its own admission to another principal's protected
+        events."""
         if client_id in self._clients:
             self._clients[client_id].subscriptions = subscriptions
             self._clients[client_id].correlation_id = correlation_id
@@ -829,13 +886,19 @@ class EventBroadcaster:
         send_func: Callable[[str], None],
         subscriptions: Optional[Set[str]] = None,
         correlation_id: Optional[str] = None,
+        owner_client_id: Optional[str] = None,
     ) -> None:
         """Add a connected client; wire its ordered sender when on the live loop.
+
+        ``owner_client_id`` binds the transport-verified principal to this
+        subscription record (Codex finding 9): protected events are only
+        delivered to the client whose bound owner matches the event's
+        stored resource owner.
 
         ``_ensure_client_sender`` self-guards on the running loop, so this is
         safe whether or not delivery has started; a client added before start()
         gets its sender backfilled when the engine binds to the loop."""
-        self._registry.add(client_id, send_func, subscriptions, correlation_id)
+        self._registry.add(client_id, send_func, subscriptions, correlation_id, owner_client_id)
         self._delivery._ensure_client_sender(client_id)
 
     def remove_client(self, client_id: str) -> None:
@@ -889,14 +952,20 @@ class EventBroadcaster:
         limit: int = 20,
         subscriptions: Optional[Set[str]] = None,
         correlation_id: Optional[str] = None,
+        owner_client_id: Optional[str] = None,
     ) -> List[BridgeEvent]:
-        """Return recent events, newest first, optionally filtered."""
+        """Return recent events, newest first, optionally filtered.
+
+        ``owner_client_id`` applies the same protected-event admission as
+        live delivery: replay is owner-scoped, so one principal cannot
+        hydrate another's protected events from the replay buffer."""
         normalized = self.normalize_subscriptions(subscriptions)
         probe = ClientConnection(
             id="snapshot",
             send=lambda _message: None,
             subscriptions=normalized,
             correlation_id=correlation_id,
+            owner_client_id=owner_client_id,
         )
         matched = [event for event in reversed(self._recent_events) if probe.accepts(event)]
         return matched[: max(1, limit)]
@@ -921,12 +990,16 @@ class WebSocketEventHandler:
         self,
         websocket,  # WebSocket connection object
         client_id: Optional[str] = None,
+        owner_client_id: Optional[str] = None,
     ) -> None:
         """Handle a new WebSocket connection.
 
         Args:
             websocket: WebSocket connection object with send/recv methods
             client_id: Optional client identifier
+            owner_client_id: Transport-verified principal bound to this
+                subscription record (protected-event admission, Codex
+                finding 9)
         """
         client_id = client_id or uuid.uuid4().hex[:12]
 
@@ -934,6 +1007,7 @@ class WebSocketEventHandler:
         self._broadcaster.add_client(
             client_id,
             websocket.send,
+            owner_client_id=owner_client_id,
         )
 
         try:
@@ -1174,9 +1248,18 @@ class EventBusAdapter:
         if event.correlation_id and "correlation_id" not in bridge_data:
             bridge_data["correlation_id"] = event.correlation_id
 
+        # Owner binding: an internal event carrying a resource owner
+        # (``data["owner_client_id"]``) becomes a PROTECTED bridge event —
+        # delivery rechecks it against each subscription record's bound
+        # principal (Codex finding 9).
         bridge_event = BridgeEvent(
             type=bridge_type,
             data=bridge_data,
+            owner_client_id=(
+                bridge_data.get("owner_client_id")
+                if isinstance(bridge_data.get("owner_client_id"), str)
+                else None
+            ),
         )
 
         self._broadcaster.broadcast_sync(bridge_event)
@@ -1480,15 +1563,18 @@ class EventBridge:
         self,
         websocket,
         client_id: Optional[str] = None,
+        owner_client_id: Optional[str] = None,
     ) -> None:
         """Handle a new WebSocket connection.
 
         Args:
             websocket: WebSocket connection object
             client_id: Optional client identifier
+            owner_client_id: Transport-verified principal bound to this
+                subscription record (protected-event admission)
         """
         handler = WebSocketEventHandler(self._broadcaster)
-        await handler.handle_connection(websocket, client_id)
+        await handler.handle_connection(websocket, client_id, owner_client_id)
 
     def get_reliability_dashboard_data(self) -> Dict[str, Any]:
         """Expose reliability metrics and SLO status for dashboards."""

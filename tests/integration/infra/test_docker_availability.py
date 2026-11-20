@@ -31,6 +31,9 @@ from docker.errors import DockerException
 # -- importorskip("victor_coding") passes (the package imports fine) and then
 # the import below would raise ModuleNotFoundError during collection.
 pytest.importorskip("victor_coding.tools.code_executor_tool")
+from victor.tools.sandbox.container_sandbox import (  # noqa: E402
+    ContainerSandboxUnavailableError,
+)
 from victor_coding.tools.code_executor_tool import CodeSandbox  # noqa: E402
 
 
@@ -170,26 +173,31 @@ class TestDockerAvailability:
 
             print("\n✅ stop() handled gracefully when Docker unavailable")
 
-    def test_put_files_with_docker_unavailable(self):
-        """Test put_files when Docker is unavailable."""
+    def test_put_files_with_docker_unavailable(self, tmp_path):
+        """Test put_files when Docker is unavailable: typed refusal (finding 18)."""
+        # Local-path validation happens BEFORE any Docker contact, so the
+        # file must exist for the typed container refusal to be reached.
+        src = tmp_path / "test.txt"
+        src.write_text("payload")
         with patch("docker.from_env", side_effect=DockerException("Docker not available")):
             manager = CodeSandbox(require_docker=False)
 
-            # Should not raise error
-            manager.put_files(["/tmp/test.txt"])  # Should return early
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                manager.put_files([str(src)])
 
-            print("\n✅ put_files() handled gracefully when Docker unavailable")
+            assert excinfo.value.reason == "daemon_unreachable"
+            print("\n✅ put_files() refuses typed when Docker unavailable")
 
     def test_get_file_with_docker_unavailable(self):
-        """Test get_file when Docker is unavailable."""
+        """Test get_file when Docker is unavailable: typed refusal, never b""."""
         with patch("docker.from_env", side_effect=DockerException("Docker not available")):
             manager = CodeSandbox(require_docker=False)
 
-            # Should return empty bytes instead of crashing
-            result = manager.get_file("/tmp/test.txt")
+            with pytest.raises(ContainerSandboxUnavailableError) as excinfo:
+                manager.get_file("/tmp/test.txt")
 
-            assert result == b"", "Should return empty bytes"
-            print("\n✅ get_file() returns empty bytes when Docker unavailable")
+            assert excinfo.value.reason == "daemon_unreachable"
+            print("\n✅ get_file() refuses typed when Docker unavailable")
 
 
 class TestDockerIntegration:

@@ -403,6 +403,7 @@ RELATED_TESTS = {
     ),
     "victor/agent/services/memory_consolidation.py": (
         "tests/unit/agent/services/test_memory_consolidation.py",
+        "tests/unit/agent/services/test_memory_consolidation_sessions.py",
         "tests/unit/commands/test_memory_command.py",
         "tests/unit/integrations/api/test_memory_routes.py",
     ),
@@ -1172,23 +1173,43 @@ RELATED_TESTS = {
     # /ws route: connection registration, message-auth gate, bounded auth
     # handshake and broadcast recipient admission are pinned by the WS auth
     # gate suite (no per-route mirror file); bounded per-client delivery is
-    # pinned by the WS delivery bounds suite (VAS-06/10, TD-03).
+    # pinned by the WS delivery bounds suite (VAS-06/10, TD-03); owner
+    # binding of /ws/events subscription records by the owner-binding suite.
     "victor/integrations/api/routes/websocket_routes.py": (
         "tests/unit/integrations/api/test_ws_auth_gate.py",
         "tests/unit/integrations/api/test_ws_delivery_bounds.py",
+        "tests/unit/integrations/api/test_event_bridge_owner_binding.py",
     ),
     # fastapi_server: the broadcast seam owns bounded per-client delivery
     # (queues, sender deadlines, overflow policy) pinned by the WS delivery
-    # bounds suite; the auth gate suite pins delivery admission/ordering.
+    # bounds suite; the auth gate suite pins delivery admission/ordering;
+    # the owner-binding suite pins the WS-principal stamping and the
+    # effective-posture suite pins the startup posture surface (finding 22).
     "victor/integrations/api/fastapi_server.py": (
         "tests/unit/integrations/api/test_ws_delivery_bounds.py",
         "tests/unit/integrations/api/test_ws_auth_gate.py",
         "tests/unit/integrations/api/test_fastapi_server.py",
+        "tests/unit/integrations/api/test_event_bridge_owner_binding.py",
+        "tests/unit/integrations/api/test_server_effective_posture.py",
     ),
     # Server settings group: WebSocket delivery knobs are validated positive
-    # by the WS delivery bounds suite.
+    # by the WS delivery bounds suite; the effective-posture suite pins the
+    # enforced-vs-declared disposition of every advertised control.
     "victor/config/groups/server_config.py": (
         "tests/unit/integrations/api/test_ws_delivery_bounds.py",
+        "tests/unit/integrations/api/test_server_effective_posture.py",
+    ),
+    # EventBridge: bounded queues (VAS-06/10) and owner-bound subscription
+    # records / protected-event admission (Codex finding 9).
+    "victor/integrations/api/event_bridge.py": (
+        "tests/unit/integrations/api/test_event_bridge_queue_bounds.py",
+        "tests/unit/integrations/api/test_fastapi_event_bridge.py",
+        "tests/unit/integrations/api/test_event_bridge_owner_binding.py",
+    ),
+    # Deprecated aiohttp-era middleware shims (Codex finding 22): the shim
+    # warning contract is pinned by the effective-posture suite.
+    "victor/integrations/api/middleware.py": (
+        "tests/unit/integrations/api/test_server_effective_posture.py",
     ),
     # Tool/team routes: approval/cancel wiring and owner-scoped broadcast
     # delivery are pinned by the consolidated-routes and WS auth gate suites
@@ -1202,9 +1223,12 @@ RELATED_TESTS = {
     ),
     # /system routes: status contract incl. the ADR-035 sandbox_posture
     # reporting is pinned by the consolidated-routes suite (no per-route
-    # mirror file).
+    # mirror file); the effective-posture suite pins the /status posture
+    # surface and /events/recent owner-scoped replay (Codex finding 22).
     "victor/integrations/api/routes/system_routes.py": (
         "tests/unit/api/test_consolidated_routes.py",
+        "tests/unit/integrations/api/test_server_effective_posture.py",
+        "tests/unit/integrations/api/test_fastapi_event_bridge.py",
     ),
     # /agents route: owner-scoped background-agent event delivery is pinned
     # by the background agent manager owner (no per-route mirror file).
@@ -1488,6 +1512,7 @@ RELATED_TESTS = {
     "victor/workflows/data_pipeline.py": ("tests/unit/workflows/test_data_pipeline_breaker.py",),
     "victor/agent/services/session_service.py": (
         "tests/unit/agent/services/test_memory_consolidation.py",
+        "tests/unit/agent/services/test_memory_consolidation_sessions.py",
         "tests/unit/agent/services/test_session_runtime.py",
     ),
     "victor/integrations/mcp/standalone_http.py": (
@@ -1584,6 +1609,9 @@ RELATED_TESTS = {
         "tests/unit/agent/test_code_exec_bootstrap.py",
         "tests/unit/agent/test_lifecycle_manager.py",
         "tests/unit/agent/protocols/test_infrastructure_protocols.py",
+        # get_file/put_files typed-unavailable contract, via the vertical's
+        # CodeSandbox alias (skips when victor_coding is not installed).
+        "tests/integration/infra/test_docker_availability.py",
     ),
     # Codex finding 11: session shutdown prefers the owned-handle close
     # protocol for the container sandbox.

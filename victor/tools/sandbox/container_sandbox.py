@@ -27,8 +27,8 @@ sandbox containers cannot accumulate:
 
 - **Lazy**: constructing a :class:`ContainerSandbox` makes no Docker contact
   and starts nothing. A container is acquired on first
-  ``execute``/``put_files`` (or an explicit ``start``), so bootstrap, tests
-  and sessions that never run code never touch Docker.
+  ``execute``/``put_files``/``get_file`` (or an explicit ``start``), so
+  bootstrap, tests and sessions that never run code never touch Docker.
 - **Owned**: an acquired container is removed by ``stop``/``dispose`` and by
   a ``weakref.finalize`` that fires when the sandbox is garbage-collected or
   the interpreter exits.
@@ -771,6 +771,15 @@ class ContainerSandbox:
     def get_file(self, remote_path: str) -> bytes:
         """Retrieve a single file from the sandbox under the download byte budget.
 
+        Raises:
+        * :class:`SandboxTransferRefused` — the file exceeds the transfer
+          byte budget (reason ``transfer_limit_exceeded``).
+        * :class:`ContainerSandboxUnavailableError` — no container can be
+          acquired (typed download failure; the ``get_file`` residual of
+          Codex finding 18). The historical silent ``b""`` return let
+          callers read "no Docker" as an empty-but-successful payload.
+          Fail-closed instead.
+
         The daemon-reported size is checked before a byte is read, and the
         stream is read chunk-wise with a cumulative cap (defense in depth
         against a misreported size), so the host download buffer is bounded.
@@ -778,7 +787,12 @@ class ContainerSandbox:
         with self._operation("download"):
             container = self._ensure_container()
             if container is None:
-                return b""
+                raise ContainerSandboxUnavailableError(
+                    "daemon_unreachable" if DOCKER_AVAILABLE else "binary_missing",
+                    "Cannot retrieve files: the Docker container sandbox is unavailable; "
+                    "refusing the download instead of returning empty bytes as success "
+                    "(fail-closed). Verify: docker ps.",
+                )
 
             stream, stat = container.get_archive(remote_path)
             reported_size = int((stat or {}).get("size", 0))
