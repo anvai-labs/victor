@@ -1268,7 +1268,26 @@ RELATED_TESTS = {
         "tests/unit/providers/test_provider_kinds.py",
         "tests/unit/config/test_account_scoped_credentials.py",
         "tests/unit/security/test_secure_paths.py",
+        "tests/unit/tools/test_search_providers.py",
     ),
+    "victor/tools/web_search_tool.py": (
+        "tests/unit/tools/test_web_search_tool_unit.py",
+        "tests/unit/tools/test_web_search_fallback_unit.py",
+        "tests/unit/tools/test_web_search_provider_dispatch.py",
+        "tests/unit/tools/test_web_fetch_page_read.py",
+        "tests/unit/tools/test_web_tool.py",
+    ),
+    "victor/tools/search_providers/__init__.py": (
+        "tests/unit/tools/test_search_providers.py",
+        "tests/unit/tools/test_web_search_provider_dispatch.py",
+    ),
+    "victor/tools/search_providers/base.py": (
+        "tests/unit/tools/test_search_providers.py",
+        "tests/unit/tools/test_web_search_provider_dispatch.py",
+    ),
+    "victor/tools/search_providers/tavily.py": ("tests/unit/tools/test_search_providers.py",),
+    "victor/tools/search_providers/brave.py": ("tests/unit/tools/test_search_providers.py",),
+    "victor/tools/search_providers/serper.py": ("tests/unit/tools/test_search_providers.py",),
     "victor/config/groups/provider_config.py": (
         "tests/unit/config/test_inferflux_default.py",
         "tests/unit/config/test_settings_stratification.py",

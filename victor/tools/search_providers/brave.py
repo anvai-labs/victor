@@ -1,0 +1,70 @@
+# Copyright 2025 Vijaykumar Singh <vijay@anvaiops.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Brave Search API adapter (thin httpx client over the SearchProvider protocol).
+
+API reference: https://api-dashboard.search.brave.com/app/documentation/web-search
+"""
+
+import logging
+
+from victor.tools.search_providers.base import (
+    DEFAULT_SEARCH_TIMEOUT_SECONDS,
+    KeyGatedSearchProvider,
+    SearchResult,
+)
+
+logger = logging.getLogger(__name__)
+
+BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
+
+
+class BraveSearchProvider(KeyGatedSearchProvider):
+    """Key-gated Brave Search API adapter."""
+
+    name = "brave"
+    env_var = "BRAVE_SEARCH_API_KEY"
+
+    async def search(
+        self,
+        query: str,
+        *,
+        max_results: int = 5,
+        timeout_seconds: float = DEFAULT_SEARCH_TIMEOUT_SECONDS,
+    ) -> list[SearchResult]:
+        key = self.require_key()
+        payload = await self.fetch_json(
+            lambda client: client.get(
+                BRAVE_SEARCH_URL,
+                headers={
+                    "X-Subscription-Token": key,
+                    "Accept": "application/json",
+                },
+                params={
+                    "q": query,
+                    "count": max(1, int(max_results)),
+                },
+            ),
+            timeout_seconds=timeout_seconds,
+        )
+
+        results = self.normalize_results(
+            self.results_list(payload, "web", "results"),
+            url_key="url",
+            title_key="title",
+            snippet_key="description",
+            max_results=max_results,
+        )
+        logger.debug("[brave] query=%r results=%d", query, len(results))
+        return results

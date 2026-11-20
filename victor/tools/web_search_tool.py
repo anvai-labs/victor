@@ -27,7 +27,7 @@ import logging
 import re
 import time
 from threading import RLock
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
@@ -35,6 +35,14 @@ from bs4 import BeautifulSoup
 
 from victor.tools.base import AccessMode, CostTier, DangerLevel, Priority, ToolConfig
 from victor.tools.decorators import tool
+from victor.tools.search_providers import (
+    AUTO_PROVIDER_ORDER,
+    KNOWN_PROVIDER_NAMES,
+    ProviderNotConfigured,
+    build_provider_configured_error,
+    canonical_provider_name,
+    get_provider,
+)
 from victor.storage.cache.generic_result_cache import GenericResultCache, ResultType
 
 # Constants
@@ -51,12 +59,42 @@ _USER_AGENTS = (
 _USER_AGENT = _USER_AGENTS[0]  # Backwards-compat alias for static imports.
 _DEFAULT_MAX_CONTENT_LENGTH = 5000
 
+# Hard cap on bytes downloaded for a page read (web_fetch). Oversized pages
+# fail with a structured error instead of silently ballooning context.
+_PAGE_DOWNLOAD_CAP_BYTES = 2 * 1024 * 1024
+
 # DuckDuckGo endpoints tried in order. The HTML endpoint is the primary path
 # but rate-limits aggressively and blocks headless UAs; `lite` is a lighter
 # fallback; the rendered main site is the last resort (browser-based).
 _DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 _DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
 _DDG_RENDER_URL_TMPL = "https://duckduckgo.com/?q={query}"
+
+# Web-tool defaults when no ToolConfig context is supplied (tests call the
+# tool functions directly). Pooling is enabled for latency; unit tests that
+# assert against respx mocks MUST override ``http_connection_pool_enabled``
+# to False — respx intercepts httpx only, so a pool-enabled test run leaks
+# REAL network requests through the aiohttp path and returns live results.
+_DEFAULT_WEB_CONFIG: Dict[str, Any] = {
+    "provider": None,
+    "model": None,
+    "fetch_top": None,
+    "fetch_pool": None,
+    "max_content_length": _DEFAULT_MAX_CONTENT_LENGTH,
+    "generic_result_cache_enabled": False,
+    "generic_result_cache_ttl": 300,
+    "http_connection_pool_enabled": True,  # 20-30% latency reduction on hot paths
+    "http_connection_pool_max_connections": 100,
+    "http_connection_pool_max_connections_per_host": 10,
+    "http_connection_pool_connection_timeout": 30,
+    "http_connection_pool_total_timeout": 60,
+    "rate_limiter_enabled": True,
+    "rate_limiter_requests_per_minute": 10,
+    "rate_limiter_max_retries": 2,  # Reduced from 5 to fail faster on timeout
+    "rate_limiter_initial_delay": 0.5,  # Reduced from 1.0 for faster retries
+    "rate_limiter_max_delay": 10.0,  # Reduced from 60.0 to fail faster
+    "rate_limiter_backoff_multiplier": 2.0,
+}
 
 
 def _pick_user_agent() -> str:
@@ -310,26 +348,7 @@ def _get_web_config(context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
                 2.0,
             ),
         }
-    return {
-        "provider": None,
-        "model": None,
-        "fetch_top": None,
-        "fetch_pool": None,
-        "max_content_length": _DEFAULT_MAX_CONTENT_LENGTH,
-        "generic_result_cache_enabled": False,
-        "generic_result_cache_ttl": 300,
-        "http_connection_pool_enabled": True,  # Enable HTTP connection pooling by default for 20-30% latency reduction
-        "http_connection_pool_max_connections": 100,
-        "http_connection_pool_max_connections_per_host": 10,
-        "http_connection_pool_connection_timeout": 30,
-        "http_connection_pool_total_timeout": 60,
-        "rate_limiter_enabled": True,
-        "rate_limiter_requests_per_minute": 10,
-        "rate_limiter_max_retries": 2,  # Reduced from 5 to fail faster on timeout
-        "rate_limiter_initial_delay": 0.5,  # Reduced from 1.0 for faster retries
-        "rate_limiter_max_delay": 10.0,  # Reduced from 60.0 to fail faster
-        "rate_limiter_backoff_multiplier": 2.0,
-    }
+    return {**_DEFAULT_WEB_CONFIG, "max_content_length": _DEFAULT_MAX_CONTENT_LENGTH}
 
 
 def _get_generic_web_cache(default_ttl: int) -> GenericResultCache:
@@ -793,6 +812,132 @@ def _extract_content(html: str, max_length: int = 5000) -> str:
     return ""
 
 
+# Content types eligible for page reading. Anything else (PDF, JSON, binary
+# downloads) is rejected with a structured error instead of garbage text.
+_READABLE_CONTENT_TYPES = frozenset(
+    {
+        "application/xhtml+xml",
+        "application/xml",
+        "text/markdown",
+        "text/plain",
+        "text/xml",
+    }
+)
+
+
+def _is_readable_content_type(content_type: str) -> bool:
+    """True when a Content-Type header value is readable page content."""
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    if not media_type:
+        return True  # Header absent: best-effort read (server omitting it).
+    return media_type.startswith("text/html") or media_type in _READABLE_CONTENT_TYPES
+
+
+def _extract_title(html: str) -> str:
+    """Extract a page title from HTML (<title>, falling back to og:title)."""
+    try:
+        soup = BeautifulSoup(html, "lxml")
+        tag = soup.title
+        if tag is not None and tag.string and tag.string.strip():
+            return tag.string.strip()
+        og = soup.find("meta", attrs={"property": "og:title"})
+        if og is not None and og.get("content"):
+            return str(og["content"]).strip()
+    except Exception:
+        pass
+    return ""
+
+
+async def _fetch_page(
+    url: str,
+    *,
+    timeout_seconds: float = 30.0,
+    max_bytes: int = _PAGE_DOWNLOAD_CAP_BYTES,
+    web_config: Optional[Dict[str, Any]] = None,
+) -> Tuple[int, str, str, bool]:
+    """Fetch one page for reading with a hard download cap.
+
+    Streams the response through httpx and stops reading once ``max_bytes``
+    is exceeded, so a huge page cannot balloon memory or context. Uses the
+    shared rate limiter; the aiohttp connection pool is deliberately not used
+    here because the pool layer cannot express byte-bounded reads.
+
+    Args:
+        url: Target URL
+        timeout_seconds: Per-request timeout
+        max_bytes: Maximum number of body bytes to download
+        web_config: Web tool configuration from _get_web_config
+
+    Returns:
+        Tuple of (status_code, body_text, content_type, truncated)
+
+    Raises:
+        httpx.TimeoutException: On request timeout (propagates to the tool).
+        httpx.HTTPError: On transport errors (propagates to the tool).
+    """
+    config = web_config or {}
+    headers = {"User-Agent": _pick_user_agent()}
+
+    if bool(config.get("rate_limiter_enabled", True)):
+        rate_limiter = _get_rate_limiter(
+            requests_per_minute=int(config.get("rate_limiter_requests_per_minute", 10)),
+            max_retries=int(config.get("rate_limiter_max_retries", 5)),
+            initial_delay=float(config.get("rate_limiter_initial_delay", 1.0)),
+            max_delay=float(config.get("rate_limiter_max_delay", 60.0)),
+            backoff_multiplier=float(config.get("rate_limiter_backoff_multiplier", 2.0)),
+        )
+        await rate_limiter.acquire(url)
+
+    truncated = False
+    async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
+        async with client.stream("GET", url, headers=headers) as response:
+            status = int(response.status_code)
+            content_type = response.headers.get("content-type", "") or ""
+            if status != 200:
+                return status, "", content_type, False
+            chunks = bytearray()
+            async for chunk in response.aiter_bytes():
+                chunks.extend(chunk)
+                if len(chunks) > max_bytes:
+                    truncated = True
+                    break
+
+    body = bytes(chunks).decode("utf-8", errors="replace")
+    return status, body, content_type, truncated
+
+
+async def _provider_search(provider_name: str, query: str, max_results: int) -> Dict[str, Any]:
+    """Run one search through a key-gated API provider.
+
+    Never raises: provider failures (including an absent key) come back as
+    structured error results so the agentic loop can react instead of crash.
+    """
+    provider = get_provider(provider_name)
+    try:
+        results = await provider.search(query, max_results=max_results, timeout_seconds=30.0)
+    except ProviderNotConfigured:
+        return build_provider_configured_error(provider_name, provider.env_var)
+    except Exception as exc:
+        return {
+            "success": False,
+            "provider": provider_name,
+            "provider_configured": True,
+            "results": "",
+            "result_count": 0,
+            "error": f"Search provider '{provider_name}' failed: {exc}",
+        }
+
+    structured = [r.as_dict() for r in results]
+    return {
+        "success": True,
+        "provider": provider_name,
+        "provider_configured": True,
+        "results": _format_results(query, structured),
+        "structured_results": structured,
+        "result_count": len(results),
+    }
+
+
 async def _render_page_text(
     url: str,
     *,
@@ -889,9 +1034,10 @@ async def web_search(
     fetch_top: Optional[int] = None,
     fetch_pool: Optional[int] = None,
     max_content_length: int = 5000,
+    provider: str = "auto",
     _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Search the web using DuckDuckGo. Optionally summarize with AI.
+    """Search the web. Uses DuckDuckGo (no key) or a key-gated search API provider.
 
     Purpose:
     - Find links, docs, references on the public web.
@@ -908,12 +1054,21 @@ async def web_search(
         fetch_top: Number of URLs to fetch for deeper summary (only with ai_summarize=True).
         fetch_pool: Pool of URLs to try fetching from (only with ai_summarize=True).
         max_content_length: Max content length to extract per URL (only with ai_summarize=True).
+        provider: 'auto' (first configured API provider, else DuckDuckGo), 'duckduckgo'
+            (keyless), or a key-gated API provider: 'tavily', 'brave', 'serper'. A
+            configured provider requires its API key (e.g. TAVILY_API_KEY env or
+            `victor keys --set-service tavily`); without it the tool returns a
+            structured "provider not configured" result instead of crashing.
+            Ignored when ai_summarize=True (that path always searches DuckDuckGo).
         _exec_ctx: Tool execution context containing ToolConfig for provider/model access.
 
     Returns:
         Dictionary containing:
         - success: Whether search succeeded
+        - provider: Provider actually used ('duckduckgo' or the API provider name)
+        - provider_configured: Whether the provider's key resolved (API providers only)
         - results: Formatted search results text
+        - structured_results: List of {title, url, snippet} dicts (API providers only)
         - result_count: Number of results found
         - summary: AI summary (only if ai_summarize=True)
         - error: Error message if failed
@@ -933,6 +1088,29 @@ async def web_search(
     if not query:
         return {"success": False, "error": "Missing required parameter: query"}
 
+    # Resolve the search provider (FOU-A5): key-gated API adapters with
+    # graceful degradation to the keyless DuckDuckGo path.
+    raw_provider = (provider or "auto").strip().lower()
+    if raw_provider not in KNOWN_PROVIDER_NAMES:
+        return {
+            "success": False,
+            "error": (
+                f"Unknown search provider '{raw_provider}'. "
+                "Available: auto, duckduckgo, tavily, brave, serper"
+            ),
+        }
+    provider_name = canonical_provider_name(raw_provider) or raw_provider
+    if provider_name == "ddg":
+        provider_name = "duckduckgo"
+    if provider_name == "auto":
+        provider_name = "duckduckgo"
+        for candidate in AUTO_PROVIDER_ORDER:
+            if get_provider(candidate).is_configured():
+                provider_name = candidate
+                break
+    if provider_name != "duckduckgo":
+        return await _provider_search(provider_name, query, max_results)
+
     config = _get_web_config(_exec_ctx)
 
     # Map safe search to DuckDuckGo values
@@ -945,6 +1123,7 @@ async def web_search(
         "max_results": max_results,
         "region": region,
         "safe_search": safe_search,
+        "provider": provider_name,
     }
     if config.get("generic_result_cache_enabled"):
         cache = _get_generic_web_cache(int(config.get("generic_result_cache_ttl", 300)))
@@ -974,6 +1153,7 @@ async def web_search(
         if not results:
             result_payload = {
                 "success": True,
+                "provider": "duckduckgo",
                 "results": "No results found",
                 "result_count": 0,
             }
@@ -985,6 +1165,7 @@ async def web_search(
         output = _format_results(query, results)
         result_payload = {
             "success": True,
+            "provider": "duckduckgo",
             "results": output,
             "result_count": len(results),
         }
@@ -1020,7 +1201,12 @@ async def web_fetch(
     render: str = "auto",
     _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Fetch and extract main text content from a URL.
+    """Fetch and extract main text content from a URL (readability-oriented page read).
+
+    No API key is required. The HTTP path enforces a download size cap and a
+    readable content-type guard (HTML/text only), and returns the page title
+    alongside the extracted main text. Non-readable responses (PDF, binary)
+    come back as structured errors.
 
     Args:
         url: URL to fetch content from.
@@ -1075,12 +1261,10 @@ async def web_fetch(
                 )
             return result_payload
 
-        status_code, payload = await _request_text(
-            "GET",
+        status_code, payload, content_type, truncated = await _fetch_page(
             url,
-            headers={"User-Agent": _USER_AGENT},
-            follow_redirects=True,
-            timeout_seconds=30.0,  # Increased from 15.0 for better reliability
+            timeout_seconds=30.0,
+            max_bytes=_PAGE_DOWNLOAD_CAP_BYTES,
             web_config=config,
         )
         if status_code != 200:
@@ -1088,6 +1272,28 @@ async def web_fetch(
                 "success": False,
                 "error": f"Failed to fetch URL (status {status_code})",
             }
+        if truncated:
+            return {
+                "success": False,
+                "error": (
+                    f"Page exceeds the {_PAGE_DOWNLOAD_CAP_BYTES} byte "
+                    "download cap and cannot be read"
+                ),
+                "download_cap_exceeded": True,
+                "url": url,
+            }
+        if content_type and not _is_readable_content_type(content_type):
+            return {
+                "success": False,
+                "error": (
+                    f"Unsupported content type '{content_type}' for page reading "
+                    "(only HTML/text pages can be read)"
+                ),
+                "content_type": content_type,
+                "url": url,
+            }
+
+        title = _extract_title(payload)
 
         # Extract text content
         content = _extract_content(
@@ -1105,6 +1311,7 @@ async def web_fetch(
                 result_payload = {
                     "success": True,
                     "content": rendered.get("content", ""),
+                    "title": rendered.get("title", title),
                     "url": url,
                     "render": "browser",
                     "html_length": rendered.get("html_length", 0),
@@ -1125,6 +1332,7 @@ async def web_fetch(
         result_payload = {
             "success": True,
             "content": content,
+            "title": title,
             "url": url,
             "render": "http",
         }

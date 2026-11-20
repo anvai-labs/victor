@@ -361,6 +361,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
                 "tests/unit/providers/test_provider_kinds.py",
                 "tests/unit/config/test_account_scoped_credentials.py",
                 "tests/unit/security/test_secure_paths.py",
+                "tests/unit/tools/test_search_providers.py",
             ],
         ),
         (

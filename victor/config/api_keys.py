@@ -193,6 +193,10 @@ LOCAL_PROVIDERS = LOCAL_CLASS_PROVIDERS
 # ============================================================================
 # Hardcoded fallback for service environment variables
 _SERVICE_ENV_VARS_FALLBACK: Dict[str, str] = {
+    # Web Search APIs (FOU-A5 research stack; used by web_search providers)
+    "tavily": "TAVILY_API_KEY",
+    "brave": "BRAVE_SEARCH_API_KEY",
+    "serper": "SERPER_API_KEY",
     # Market Data & Financial Services
     "finnhub": "FINNHUB_API_KEY",  # Stock data, news sentiment, analyst estimates
     "fred": "FRED_API_KEY",  # Federal Reserve Economic Data
