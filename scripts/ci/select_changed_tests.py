@@ -102,6 +102,19 @@ RELATED_TESTS = {
         "tests/unit/core/graph_rag/test_control_dependence.py",
         "tests/unit/core/indexing/test_ccg_builder_control_dependence.py",
     ),
+    "victor/tools/sandbox/launch.py": (
+        "tests/unit/tools/sandbox/test_launch_helper.py",
+        "tests/unit/tools/sandbox/test_backends_qualification.py",
+        "tests/unit/integrations/api/test_git_routes.py",
+        "tests/unit/integrations/api/test_search_routes.py",
+        "tests/unit/integrations/api/test_terminal_routes.py",
+    ),
+    "victor/tools/graph_query_tool.py": (
+        "tests/unit/tools/test_graph_query_tool.py",
+        "tests/unit/tools/test_graph_query_tool_intent.py",
+        "tests/unit/core/graph_rag/test_intent_seeds.py",
+        "tests/unit/ui/commands/test_graph_index_cli.py",
+    ),
     "scripts/benchmark_body_model_failure.py": (
         "tests/unit/scripts/test_benchmark_body_model_failure.py",
     ),
@@ -1281,6 +1294,7 @@ RELATED_TESTS = {
         "tests/unit/config/test_gateway_resolution_boundary.py",
         "tests/unit/config/test_settings_cache.py",
         "tests/unit/config/test_settings_stratification.py",
+        "tests/unit/config/test_intent_flag_migration.py",
     ),
     "victor/config/provider_config_registry.py": (
         "tests/unit/config/test_gateway_resolution_boundary.py",

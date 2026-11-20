@@ -600,6 +600,57 @@ envelope (+2), chat-turn acceptance (3). Gates: security 884+ green; agent
 services + tools suites green vs the pre-change baseline; black 26.10.1 +
 ruff clean; collect-only clean.
 
+
+## Codex review fix wave 1 — intent shim + seccomp fd (#1984, 2026-11-20)
+
+Fixes findings 7 and 8 (HIGH) and finding 21 (MEDIUM) from the v0.32.0
+candidate Codex review (`~/code/victor-review-findings.md`), branch
+`fix/intent-shim-seccomp-fd` off `origin/develop` @ `04b3efa88`.
+
+- **Finding 7 (HIGH) — intent tool shim**: `graph_query_tool._intent_provider_for`
+  was an async factory against the seeding core's synchronous factory
+  contract — with the intent flag on, explicit `mode="intent"` and the
+  hybrid intent leg reported "unavailable leg: 'coroutine' object has no
+  attribute 'search'" before touching the index. The shim is now sync.
+  Acceptance: the REGISTERED `graph_semantic_search` tool driven end to end
+  over one indexed SQLite fixture (real graph store + real `intent_chunks`
+  table + production `build_intent_index`; deterministic encoder stand-in)
+  in BOTH modes, known symbol contributes a score
+  (`tests/unit/tools/test_graph_query_tool_intent.py`).
+- **Finding 21 (MEDIUM) — intent switch in three settings groups**: ONE
+  effective field chosen: `search.graph.codebase_intent_indexing_enabled`.
+  All supported spellings (flat legacy key/env, `search.`/`codebase.`/
+  `embedding.` mirrors, new-style group env) migrate onto it explicitly
+  (`Settings._migrate_intent_indexing_spellings`); conflicting spellings
+  are rejected at load. CLI help now advertises the effective field.
+  Asserted through the graph CLI (every spelling reaches
+  `GraphIndexConfig`) and the registered query tool
+  (`tests/unit/config/test_intent_flag_migration.py`,
+  `tests/unit/ui/commands/test_graph_index_cli.py`).
+- **Finding 8 (HIGH) — seccomp fd forwarding**: the direct terminal, git
+  and search launchers forwarded the wrapped argv WITHOUT the backend's
+  seccomp filter descriptor (bwrap refused: "Can't read seccomp data") and
+  leaked one open fd per launch. New shared seam
+  `victor/tools/sandbox/launch.py`: `prepare_launch` returns argv AND
+  owned descriptors together; `run_launch`/`run_launch_async` forward
+  `pass_fds` and close them on every exit. Terminal/git/search routes and
+  the canonical executor (sync + async sites) are all consumers. Tests:
+  fd-count stability across repeated failed launches AND repeated
+  admission refusals, route `pass_fds` regressions, live bwrap
+  qualification (harmless subprocess green; unshare probe denied rc=7
+  proving the filter is attached; argv-only negative control fails
+  loudly), skip-with-reason on unqualified hosts
+  (`tests/unit/tools/sandbox/test_launch_helper.py`).
+- **Residual (wave-2 candidates, unchanged here)**: same defect class in
+  launchers outside the named finding scope — bash tool, workflow sandbox
+  executor, MCP stdio client, filesystem write enhancer, merge manager,
+  temporal analyzer, auto-commit, snapshot store, navigation slash
+  command. They wrap-then-spawn without `take_pass_fds` and can adopt the
+  shared helper.
+- **Gates**: unit tools/graph_rag/security 6128 passed; api/storage/
+  config/ui-command suites green; collect-only clean (42029); black
+  26.10.1 + ruff clean on changed files. The seccomp/bwrap live tests run
+  on qualified Linux only.
 ## Codex review fix wave 1 — owner isolation (2026-11-20)
 
 Near-term fixes for Codex v0.32-candidate review findings 3, 4 and 13

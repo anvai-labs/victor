@@ -818,7 +818,7 @@ def graph_index(
         help=(
             "Chunk-source intent-tier embeddings with Merkle incremental "
             "sync (FEP-0049; default: "
-            "codebase.codebase_intent_indexing_enabled in settings)"
+            "search.graph.codebase_intent_indexing_enabled in settings)"
         ),
     ),
     precise: Optional[bool] = typer.Option(

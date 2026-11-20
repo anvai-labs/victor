@@ -54,7 +54,10 @@ class CodebaseSettings(BaseModel):
     codebase_structural_indexing_enabled: bool = False
     # Intent-tier chunk-source embeddings (FEP-0049): Merkle-driven
     # incremental embedding of code-chunk bodies into a dedicated vector
-    # table. Off by default; graduation per ADR-036 evidence policy.
+    # table. DEPRECATED mirror: NOT effective here — the ONE effective field
+    # is search.graph.codebase_intent_indexing_enabled; this spelling is
+    # migrated onto it by Settings._migrate_intent_indexing_spellings
+    # (conflicts rejected). Off by default; graduation per ADR-036.
     codebase_intent_indexing_enabled: bool = False
     codebase_chunking_strategy: str = "victor_codegraph"
     codebase_chunk_size: int = 500

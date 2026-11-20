@@ -40,8 +40,11 @@ class GraphSettings(BaseModel):
     # ADR-032 tier 3: compiler-accurate edges from offline SCIP dumps
     # (scip-python); opt-in, degrades gracefully when absent.
     enable_precise_index: bool = False
-    # FEP-0049: intent-tier chunk-source embeddings (graph_flag reads THIS
-    # group; the codebase/embedding-group mirrors are for the flat surface).
+    # FEP-0049: intent-tier chunk-source embeddings. THIS group field is the
+    # ONE effective intent switch — graph_flag reads
+    # search.graph.codebase_intent_indexing_enabled at runtime and the graph
+    # CLI resolves --intent from it. The search/codebase/embedding mirror
+    # spellings are migrated here explicitly (conflicts rejected).
     codebase_intent_indexing_enabled: bool = False
     # Dump timeout ceiling for the tier-3 harvest. 0 = each provider's own
     # measured default (pyright 1200s, typescript 600s, rust-analyzer 120s,
@@ -116,7 +119,11 @@ class SearchSettings(BaseModel):
     codebase_dimension: int = 384
     codebase_batch_size: int = 32
     codebase_structural_indexing_enabled: bool = False
-    codebase_intent_indexing_enabled: bool = False  # FEP-0049
+    # FEP-0049 DEPRECATED mirror: NOT effective here. The ONE effective field
+    # is graph.codebase_intent_indexing_enabled (what graph_flag reads);
+    # this spelling is migrated onto it by
+    # Settings._migrate_intent_indexing_spellings (conflicts rejected).
+    codebase_intent_indexing_enabled: bool = False
     codebase_chunking_strategy: str = "victor_codegraph"
     codebase_chunk_size: int = 500
     codebase_chunk_overlap: int = 50
