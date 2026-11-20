@@ -355,8 +355,17 @@ def format_and_prune_tool_output(
                 record_flagged_families(_verdict.families)
         except Exception:  # advisory channel only — never break delivery
             logger.debug("Injection screen failed; delivering unhighlighted", exc_info=True)
-    try:
-        if (_tool_settings is None or _tool_settings.untrusted_content_envelopes) and llm_output:
+    # Envelope publication is FAIL-CLOSED when enforcement is configured
+    # (Codex review fix wave 1, finding 2b): an envelope failure must never
+    # silently publish untrusted text outside the provenance boundary. With
+    # ``untrusted_content_envelopes`` on (or settings unreadable, which
+    # counts as configured), a failed envelope is replaced by an inert
+    # placeholder; the raw content never reaches model context. With the
+    # setting explicitly OFF, containment is not configured and content is
+    # delivered unenveloped as before.
+    _envelopes_configured = _tool_settings is None or _tool_settings.untrusted_content_envelopes
+    if _envelopes_configured and llm_output:
+        try:
             from victor.security.containment import UntrustedSourceClass, wrap_untrusted
 
             llm_output = wrap_untrusted(
@@ -364,8 +373,15 @@ def format_and_prune_tool_output(
                 source_class=UntrustedSourceClass.TOOL,
                 origin=tool_name,
             )
-    except Exception:  # containment must never break tool output delivery
-        pass
+        except Exception:
+            logger.exception(
+                "Containment envelope failed for %s; publishing safe placeholder "
+                "(ADR-037 fail-closed)",
+                tool_name,
+            )
+            from victor.security.containment import CONTAINMENT_FAILURE_PLACEHOLDER
+
+            llm_output = CONTAINMENT_FAILURE_PLACEHOLDER
 
     # Generate preview for user display only (does not affect LLM)
     preview_output = formatted_output
@@ -578,19 +594,23 @@ def process_tool_results_with_context(
                 error_output["user_message"] = user_message
             if tool_diagnostics:
                 error_output["tool_diagnostics"] = tool_diagnostics
-            if ctx.format_tool_output:
-                formatted_error = ctx.format_tool_output(tool_name, normalized_args, error_output)
-            else:
-                formatted_error, _, _, _, _ = format_and_prune_tool_output(
-                    tool_name=tool_name,
-                    arguments=normalized_args,
-                    output=error_output,
-                    task_type=ctx.task_type,
-                )
+            # ADR-037 containment (Codex review fix wave 1, finding 2a):
+            # error results are published through the SAME model-output
+            # formatter as successes — the enveloped ``llm_output`` enters
+            # history inside the provenance boundary; the display text below
+            # stays user-facing only. Never take the display formatter's or
+            # the preview return value as the model-bound content.
+            _, error_llm_output, formatted_error, _, _ = format_and_prune_tool_output(
+                tool_name=tool_name,
+                arguments=normalized_args,
+                output=error_output,
+                task_type=ctx.task_type,
+                formatter=ctx.format_tool_output,
+            )
             _persist_tool_result_message(
                 ctx,
                 tool_name=tool_name,
-                content=formatted_error,
+                content=error_llm_output,
                 tool_call_id=tool_call_id,
             )
             results.append(
@@ -599,13 +619,15 @@ def process_tool_results_with_context(
                     "success": False,
                     "elapsed": elapsed_ms / 1000,
                     "error": error_display,
+                    # Display text (not enveloped; the user is trusted).
                     "result": formatted_error,
                     "full_result": formatted_error,
+                    # Model-bound content: same provenance envelope as success.
+                    "content": error_llm_output,
                     "follow_up_suggestions": follow_up_suggestions,
                     "tool_diagnostics": tool_diagnostics,
                     "was_pruned": False,
                     "tool_call_id": tool_call_id,
-                    "content": formatted_error,
                     "skipped": skipped,
                     "outcome_kind": outcome_kind,
                     "block_source": block_source,

@@ -37,6 +37,7 @@ from victor.agent.runtime.context import (
     require_idle_turn,
     require_runtime_context,
 )
+from victor.security.containment import SessionContainmentState, bind_containment_state
 from victor.agent.services.chat_evidence import ChatEvidenceMixin
 from victor.agent.services.chat_persistence import ChatPersistenceMixin
 from victor.agent.services.chat_turn_runtime import ChatTurnRuntime
@@ -190,8 +191,29 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                 if self._turn_runtime is not None
                 else None
             )
+            containment_state = self._resolve_turn_containment_state()
             with bind_runtime_session(context):
+                # ADR-037 containment (Codex review fix wave 1, finding 1):
+                # bind the session-owned canary + flagged-family evidence
+                # around EVERY turn so dispatch-time containment checks see a
+                # canary on real sessions. The binding is restored on exit —
+                # a fresh request task never inherits another session's
+                # state. getattr fallback: only out-of-tree test harnesses
+                # lack resolve_containment_state; the canonical runtime
+                # always provides it.
+                if containment_state is not None:
+                    with bind_containment_state(containment_state):
+                        return await self._chat_exclusive(user_message, stream=stream, **kwargs)
                 return await self._chat_exclusive(user_message, stream=stream, **kwargs)
+
+    def _resolve_turn_containment_state(self) -> Optional[SessionContainmentState]:
+        """Resolve the session-owned containment state for this turn (may be None)."""
+        if self._turn_runtime is None:
+            return None
+        resolver = getattr(self._turn_runtime, "resolve_containment_state", None)
+        if resolver is None:
+            return None
+        return resolver()
 
     async def _chat_exclusive(
         self, user_message: str, *, stream: bool = False, **kwargs
@@ -368,19 +390,33 @@ class ChatService(ChatEvidenceMixin, ChatPersistenceMixin):
                 else None
             )
             stream = self._stream_chat_exclusive(user_message, **kwargs)
+            containment_state = self._resolve_turn_containment_state()
             try:
                 while True:
                     # Async generators run in the resumer's context. Restore it
                     # before exposing a chunk; close may run in another task.
+                    # Containment binds with the session for the same window —
+                    # tool dispatch happens while the loop runs inside anext.
                     with bind_runtime_session(context):
-                        try:
-                            chunk = await anext(stream)
-                        except StopAsyncIteration:
-                            break
+                        if containment_state is not None:
+                            with bind_containment_state(containment_state):
+                                try:
+                                    chunk = await anext(stream)
+                                except StopAsyncIteration:
+                                    break
+                        else:
+                            try:
+                                chunk = await anext(stream)
+                            except StopAsyncIteration:
+                                break
                     yield chunk
             finally:
                 with bind_runtime_session(context):
-                    await stream.aclose()
+                    if containment_state is not None:
+                        with bind_containment_state(containment_state):
+                            await stream.aclose()
+                    else:
+                        await stream.aclose()
 
     async def _stream_chat_exclusive(
         self, user_message: str, **kwargs

@@ -71,8 +71,10 @@ HOTSPOT_LINE_CAPS = {
     "victor/agent/context_compactor.py": 1827,
     # Audited 2026-07-22. [CANONICAL] chat service (1,740 LOC) — the largest
     # service after orchestrator; bind it so "chat operations" don't quietly
-    # sprawl the way the orchestrator facade did.
-    "victor/agent/services/chat_service.py": 1739,
+    # sprawl the way the orchestrator facade did. 2026-11-20 (+15): the
+    # ADR-037 containment binding wraps chat/stream turn scopes (Codex fix
+    # wave 1, #1983) — bound at current size.
+    "victor/agent/services/chat_service.py": 1754,
 }
 
 

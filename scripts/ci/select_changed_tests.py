@@ -435,6 +435,32 @@ RELATED_TESTS = {
         "tests/unit/security/test_injection_hard_fail.py",
         "tests/unit/security/test_tool_output_containment.py",
     ),
+    # ADR-037 containment (Codex fix wave 1): the session-owned canary state
+    # and its per-turn binding span security suites plus the ChatService turn
+    # frame; the runtime-context mirror name does not match the selector
+    # glob, so coverage is declared explicitly.
+    "victor/security/containment.py": (
+        "tests/unit/security/test_containment.py",
+        "tests/unit/security/test_containment_session_binding.py",
+        "tests/unit/security/test_canary_blocking.py",
+        "tests/unit/security/test_tool_output_containment.py",
+        "tests/unit/security/test_injection_hard_fail.py",
+        "tests/unit/agent/services/test_chat_service_containment_binding.py",
+    ),
+    "victor/agent/runtime/context.py": (
+        "tests/unit/agent/runtime/test_agent_runtime_context.py",
+        "tests/unit/security/test_containment_session_binding.py",
+        "tests/unit/agent/services/test_chat_service.py",
+        "tests/unit/agent/services/test_chat_service_containment_binding.py",
+    ),
+    "victor/agent/services/chat_service.py": (
+        "tests/unit/agent/services/test_chat_service.py",
+        "tests/unit/agent/services/test_chat_service_tool_result.py",
+        "tests/unit/agent/services/test_chat_service_containment_binding.py",
+        "tests/unit/agent/services/test_chat_stream_runtime.py",
+        "tests/unit/agent/services/test_chat_stream_governance.py",
+        "tests/unit/agent/services/test_chat_stream_helpers_lifecycle.py",
+    ),
     "victor/evaluation/injection_fp_battery.py": (
         "tests/unit/security/test_injection_fp_battery.py",
     ),

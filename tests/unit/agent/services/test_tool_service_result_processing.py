@@ -551,3 +551,76 @@ def test_interrupted_publication_requires_a_persistence_callback():
             ),
             ctx,
         )
+
+
+def test_error_results_enter_history_inside_the_provenance_envelope():
+    """ADR-037 (Codex review fix wave 1, finding 2a): error results are
+    published through the SAME model-output formatter as successes — the
+    error text must not bypass the untrusted-content envelope."""
+
+    def _formatter(tool_name, args, out):
+        error = out.get("error", "") if isinstance(out, dict) else str(out)
+        return f"formatted failure: {error}"
+
+    service = _make_service()
+    ctx = _make_ctx(format_tool_output=MagicMock(side_effect=_formatter))
+    pipeline_result = FakePipelineResult(
+        results=[
+            FakeCallResult(
+                tool_name="shell",
+                success=False,
+                result=None,
+                error="Traceback: permission denied",
+                arguments={"command": "cat /etc/shadow"},
+                tool_call_id="call_shell_err_1",
+            )
+        ]
+    )
+
+    results = service.process_tool_results(pipeline_result, ctx)
+
+    entry = results[0]
+    assert entry["success"] is False
+    # Model-bound content is enveloped and carries the error text.
+    _assert_enveloped(entry["content"], "permission denied")
+    # The display fields keep the user-facing text, unenveloped.
+    assert entry["result"].startswith("formatted failure: Traceback")
+    assert "<untrusted" not in entry["result"]
+    # The persisted tool message is the enveloped content.
+    ctx.add_message.assert_called_once_with(
+        "tool",
+        entry["content"],
+        name="shell",
+        tool_call_id="call_shell_err_1",
+    )
+
+
+def test_error_content_is_not_bare_display_text_without_envelope():
+    """Negative pin for the old bug: the FIRST formatter return value (the
+    display/preview text) must never be published as model-bound content."""
+
+    def _formatter(tool_name, args, out):
+        error = out.get("error", "") if isinstance(out, dict) else str(out)
+        return f"formatted failure: {error}"
+
+    service = _make_service()
+    ctx = _make_ctx(format_tool_output=MagicMock(side_effect=_formatter))
+    pipeline_result = FakePipelineResult(
+        results=[
+            FakeCallResult(
+                tool_name="read",
+                success=False,
+                result=None,
+                error="file vanished",
+                arguments={"path": "/tmp/x"},
+                tool_call_id="call_read_err_1",
+            )
+        ]
+    )
+
+    results = service.process_tool_results(pipeline_result, ctx)
+
+    entry = results[0]
+    assert entry["content"] != "formatted failure: file vanished"
+    assert entry["content"].startswith("<untrusted ")
+    assert "file vanished" in entry["content"]

