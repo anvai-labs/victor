@@ -454,6 +454,36 @@ route shipped in #569; its in-process provider migration remains parity-gated an
   `victor/integrations/api/fastapi_server.py` (`_verify_api_key`),
   `victor/providers/base.py` (`usage` on `CompletionResponse`/`StreamChunk`).
 
+## A4 relationship (FOU-A4, added 2026-11-19)
+
+The [Victor Foundations Plan](../docs/architecture/victor-foundations-plan.md)
+task FOU-A4 ("RBAC/SSO wired into FastAPI middleware; per-user attribution")
+unblocks on this FEP's attribution contract. Design:
+[docs/architecture/fou-a4-rbac-sso-design.md](../docs/architecture/fou-a4-rbac-sso-design.md).
+
+What A4a–A4b would implement **from this FEP** (design recorded; acceptance
+is the owner's call — this FEP's status is unchanged):
+
+- **Attribution join, generalized.** § Detailed Specification's attribution
+  join currently binds the API-key *label* (`client_id`) as `subject_id`
+  via `bind_attribution` (`victor/core/context.py`), on chat/classify
+  routes and the `/ws` turn only. A4a introduces a `VerifiedPrincipal`
+  contract at the FastAPI auth seam (key-label principals for key-only
+  deployments — zero migration); A4b binds the verified subject **and,
+  for the first time, `group_id`** on every request path through the same
+  auth dependency, and threads the group into the `sandhi_meter` virtual
+  key mapping and the neutral usage event.
+- **Group attribution lands.** `SessionCostTracker.record_request` already
+  accepts `group_id`; no caller path ever supplies one today. A4b is the
+  first producer.
+- **Unchanged**: the neutral-event schema (no new fields — `subject_id`/
+  `group_id` gain verified values, not new keys), the default-off
+  `usage_gateway` posture, best-effort metering (attribution failure never
+  fails the request path), and the open-core split (SSO/RBAC *enforcement*
+  remains commercial per the table above; Victor OSS ships the principal
+  contract and its own FastAPI policy wiring under A4c/A4d, per the
+  agent-service auth-policy design).
+
 ## Review Process
 
 - **Submitted by:** Vijaykumar Singh
