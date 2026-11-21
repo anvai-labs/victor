@@ -1448,11 +1448,11 @@ def test_installed_minor_read_from_binding(monkeypatch):
 
 
 def test_handshake_accepts_current_known_minor(monkeypatch, caplog):
-    """Victor consumes contract minor 1 (clean thinking baseline);
+    """Victor consumes contract minor 2 (stable tool prefix and Ollama toggles);
     the handshake reads it exactly and does not warn it is 'ahead'."""
     import types
 
-    assert st.KNOWN_CONTRACT_MINOR == 1
+    assert st.KNOWN_CONTRACT_MINOR == 2
     fake_sg = types.SimpleNamespace(
         wire_contract_version=lambda: "1", chat_contract_minor=lambda: st.KNOWN_CONTRACT_MINOR
     )
@@ -1805,8 +1805,8 @@ async def test_sandhi_stream_idle_timeout_passes_through_chunks():
     assert "world" in chunks[1]
 
 
-def test_known_contract_minor_tracks_gateway_022_clean_reset():
-    """Sandhi 0.22 resets its additive chat-contract counter at version 1."""
+def test_known_contract_minor_tracks_gateway_023_portability():
+    """Sandhi 0.23 publishes the portable request additions at v1 minor 2."""
     from victor.providers.sandhi_transport import KNOWN_CONTRACT_MINOR
 
-    assert KNOWN_CONTRACT_MINOR == 1
+    assert KNOWN_CONTRACT_MINOR == 2

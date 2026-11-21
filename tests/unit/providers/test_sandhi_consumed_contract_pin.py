@@ -61,6 +61,7 @@ class TestConsumedContractPin:
                 "temperature",
                 "max_output_tokens",
                 "thinking",
+                "stable_tool_prefix_count",
                 "extensions",
                 "metadata",
             },

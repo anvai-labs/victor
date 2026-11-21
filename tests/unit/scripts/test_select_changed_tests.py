@@ -585,6 +585,7 @@ def test_reasoning_capability_changes_select_nonblocking_and_exact_metadata_regr
     )
     assert {
         "tests/unit/agent/planning/test_readable_schema.py",
+        "tests/unit/agent/services/test_chat_stream_helpers_cleanup.py",
         "tests/unit/agent/services/test_turn_execution_runtime.py",
         "tests/unit/providers/test_sandhi_thinking_capabilities.py",
         "tests/unit/providers/test_moonshot_kimi_k3.py",

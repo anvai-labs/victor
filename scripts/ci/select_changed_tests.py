@@ -1117,6 +1117,7 @@ RELATED_TESTS = {
     "victor/agent/services/task_runtime.py": ("tests/unit/agent/test_task_coordinator.py",),
     "victor/agent/provider_capabilities.py": (
         "tests/unit/agent/planning/test_readable_schema.py",
+        "tests/unit/agent/services/test_chat_stream_helpers_cleanup.py",
         "tests/unit/agent/services/test_turn_execution_runtime.py",
         "tests/unit/providers/test_sandhi_thinking_capabilities.py",
     ),

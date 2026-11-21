@@ -81,10 +81,13 @@ def gateway_provider() -> SandhiOpenAIProvider:
 def test_gateway_discovery_is_sanitized_contract_v1(monkeypatch):
     model = gateway_provider()
     captured = {}
+    grants = []
+    model.extra_config["gateway"]["grant"] = "coding"
 
     def get(url, **kwargs):
         captured["url"] = url
         captured["authorization"] = kwargs["headers"]["Authorization"]
+        grants.append(kwargs["headers"]["x-sandhi-grant"])
         return SimpleNamespace(
             raise_for_status=lambda: None,
             json=lambda: {
@@ -107,6 +110,11 @@ def test_gateway_discovery_is_sanitized_contract_v1(monkeypatch):
     assert model.supports_reasoning_effort("qwen3.7-plus") is True
     assert captured["url"] == "http://127.0.0.1:8080/v1/models"
     assert captured["authorization"] == "Bearer vk-synthetic"
+    assert model.supports_reasoning_effort("qwen3.7-plus") is True
+    assert grants == ["coding"]
+    model.extra_config["gateway"]["grant"] = "general"
+    assert model.supports_reasoning_effort("qwen3.7-plus") is True
+    assert grants == ["coding", "general"]
 
 
 def test_gateway_discovery_failure_fails_closed_and_is_cached(monkeypatch):
@@ -185,8 +193,9 @@ async def test_async_discovery_refreshes_renewable_gateway_token(monkeypatch):
         "url": "http://127.0.0.1:8080",
         "credential": model._gateway_credential,
         "audience": model._gateway_audience,
+        "grant": "coding",
     }
-    authorizations = []
+    discovery_headers = []
 
     class Client:
         def __init__(self, **kwargs):
@@ -199,7 +208,7 @@ async def test_async_discovery_refreshes_renewable_gateway_token(monkeypatch):
             return None
 
         async def get(self, url, **kwargs):
-            authorizations.append(kwargs["headers"]["Authorization"])
+            discovery_headers.append(kwargs["headers"])
             return SimpleNamespace(
                 raise_for_status=lambda: None,
                 json=lambda: {
@@ -221,10 +230,13 @@ async def test_async_discovery_refreshes_renewable_gateway_token(monkeypatch):
     monkeypatch.setattr(st.httpx, "AsyncClient", Client)
     assert await model.supports_reasoning_effort_async("qwen3.7-plus") is True
     model._gateway_credential.get_token.assert_awaited_once_with("sandhi-gateway")
-    assert authorizations == ["Bearer vk-refreshed"]
+    assert discovery_headers == [
+        {"Authorization": "Bearer vk-refreshed", "x-sandhi-grant": "coding"}
+    ]
     assert model._gateway_model_capabilities_key == (
         "http://127.0.0.1:8080",
         "vk-refreshed",
+        "coding",
     )
 
 
@@ -252,6 +264,7 @@ async def test_failed_placeholder_page_does_not_poison_refreshed_token(monkeypat
     assert model._gateway_model_capabilities_key == (
         "http://127.0.0.1:8080",
         "gateway-pending",
+        None,
     )
 
     class Client:
@@ -289,6 +302,7 @@ async def test_failed_placeholder_page_does_not_poison_refreshed_token(monkeypat
     assert model._gateway_model_capabilities_key == (
         "http://127.0.0.1:8080",
         "vk-refreshed",
+        None,
     )
 
 

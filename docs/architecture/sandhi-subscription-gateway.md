@@ -626,10 +626,14 @@ profile defaults. An explicit request requires no discovery in the transport.
 
 One neutral request path serves Victor's Sandhi-backed providers. Sandhi owns
 provider encoding, including Messages cache marker placement and sampling
-constraints. A portable request refuses options that require a native SDK dialect.
+constraints. Direct calls identify the stable tool prefix by length, keeping
+tool-tier policy in Victor and marker placement in Sandhi. Gateway cache policy
+continues to select the server-side boundary. A portable request refuses options
+that require a native SDK dialect.
 A selected gateway dialect must be able to express a requested control for it
 to reach the server. The prepared binding qualifies adaptive
-thinking for Claude Sonnet 4.6 and thinking levels for Gemini 3 Flash Preview.
+thinking for Claude Sonnet 4.6, thinking levels for Gemini 3 Flash Preview, and
+thinking toggles for the qualified Ollama models.
 
 ## Streaming body-budget preflight (2026-11-17)
 
