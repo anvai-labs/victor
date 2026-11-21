@@ -432,6 +432,13 @@ RELATED_TESTS = {
         "tests/unit/agent/test_spawn_subagent_wiring.py",
         "tests/unit/agent/runtime/test_component_assembler.py",
     ),
+    # Session cost tracker: the attribution join (auth-bound subject/group
+    # wins over config defaults) and the sandhi usage mirror are pinned by
+    # the attribution suite; the tracker core by its cost-suite pin.
+    "victor/agent/session_cost_tracker.py": (
+        "tests/unit/agent/test_session_cost_tracker_attribution.py",
+        "tests/unit/agent/test_session_cost_tracker.py",
+    ),
     "victor/agent/runtime/component_assembler.py": (
         "tests/unit/agent/runtime/test_component_assembler.py",
         "tests/unit/agent/test_spawn_subagent_wiring.py",
@@ -1441,6 +1448,13 @@ RELATED_TESTS = {
     "victor/providers/gateway_boundary.py": (
         "tests/unit/providers/test_gateway_policy_resilience.py",
         "tests/unit/agent/services/test_stream_connection_retry.py",
+    ),
+    # Sandhi meter bridge (FEP-0020 Phase 2): the versioned metering-key
+    # billing-group rule (finding 23) and attribution are pinned by the
+    # meter suite plus the tracker attribution join.
+    "victor/observability/sandhi_meter.py": (
+        "tests/unit/observability/test_sandhi_meter.py",
+        "tests/unit/agent/test_session_cost_tracker_attribution.py",
     ),
     # Descriptive suites own these modules; provider_settings is the retired
     # path whose replacement is the grouped ProviderSettings contract.

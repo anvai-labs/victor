@@ -213,7 +213,9 @@ class TestEndToEndBinding:
         ev = events[0]
         assert ev["subject_id"] == "alice"
         assert ev["group_id"] == "team-a"
-        assert ev["virtual_key_id"] == "victor:alice"
+        # Versioned metering key (finding 23): the verified group is part of
+        # the key id, so the event's group comes from its own event-time key.
+        assert ev["virtual_key_id"] == "victor:alice:team-a"
         assert ev["session_id"] == tracker.session_id
         assert ev["provider"] == "ollama"
         assert ev["tokens_in"] == 1000

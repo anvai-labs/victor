@@ -27,6 +27,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from victor.agent.session_cost_tracker import SessionCostTracker
 from victor.core.context import bind_attribution
 
@@ -103,6 +105,80 @@ class TestAuthenticatedSubjectPrecedence:
         with bind_attribution(subject_id="alice"):
             cost = tracker.record_request(prompt_tokens=1, completion_tokens=1)
         assert cost.total_tokens == 2
+
+
+class TestVerifiedPrincipalGroupChange:
+    """Finding 23: a principal's group change must reach subsequent events.
+
+    The A4a auth seam binds the principal's CURRENT primary_group at event
+    time (``bind_principal_attribution`` → execution context → tracker), and
+    the SandhiMeter realizes the billing group per event via the versioned
+    metering key — so a registry group change is reflected in every event
+    after it, without re-registering a subject key.
+    """
+
+    def test_group_change_between_calls_reaches_recorded_events(self):
+        pytest.importorskip("sandhi_gateway", reason="requires the victor[sandhi] extra")
+        from victor.integrations.api.auth.principal import (
+            AuthMethod,
+            PrincipalKind,
+            VerifiedPrincipal,
+            bind_principal_attribution,
+        )
+        from victor.observability.sandhi_meter import SandhiMeter
+
+        meter = SandhiMeter()
+        tracker = SessionCostTracker(provider="ollama", model="m")
+        tracker._sandhi = meter
+
+        def principal(group: str) -> VerifiedPrincipal:
+            return VerifiedPrincipal(
+                principal_id="alice",
+                kind=PrincipalKind.HUMAN,
+                auth_method=AuthMethod.OIDC,
+                subject="alice@idp.example",
+                groups=(group, "billing-viewers"),
+            )
+
+        with bind_principal_attribution(principal("team-a")):
+            tracker.record_request(prompt_tokens=10, completion_tokens=5)
+        # The registry moved alice to team-b; the next authenticated call
+        # re-resolves the principal and binds the new primary group.
+        with bind_principal_attribution(principal("team-b")):
+            tracker.record_request(prompt_tokens=10, completion_tokens=5)
+
+        events = meter.events()
+        assert [e["group_id"] for e in events] == ["team-a", "team-b"]
+        assert [e["virtual_key_id"] for e in events] == [
+            "victor:alice@idp.example:team-a",
+            "victor:alice@idp.example:team-b",
+        ]
+        # The stable subject (D5) never changed across the group change.
+        assert {e["subject_id"] for e in events} == {"alice@idp.example"}
+
+    def test_legacy_key_only_principal_binds_no_group(self):
+        pytest.importorskip("sandhi_gateway", reason="requires the victor[sandhi] extra")
+        from victor.integrations.api.auth.principal import (
+            legacy_api_key_principal,
+            bind_principal_attribution,
+        )
+        from victor.observability.sandhi_meter import SandhiMeter
+
+        meter = SandhiMeter()
+        tracker = SessionCostTracker(provider="ollama", model="m")
+        tracker._sandhi = meter
+
+        legacy = legacy_api_key_principal(api_key="vk_secret", client_id="legacy-key")
+        assert legacy.groups == () and legacy.primary_group is None
+
+        with bind_principal_attribution(legacy):
+            tracker.record_request(prompt_tokens=10, completion_tokens=5)
+
+        ev = meter.events()[0]
+        # Behavior-neutral pin: no verified group ⇒ the unversioned key-only
+        # virtual key with no group attribution, exactly as before finding 23.
+        assert ev["group_id"] is None
+        assert ev["virtual_key_id"] == "victor:legacy-key"
 
 
 class TestMetricsRuntimeEndToEnd:

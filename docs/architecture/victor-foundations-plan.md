@@ -1111,3 +1111,49 @@ integration file. Gates: sandbox unit suite 180 passed / 9 skipped;
 selector-mapped suites green; collect-only 42,119 clean; docker-
 availability degraded battery 10 passed with the vertical on
 PYTHONPATH; black 26.10.1 + ruff clean on changed files.
+
+## Codex review fix wave 2 — attribution-group rule, finding 23 (#2001, 2026-11-21)
+
+Fixes Codex v0.32.0-candidate review finding 23 (MEDIUM, attribution-group
+rule; branch `fix/m23-attribution-group-rule` off `origin/develop` @
+`1bd409eeb`): the FOU-A4a/A4b join forwarded the principal's group per
+event, but `SandhiMeter._ensure_key` registered the gateway virtual key
+ONCE PER SUBJECT capturing its FIRST group — a verified group change
+never reached any later usage event, and the frozen binding was racy
+under overlapping HTTP/SSE/WS calls.
+
+**Chosen rule** (D5 + Codex acceptance): the stable metering identity is
+the principal SUBJECT (legacy key label today, issuer-qualified principal
+ID once A4c lands); the billing GROUP is recorded PER EVENT, realized as
+the **versioned metering key** — `victor:{subject}` (no verified group)
+or `victor:{subject}:{group}`. API evaluation: the gateway's Python
+binding admits NO per-event group (`meter_tokens` is key-authoritative —
+sandhi ADR-0004 D4 resolves subject/group from the virtual key; only
+session/route are caller-supplied), and same-id re-registration
+(`add_virtual_key` → store overwrite) would mutate a shared binding —
+racy exactly in the overlap scenario the finding asks to verify. The
+versioned key is the sanctioned alternative and is race-free: each
+event's key encodes its own event-time group, so a group change meters
+through a NEW key — subsequent events carry the new group, historical
+events keep their original group, and the per-subject key registry stays
+bounded (returning to a prior group reuses its key). Key-only principals
+bind `group=None` → the unversioned key-only shape, pinned
+behavior-neutral. Tracker-side wiring was already per-event (A4a #1993);
+no tracker change. The legacy per-route `bind_attribution` cited at
+`routes/chat_routes.py:155` no longer exists (removed by A4a/A4b) —
+reconciliation recorded in the A4 design doc (§A4b + §4.1), which now
+documents the rule.
+
+Tests RED-first (stale-first-group failure evidence retained vs
+develop): group change between calls → subsequent real gateway events
+carry the new group; overlapping HTTP/SSE/WS attribution bindings on one
+shared session tracker → all 9 recorded events carry their own channel's
+group; return-to-prior-group key reuse; legacy key-only principal binds
+no group; `VerifiedPrincipal` via `bind_principal_attribution` end to
+end. One stale key-id pin updated (`test_end_to_end_neutral_event` →
+`victor:{subject}:{group}`). RELATED_TESTS entries added
+(`victor/observability/sandhi_meter.py` — new;
+`victor/agent/session_cost_tracker.py` — new). Gates: agent + api +
+observability suites 10,713 passed / 5 skipped; collect-only 42,345
+clean; selector suite 117 passed; black 26.10.1 + ruff + mypy clean on
+changed files.
