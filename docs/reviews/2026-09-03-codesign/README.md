@@ -166,7 +166,7 @@ Shipping note: victor-contracts 0.9.1 (sdk-v0.9.1) published 2026-09-07 with
 | # | Item | Ref | Effort |
 |---|------|-----|--------|
 | 23 | ✅ Single workflow engine: ADR-030 BFS deletion and compiled adapter; FEP-0007 obsolete entry-point cleanup | U6-F1, U2-F1 | Done |
-| 24 | Interrupt/resume semantics: `interrupted` field, resume-at vs completed-at (FEP) | U6-F4 | M |
+| 24 | ✅ Interrupt/resume semantics: `interrupted` field, resume-at vs completed-at (FEP) | U6-F4 | M — **done** #1470, #1882, #1883; sparse `checkpoint_after_nodes` completion record (completed-tail re-execution defect) #2000 |
 | 26b | Manifest-aware `parse_repo` (U5-02) + Tier-A/B storage protocol split (U5-07 remainder) | U5-01/02 | L |
 | 27 | ChatService inversion: turn frame and stream-control capabilities complete; broader runtime-state migration remains | U1-4/7 | L |
 | 28 | Contrib bases → `victor_contracts.verticals`; de-template the 4 small verticals (~12k LOC) | U9-F5 | M–L |

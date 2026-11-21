@@ -129,6 +129,132 @@ async def test_re_invoking_a_completed_thread_executes_nothing():
     assert again.success and again.node_history == [] and again.state["count"] == 2
 
 
+def _durable_checkpointers(tmp_path):
+    """FOU-C2 item 24: the FEP-0032 contract holds on every checkpointer.
+
+    Besides MemoryCheckpointer, the production durable adapters (FOU-D2
+    default seam) — resume depends on their ``next_node`` /
+    ``checkpoint_boundary`` metadata round-trip.
+    """
+    from victor.storage.checkpoints.backends.sqlite_backend import SQLiteCheckpointBackend
+    from victor.storage.checkpoints.graph_adapter import (
+        GraphSQLiteCheckpointer,
+        ProjectDatabaseGraphCheckpointer,
+    )
+
+    return [
+        ("memory", MemoryCheckpointer),
+        ("project-db", lambda: ProjectDatabaseGraphCheckpointer(tmp_path / "project.db")),
+        (
+            "sqlite-backend",
+            lambda: GraphSQLiteCheckpointer(
+                SQLiteCheckpointBackend(storage_path=tmp_path / "lite")
+            ),
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_interrupt_after_resumes_at_the_successor_on_every_durable_checkpointer(tmp_path):
+    """Acceptance at the real seam: interrupt-after resume was only ever
+    exercised against MemoryCheckpointer; the durable adapters must carry the
+    resume position end-to-end through CompiledGraph, not just round-trip it."""
+    for label, factory in _durable_checkpointers(tmp_path):
+        calls: List[str] = []
+        compiled, _ = await _run(_graph(calls), checkpointer=factory(), interrupt_after=["a"])
+
+        paused = await compiled.invoke({}, thread_id="t")
+        assert (paused.interrupted, paused.next_node) == (True, "b"), label
+        assert calls == ["a"], label
+
+        resumed = await compiled.invoke(None, thread_id="t")
+        assert calls == ["a", "b"], label  # completed "a" is not executed again
+        assert resumed.success and resumed.state["count"] == 2, label
+
+
+@pytest.mark.asyncio
+async def test_completed_thread_with_sparse_after_nodes_executes_nothing_on_reinvoke(tmp_path):
+    """FOU-C2 item 24 (the completed-node resume defect): with executor-style
+    ``checkpoint_after_nodes`` — ``AgenticLoopGraphExecutor`` compiles with
+    ``{"act"}`` — the last durable checkpoint of a *completed* run sat
+    mid-graph, so re-invoking the thread re-executed the completed tail node.
+    The run's completion must itself be checkpointed (next_node=END)."""
+    for label, factory in _durable_checkpointers(tmp_path):
+        calls: List[str] = []
+        compiled, _ = await _run(
+            _graph(calls), checkpointer=factory(), checkpoint_after_nodes={"a"}
+        )
+
+        done = await compiled.invoke({}, thread_id="t")
+        assert done.success and calls == ["a", "b"], label
+
+        again = await compiled.invoke(None, thread_id="t")
+        assert calls == ["a", "b"], label  # the completed tail is not re-executed
+        assert again.success and again.node_history == [] and again.state["count"] == 2, label
+
+
+@pytest.mark.asyncio
+async def test_sparse_after_nodes_completion_checkpoint_records_the_end_boundary(tmp_path):
+    calls: List[str] = []
+    checkpointer = MemoryCheckpointer()
+    compiled, _ = await _run(_graph(calls), checkpointer=checkpointer, checkpoint_after_nodes={"a"})
+    await compiled.invoke({}, thread_id="t")
+
+    latest = await checkpointer.load("t")
+    assert latest.node_id == "b"
+    assert latest.metadata["checkpoint_boundary"] == "after"
+    assert latest.next_node == END
+
+
+@pytest.mark.asyncio
+async def test_resume_api_of_completed_sparse_thread_executes_nothing():
+    calls: List[str] = []
+    compiled, _ = await _run(
+        _graph(calls), checkpointer=MemoryCheckpointer(), checkpoint_after_nodes={"a"}
+    )
+    await compiled.invoke({}, thread_id="t")
+
+    resumed = await compiled.resume("t")
+    assert calls == ["a", "b"]
+    assert resumed.success and resumed.node_history == []
+
+
+@pytest.mark.asyncio
+async def test_sparse_crash_resume_then_reinvoke_stops_at_the_end_boundary():
+    """Crash in the non-checkpointed tail, resume (tail re-runs — it never
+    completed), finish — and a further re-invoke must now execute nothing
+    because the completion is durable."""
+    calls: List[str] = []
+    compiled, _ = await _run(
+        _graph(calls, fail_once={"b": 1}),
+        checkpointer=MemoryCheckpointer(),
+        checkpoint_after_nodes={"a"},
+    )
+
+    crashed = await compiled.invoke({}, thread_id="t")
+    assert crashed.success is False and calls == ["a", "b"]
+
+    resumed = await compiled.invoke(None, thread_id="t")
+    assert calls == ["a", "b", "b"] and resumed.success
+
+    again = await compiled.invoke(None, thread_id="t")
+    assert calls == ["a", "b", "b"]  # done stays done
+    assert again.success and again.node_history == []
+
+
+@pytest.mark.asyncio
+async def test_full_checkpointing_gains_no_extra_completion_checkpoint():
+    """Default (full) checkpointing already ends at the final node's own
+    checkpoint; the completion record must not duplicate it."""
+    calls: List[str] = []
+    checkpointer = MemoryCheckpointer()
+    compiled, _ = await _run(_graph(calls), checkpointer=checkpointer)
+    await compiled.invoke({}, thread_id="t")
+
+    checkpoints = await checkpointer.list("t")
+    assert len(checkpoints) == 2  # one per node, unchanged
+
+
 @pytest.mark.asyncio
 async def test_legacy_checkpoint_without_resume_metadata_resumes_at_node_id():
     calls: List[str] = []

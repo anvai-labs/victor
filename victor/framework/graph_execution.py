@@ -393,32 +393,40 @@ class GraphCheckpointManager:
         ``completed`` marks a checkpoint taken after ``node_id`` finished;
         ``paused_before`` one taken at an interrupt before ``node_id`` ran; ``next_node``
         records an already-resolved resume target (FEP-0032).
+
+        Returns whether a checkpoint was actually written (the
+        ``checkpoint_after_nodes`` filter can decline a node).
         """
-        if self.checkpointer and (
-            paused_before
-            or self.after_nodes is None
-            or node_id in self.after_nodes
-            or bool(next_node)
-        ):
-            checkpoint_id = f"{thread_id}_{node_id}_{time.time()}"
-            state = self._bind_graph_checkpoint_id(state, checkpoint_id)
-            checkpoint = WorkflowCheckpoint(
-                checkpoint_id=checkpoint_id,
-                thread_id=thread_id,
-                node_id=node_id,
-                state=state,
-                timestamp=time.time(),
-                metadata=self._checkpoint_metadata(state),
+        if not (
+            self.checkpointer
+            and (
+                paused_before
+                or self.after_nodes is None
+                or node_id in self.after_nodes
+                or bool(next_node)
             )
-            if completed:
-                checkpoint.metadata["checkpoint_boundary"] = "after"
-            elif paused_before:
-                checkpoint.metadata["checkpoint_boundary"] = "before"
-            if next_node is not None:
-                checkpoint.metadata["next_node"] = next_node
-            if self.routing_state is not None:
-                checkpoint.metadata["sequential_frontier"] = copy.deepcopy(self.routing_state)
-            await self.checkpointer.save(checkpoint)
+        ):
+            return False
+        checkpoint_id = f"{thread_id}_{node_id}_{time.time()}"
+        state = self._bind_graph_checkpoint_id(state, checkpoint_id)
+        checkpoint = WorkflowCheckpoint(
+            checkpoint_id=checkpoint_id,
+            thread_id=thread_id,
+            node_id=node_id,
+            state=state,
+            timestamp=time.time(),
+            metadata=self._checkpoint_metadata(state),
+        )
+        if completed:
+            checkpoint.metadata["checkpoint_boundary"] = "after"
+        elif paused_before:
+            checkpoint.metadata["checkpoint_boundary"] = "before"
+        if next_node is not None:
+            checkpoint.metadata["next_node"] = next_node
+        if self.routing_state is not None:
+            checkpoint.metadata["sequential_frontier"] = copy.deepcopy(self.routing_state)
+        await self.checkpointer.save(checkpoint)
+        return True
 
     @staticmethod
     def _bind_graph_checkpoint_id(state: StateType, checkpoint_id: str) -> StateType:
