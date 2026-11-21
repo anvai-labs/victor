@@ -53,6 +53,8 @@ from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 from dataclasses import dataclass, field, replace
 
 from victor.agent.conversation.types import MESSAGE_SOURCE_METADATA_KEY, MessageSource
+from victor.agent.memory_injection import memory_delivered_messages
+from victor.agent.provider_capabilities import provider_supports_reasoning_effort
 from victor.agent.runtime.context import RuntimeContextResolver, require_runtime_context
 from victor.agent.services import post_loop_recovery
 from victor.agent.services.tool_progress import batch_all_rejected
@@ -1716,16 +1718,18 @@ class TurnExecutor:
         # provider+model report support, so it is never sent to a model that
         # would reject it (the provider also strips it defensively).
         reasoning_effort = getattr(self._provider_context, "reasoning_effort", None)
-        if (
-            reasoning_effort
-            and "reasoning_effort" not in kwargs
-            and getattr(self._provider_context, "supports_reasoning_effort", None) is not None
-            and self._provider_context.supports_reasoning_effort(model)
-        ):
-            kwargs["reasoning_effort"] = reasoning_effort
+        if reasoning_effort and "reasoning_effort" not in kwargs:
+            supports_reasoning_effort = await provider_supports_reasoning_effort(
+                self._provider_context, model
+            )
+            if supports_reasoning_effort:
+                kwargs["reasoning_effort"] = reasoning_effort
 
         return await self._execution_provider.execute_turn(
-            messages=self._chat_context.messages,
+            messages=memory_delivered_messages(
+                self._resolve_orchestrator(),
+                self._chat_context.messages,
+            ),
             model=model,
             temperature=temperature,
             max_tokens=self._provider_context.max_tokens,

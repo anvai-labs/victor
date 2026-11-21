@@ -185,11 +185,20 @@ class LifecycleManager:
             logger.warning(f"Failed to stop health monitoring: {e}")
             results["health_monitoring_stopped"] = False
 
-        # Release the code-execution sandbox (idempotent; re-acquired on next use).
+        # Release the code-execution sandbox. Codex finding 11: a real
+        # container sandbox is released through the owned-handle close
+        # protocol (stop admission, terminate in-flight operations, bounded
+        # join — off-loop); other manager implementations keep the legacy
+        # stop() contract.
         # API server and Agent.graceful_shutdown() exit through here only.
         if self._code_manager is not None:
             try:
-                self._code_manager.stop()
+                from victor.tools.sandbox.container_sandbox import ContainerSandbox
+
+                if isinstance(self._code_manager, ContainerSandbox):
+                    await asyncio.to_thread(self._code_manager.close)
+                else:
+                    await asyncio.to_thread(self._code_manager.stop)
                 results["code_manager_stopped"] = True
             except Exception as e:
                 logger.warning(f"Failed to stop code execution manager: {e}")
@@ -298,10 +307,18 @@ class LifecycleManager:
             except Exception as e:
                 logger.warning("Error closing provider: %s", str(e))
 
-        # Stop code execution manager (cleans up Docker containers)
+        # Stop code execution manager (cleans up Docker containers). Codex
+        # finding 11: a real container sandbox goes through the owned-handle
+        # close protocol (stop admission, terminate in-flight operations,
+        # bounded join); other manager implementations keep stop().
         if self._code_manager is not None:
             try:
-                self._code_manager.stop()
+                from victor.tools.sandbox.container_sandbox import ContainerSandbox
+
+                if isinstance(self._code_manager, ContainerSandbox):
+                    await asyncio.to_thread(self._code_manager.close)
+                else:
+                    await asyncio.to_thread(self._code_manager.stop)
                 logger.debug("Code execution manager stopped")
             except Exception as e:
                 logger.warning(f"Error stopping code manager: {e}")

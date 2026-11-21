@@ -64,6 +64,7 @@ from victor.agent.request_scope_heuristics import (
 )
 from victor.agent.memory_injection import (
     MemoryBlockBuilder,
+    MemoryDelivery,
     MemoryInjectionBlock,
     memory_prompt_suffix,
     memory_scopes_from_context,
@@ -245,6 +246,12 @@ class PerceptionIntegration:
         self._evaluation_policy = RuntimeEvaluationPolicy.from_config(self.config)
         self.task_analyzer = task_analyzer or TaskAnalyzer()
         self.memory_injector = memory_injector
+        #: Turn-scoped delivery candidate (Codex finding 6): the block built
+        #: THIS perceive, keyed by its query. Overwritten on every perceive —
+        #: including with a None block — so a previous turn's block can never
+        #: leak into a later turn's provider messages. Consumed only through
+        #: ``memory_injection.insert_memory_delivery_message``.
+        self._memory_delivery: Optional[MemoryDelivery] = None
 
         logger.info(
             f"PerceptionIntegration initialized "
@@ -321,6 +328,10 @@ class PerceptionIntegration:
         memory_block: Optional[MemoryInjectionBlock] = None
         if self.memory_injector is not None:
             memory_block = await self._build_memory_block(query, context)
+        # Turn-scoped delivery candidate (Codex finding 6): recorded on EVERY
+        # perceive — a None block clears the previous turn's candidate, so
+        # provider-message assembly can never deliver a stale block.
+        self._memory_delivery = MemoryDelivery(query=query, block=memory_block)
 
         # Calculate calibrated confidence
         confidence = self._calculate_confidence(

@@ -125,7 +125,8 @@ def docker_env():
 
 
 # ---------------------------------------------------------------------------
-# Async helpers and the @tool entry point (unchanged contract)
+# Async helpers and the @tool entry point (reserved _exec_ctx injection,
+# typed failures — see TestSandboxTool)
 # ---------------------------------------------------------------------------
 
 
@@ -154,52 +155,116 @@ class TestAsyncHelpers:
 
 
 class TestSandboxTool:
+    """The @tool entry point receives its context the way the tool executor
+    injects it (the reserved ``_exec_ctx`` parameter) and reports typed
+    failures.
+
+    Codex review (code executor context contract): the tool used to declare
+    an ordinary ``context`` parameter the executor never supplies, so a live
+    dispatch returned SUCCESS with the output "Error: Context not provided."
+    while a mock manager received zero calls. The adapter-level tests below
+    dispatch through ``Tool.execute(_exec_ctx=...)`` — the executor's normal
+    injection — and pin success-on-execution plus typed (never
+    success-shaped) failures.
+    """
+
     def _make_ctx(self, sandbox_instance):
         return {"code_manager": sandbox_instance}
 
-    def test_execute_operation(self):
+    def _exec_sandbox_mock(self):
         sandbox_mock = MagicMock()
         sandbox_mock.execute.return_value = {
             "exit_code": 0,
             "stdout": "ok",
             "stderr": "",
         }
+        return sandbox_mock
+
+    async def _dispatch(self, _exec_ctx=None, **kwargs):
+        """Mirror the canonical executor dispatch of a registered tool."""
+        return await cet.sandbox.Tool.execute(_exec_ctx=_exec_ctx, **kwargs)
+
+    # -- executor injection: the normal dispatch path actually executes ----
+
+    def test_execute_operation_via_executor_injection(self):
+        sandbox_mock = self._exec_sandbox_mock()
         result = asyncio.run(
-            cet.sandbox(
+            self._dispatch(
+                _exec_ctx=self._make_ctx(sandbox_mock),
                 operation="execute",
                 code="print(1)",
-                context=self._make_ctx(sandbox_mock),
             )
         )
-        assert "ok" in result
+        assert result.success is True
+        assert "ok" in result.output
+        # The worst failure class was success-without-execution: pin that the
+        # sandbox manager actually received the work.
+        sandbox_mock.execute.assert_called_once()
+
+    def test_upload_operation_via_executor_injection(self):
+        sandbox_mock = MagicMock()
+        result = asyncio.run(
+            self._dispatch(
+                _exec_ctx=self._make_ctx(sandbox_mock),
+                operation="upload",
+                file_paths=["/a.py"],
+            )
+        )
+        assert result.success is True
+        assert "uploaded" in result.output.lower()
+        sandbox_mock.put_files.assert_called_once()
+
+    # -- typed failures: never success-shaped -------------------------------
+
+    def test_missing_context_is_typed_failure_through_executor(self):
+        """No runtime context at all (the historical live-path bug): the
+        adapter reports success=False with a typed error, not a string body."""
+        result = asyncio.run(self._dispatch(_exec_ctx=None, operation="execute", code="print(1)"))
+        assert result.success is False
+        assert "_exec_ctx" in result.error or "execution context" in result.error
+        assert result.metadata["category"] == "tool_execution"
+
+    def test_missing_sandbox_handle_is_typed_failure_through_executor(self):
+        result = asyncio.run(
+            self._dispatch(
+                _exec_ctx={"code_manager": None},
+                operation="execute",
+                code="print(1)",
+            )
+        )
+        assert result.success is False
+        assert "code_manager" in result.error
+        assert result.metadata["category"] == "tool_execution"
+
+    def test_raw_function_returns_typed_failure_without_context(self):
+        """Raw (undecorated-path) calls report the structured failure dict —
+        the vertical's sanctioned failure contract, never a bare string."""
+        result = asyncio.run(cet.sandbox(operation="execute", code="print(1)", _exec_ctx=None))
+        assert result["success"] is False
+        assert result["category"] == "tool_execution"
+        assert "recovery_hint" in result
+
+    # -- argument validation is typed too -----------------------------------
 
     def test_execute_requires_code(self):
         result = asyncio.run(
-            cet.sandbox(operation="execute", code="", context=self._make_ctx(MagicMock()))
+            cet.sandbox(operation="execute", code="", _exec_ctx=self._make_ctx(MagicMock()))
         )
-        assert "required" in result.lower()
-
-    def test_upload_operation(self):
-        sandbox_mock = MagicMock()
-        result = asyncio.run(
-            cet.sandbox(
-                operation="upload",
-                file_paths=["/a.py"],
-                context=self._make_ctx(sandbox_mock),
-            )
-        )
-        assert "uploaded" in result.lower()
+        assert result["success"] is False
+        assert "required" in result["error"].lower()
 
     def test_unknown_operation(self):
         result = asyncio.run(
-            cet.sandbox(operation="frobnicate", context=self._make_ctx(MagicMock()))
+            cet.sandbox(operation="frobnicate", _exec_ctx=self._make_ctx(MagicMock()))
         )
-        assert "Unknown operation" in result
+        assert result["success"] is False
+        assert "Unknown operation" in result["error"]
 
-    def test_no_context(self):
-        result = asyncio.run(cet.sandbox(operation="execute", context=None))
-        assert "Context not provided" in result
-
-    def test_no_sandbox_in_context(self):
-        result = asyncio.run(cet.sandbox(operation="execute", context={"code_manager": None}))
-        assert "not found in context" in result.lower()
+    def test_schema_does_not_advertise_context_to_the_model(self):
+        """The reserved context parameter is framework-internal: it must not
+        appear in the LLM-facing schema (the model could never supply a real
+        session context; advertising it invites hallucinated arguments)."""
+        properties = cet.sandbox.Tool.parameters["properties"]
+        assert "context" not in properties
+        assert "_exec_ctx" not in properties
+        assert set(properties) == {"operation", "code", "file_paths"}

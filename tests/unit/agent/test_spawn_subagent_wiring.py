@@ -34,6 +34,7 @@ import pytest
 
 from victor.agent.orchestrator import AgentOrchestrator
 from victor.config.settings import Settings
+from victor.tools.decorators import tool as tool_decorator
 
 
 @pytest.fixture
@@ -155,3 +156,128 @@ async def test_disabled_orchestration_runner_returns_none(mock_provider):
     runner = orch.tool_executor.context.get("spawn_subagent_runner")
     assert callable(runner)  # still bound — refusal is the runner's job
     assert await runner(prompt="task", tools=None, model=None, tool_budget=None) is None
+
+
+# =============================================================================
+# Finding (delegation grant widening): the runner intersects requested tools,
+# effective role grants and the parent's admitted capabilities
+# =============================================================================
+
+
+@tool_decorator(name="wiring_probe_stub", category="agent")
+async def _wiring_probe_stub() -> str:
+    """Harmless stub tool used to pin parent-registry admission."""
+    return "ok"
+
+
+def _spawn_spy(orch: AgentOrchestrator) -> AsyncMock:
+    spy = AsyncMock(return_value=MagicMock(to_dict=lambda: {"success": True}))
+    orch.subagent_orchestrator.spawn = spy
+    return spy
+
+
+async def test_runner_drops_requested_tools_outside_parent_registry(mock_provider):
+    """A requested tool the parent session does not admit is never handed to
+    the substrate — delegation cannot instantiate out-of-parent tools from
+    the shared discovery registry. 'grep' is granted to the researcher role
+    but this bare session's registry has no grep tool registered."""
+    orch = _build_orchestrator(_production_settings(), mock_provider)
+    assert orch.tools.get("grep") is None  # out-of-parent precondition
+    spy = _spawn_spy(orch)
+    runner = orch.tool_executor.context["spawn_subagent_runner"]
+
+    await runner(
+        prompt="task",
+        tools=["read", "grep", "not_in_parent_tool"],
+        model=None,
+        tool_budget=None,
+    )
+
+    allowed = spy.await_args.kwargs["allowed_tools"]
+    assert allowed == ["read"]  # 'grep' is role-granted but NOT parent-admitted
+
+
+async def test_runner_intersects_with_custom_role_provider_grants(mock_provider):
+    """The requested restrict-list is intersected with the EFFECTIVE role
+    grants (a custom role provider here), never swapped in for them. The
+    stub tool is parent-admitted (registered below) but only reaches the
+    child because the custom role provider grants it."""
+    from victor.agent.subagents.protocols import (
+        get_role_tool_provider,
+        set_role_tool_provider,
+    )
+
+    class _StubRoleProvider:
+        """Grants only the stub tool — deliberately excludes 'read'."""
+
+        def get_tools_for_role(self, role, vertical=None):
+            return ["wiring_probe_stub"]
+
+        def get_budget_for_role(self, role):
+            return 5
+
+        def get_context_limit_for_role(self, role):
+            return 1000
+
+    original = get_role_tool_provider()
+    set_role_tool_provider(_StubRoleProvider())
+    try:
+        orch = _build_orchestrator(_production_settings(), mock_provider)
+        orch.tools.register(_wiring_probe_stub)
+        spy = _spawn_spy(orch)
+        runner = orch.tool_executor.context["spawn_subagent_runner"]
+
+        await runner(
+            prompt="task",
+            tools=["read", "wiring_probe_stub"],
+            model=None,
+            tool_budget=None,
+        )
+
+        allowed = spy.await_args.kwargs["allowed_tools"]
+        assert allowed == ["wiring_probe_stub"]  # 'read' is not role-granted
+    finally:
+        set_role_tool_provider(original)
+
+
+# =============================================================================
+# Finding (spawn session ids): one minted child session id per invocation
+# =============================================================================
+
+
+async def test_runner_mints_unique_child_session_ids_overlapping_and_retry(mock_provider):
+    """Two OVERLAPPING spawns and one retry each get their own child session
+    id, and the same value reaches the substrate (provider session binding)
+    and the returned result."""
+    import asyncio
+
+    orch = _build_orchestrator(_production_settings(), mock_provider)
+    runner = orch.tool_executor.context["spawn_subagent_runner"]
+
+    captured: list = []
+
+    async def _spawn(**kwargs):
+        captured.append(kwargs)
+        return MagicMock(
+            to_dict=lambda: {
+                "success": True,
+                "details": {"child_session_id": kwargs["child_session_id"]},
+            }
+        )
+
+    orch.subagent_orchestrator.spawn = AsyncMock(side_effect=_spawn)
+
+    overlapping = await asyncio.gather(
+        runner(prompt="task a", tools=None, model=None, tool_budget=None),
+        runner(prompt="task b", tools=None, model=None, tool_budget=None),
+    )
+    retried = await runner(prompt="task a", tools=None, model=None, tool_budget=None)
+
+    results = [*overlapping, retried]
+    bound_ids = [kwargs["child_session_id"] for kwargs in captured]
+    result_ids = [r["details"]["child_session_id"] for r in results]
+
+    assert len(bound_ids) == 3
+    assert len(set(bound_ids)) == 3  # unique per invocation — no shared session key
+    assert all("-spawn-" in kid for kid in bound_ids)
+    assert bound_ids == result_ids  # binding and result report the same id

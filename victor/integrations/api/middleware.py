@@ -5,6 +5,18 @@
 
 """API Middleware for authentication, rate limiting, and request validation.
 
+.. deprecated:: 0.32
+    aiohttp-era stack with NO production caller: the aiohttp server was
+    removed and the sole HTTP server (``VictorFastAPIServer``) enforces
+    auth/rate/CORS through its own FastAPI dependencies and middleware
+    (``_make_auth_dependency`` / ``_make_ws_auth_dependency`` /
+    ``CORSMiddleware``). Nothing in Victor core, the VS Code extension or
+    the docs mounts ``APIMiddlewareStack`` (Codex finding 22 external
+    audit). The public names are kept as deprecated re-export shims so an
+    external import keeps working (with a ``DeprecationWarning`` through
+    ``victor.integrations.api``); the module will be retired once that
+    compatibility window closes.
+
 This module provides enterprise-grade middleware for the Victor API:
 - API key authentication (header or query parameter)
 - Rate limiting (per-client, per-endpoint)

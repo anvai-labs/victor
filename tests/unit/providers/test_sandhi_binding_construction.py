@@ -67,3 +67,18 @@ def test_gateway_explicit_client_dialect_is_independent_of_provider_family(
     provider = _construct(name, native_cls, {"gateway": {**GATEWAY, "protocol": protocol}})
     provider._sandhi_endpoint_profile = "openai_chat_terminal"
     assert provider._typed_provider(model) is not None
+
+
+@pytest.mark.parametrize(
+    "name, native_cls, qualified, unqualified",
+    [
+        ("anthropic", AnthropicProvider, "claude-sonnet-4-6", "claude-unqualified-fixture"),
+        ("google", GoogleProvider, "gemini-3-flash-preview", "gemini-3-flash"),
+    ],
+)
+def test_direct_discovery_exposes_only_qualified_thinking_models(
+    name, native_cls, qualified, unqualified
+):
+    provider = _construct(name, native_cls, {})
+    assert provider.supports_reasoning_effort(qualified)
+    assert not provider.supports_reasoning_effort(unqualified)

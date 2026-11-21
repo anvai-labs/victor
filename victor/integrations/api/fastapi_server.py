@@ -27,6 +27,7 @@ Features:
 """
 
 import asyncio
+import json
 from collections import deque
 from dataclasses import dataclass
 from victor import __version__
@@ -58,7 +59,19 @@ from victor.integrations.api.event_bridge import EventBridge
 from victor.integrations.api.operator_posture import is_multi_principal, refusal_payload
 from victor.integrations.api.router_plugins import load_fastapi_router_registrations
 from victor.integrations.api.workflow_event_bridge import WorkflowEventBridge
+from victor.integrations.api.auth.principal import (
+    VerifiedPrincipal,
+    bind_principal_attribution,
+    legacy_api_key_principal,
+)
+from victor.integrations.api.auth.principals_registry import (
+    PrincipalsRegistry,
+    ensure_registry_path_outside_writable_surfaces,
+    load_principals_registry,
+    resolve_principals_registry_path,
+)
 from victor.core.events import get_observability_bus
+from victor.tools.sandbox import writable_surface_roots
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +218,9 @@ class StatusResponse(BaseModel):
     workspace: str
     capabilities: List[str] = Field(default_factory=list)
     sandbox_posture: str = "unknown"
+    # Effective-posture surface (Codex finding 22): what the running server
+    # actually enforces per advertised setting.
+    effective_posture: Optional[Dict[str, Any]] = None
 
 
 class ChatMessage(BaseModel):
@@ -591,6 +607,23 @@ class VictorFastAPIServer:
         self.workspace_root = workspace_root or str(Path.cwd())
         self.rate_limit_rpm = rate_limit_rpm
         self.api_keys = api_keys or {}
+        # Wire the advertised singular server key at its actual owner (Codex
+        # finding 22): ``settings.server.server_api_key`` is a credential for
+        # the FastAPI auth gate, so a configured value joins the credential
+        # map instead of being validated-then-ignored. Sources are tracked
+        # for the effective-posture surface.
+        from victor.config.settings import load_settings
+
+        self._settings = load_settings()
+        self._api_key_sources: List[str] = ["parameter"] if api_keys else []
+        _server_settings = getattr(self._settings, "server", None)
+        _configured_key = getattr(_server_settings, "server_api_key", None)
+        _configured_key_value = (
+            _configured_key.get_secret_value() if _configured_key is not None else None
+        )
+        if _configured_key_value:
+            self._api_key_sources.append("settings.server.server_api_key")
+            self.api_keys.setdefault(_configured_key_value, "server")
         env_single_operator = os.environ.get("VICTOR_SINGLE_OPERATOR_MODE", "").lower() in (
             "1",
             "true",
@@ -635,7 +668,11 @@ class VictorFastAPIServer:
 
         self._allow_unauthenticated = allow_unauthenticated
 
-        from victor.config.settings import load_settings
+        # FOU-A4 D4 (owner-blessed): operator-managed principals registry.
+        # Startup fail-closed on placement/validation problems — never fall
+        # back to silently ignoring a configured registry.
+        self._principals_registry = self._load_principals_registry()
+
         from victor.core.bootstrap import ensure_bootstrapped
         from victor.framework.session_config import SessionConfig
         from victor.framework.session_runner import (
@@ -643,7 +680,6 @@ class VictorFastAPIServer:
             create_victor_client,
         )
 
-        self._settings = load_settings()
         self._session_config = session_config or SessionConfig()
         self._container = ensure_bootstrapped(self._settings)
         self._session_runner = FrameworkSessionRunner(
@@ -680,6 +716,12 @@ class VictorFastAPIServer:
                 "server_ws_send_deadline_seconds",
                 DEFAULT_WS_SEND_DEADLINE_SECONDS,
             )
+        )
+        # Inbound WebSocket payload cap (Codex finding 22: the advertised
+        # ``server.server_max_message_bytes`` control is now enforced at its
+        # actual owner — the /ws and /ws/events receive paths).
+        self._ws_max_message_bytes = int(
+            getattr(server_settings, "server_max_message_bytes", 0) or 0
         )
         # Seconds a /ws socket may sit unauthenticated on a keyed server
         # before the route closes it (VAS-05h bounded handshake).
@@ -755,15 +797,77 @@ class VictorFastAPIServer:
         if self.enable_hitl:
             self._setup_hitl_routes()
 
-    async def _verify_api_key(self, request: Request) -> Optional[str]:
-        """Verify API key if authentication is configured. Returns client_id or None."""
+    def _resolve_principals_registry_path(self) -> Optional[Path]:
+        """Registry path from the operator override or the system default."""
+        server_settings = getattr(self._settings, "server", None)
+        explicit = getattr(server_settings, "auth_principals_path", None)
+        return resolve_principals_registry_path(explicit)
+
+    def _load_principals_registry(self) -> Optional["PrincipalsRegistry"]:
+        """Resolve, placement-check and load the principals registry (D4).
+
+        Startup invariant: the registry path must live outside EVERY
+        sandbox-writable surface (workspace root, Victor state root, temp
+        dirs, operator allowed mounts) — the agent must not be able to
+        rewrite its own principal identity. Violation raises the typed
+        :class:`PrincipalsRegistryPathError`; malformed registries raise
+        :class:`PrincipalsRegistryError`. Either refuses server startup.
+        """
+        path = self._resolve_principals_registry_path()
+        if path is None:
+            return None
+        sandbox_settings = getattr(self._settings, "sandbox", None)
+        surfaces = writable_surface_roots(
+            workspace_root=self.workspace_root,
+            allowed_mounts=list(getattr(sandbox_settings, "sandbox_allowed_mounts", []) or []),
+        )
+        ensure_registry_path_outside_writable_surfaces(path, surfaces)
+        return load_principals_registry(path)
+
+    def reload_principals_registry(self) -> Optional["PrincipalsRegistry"]:
+        """Explicit registry re-activation (D4 activation semantics).
+
+        Loading is read-only; activation is process restart or this call.
+        Operators publish updates by writing a temp file and renaming it
+        onto the registry path (atomic), so multi-worker deployments
+        converge on the new ``revision`` without partial reads.
+        """
+        self._principals_registry = self._load_principals_registry()
+        return self._principals_registry
+
+    def _principal_for_key(self, raw_key: str, client_id: str) -> "VerifiedPrincipal":
+        """Resolve the VerifiedPrincipal for a matched key (FOU-A4a seam).
+
+        A registry entry (D4) yields the operator-declared principal with
+        its verified groups; an expired entry is treated as an unknown key
+        (401, without disclosing that the key exists). Registry-less keys
+        synthesize the legacy principal whose ``principal_id`` IS the key
+        label — zero migration for existing operators. A4c (OIDC) extends
+        this one method without touching the dependencies.
+        """
+        registry = getattr(self, "_principals_registry", None)
+        if registry is not None:
+            entry = registry.find(raw_key)
+            if entry is not None:
+                if entry.is_expired():
+                    raise HTTPException(status_code=401, detail="Invalid or missing API key")
+                return entry.to_verified_principal()
+        return legacy_api_key_principal(api_key=raw_key, client_id=client_id)
+
+    async def _verify_api_key(self, request: Request) -> Optional["VerifiedPrincipal"]:
+        """Verify API key if authentication is configured.
+
+        Returns the resolved :class:`VerifiedPrincipal`, or ``None`` on a
+        keyless server; an unmatched key raises 401 exactly as before.
+        """
         if not self.api_keys:
             return None
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             api_key = auth_header[7:]
-            if api_key in self.api_keys:
-                return self.api_keys[api_key]
+            client_id = self.api_keys.get(api_key)
+            if client_id is not None:
+                return self._principal_for_key(api_key, client_id)
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
     def claim_shared_state(
@@ -812,23 +916,101 @@ class VictorFastAPIServer:
     # _handle_ws_message); HITL keeps its own optional token auth.
     AUTH_EXEMPT_PATHS = frozenset({"/health", "/status"})
 
+    def effective_posture(self) -> Dict[str, Any]:
+        """What THIS running server actually enforces per advertised setting.
+
+        Codex finding 22: operators could configure convincing-looking
+        controls (a singular server key, a generated session secret, session
+        TTL/max-session caps, a rate limit) that no serving path consumed.
+        This surface reports the enforced state of every advertised control
+        — logged at startup (see ``_lifespan``) and attached to ``/status``
+        — so a dead control cannot masquerade as protection.
+
+        Returns:
+            Mapping with ``auth``, ``websocket`` and
+            ``declared_but_not_enforced`` sections.
+        """
+        enforced_session_keys = [
+            "server_ws_delivery_queue_size",
+            "server_ws_send_deadline_seconds",
+            "server_max_message_bytes",
+        ]
+        # Session-token controls (Codex finding 22 correction): the web UI
+        # serving path (web/server/main.py) consumes the session secret
+        # (HMAC token signing), TTL and max-session cap. An auto-generated
+        # secret is a per-process dev/test default — visible here so a
+        # multi-worker deployment cannot silently fail token verification
+        # across workers.
+        _server_settings = getattr(self._settings, "server", None)
+        secret_auto = bool(getattr(_server_settings, "server_session_secret_auto_generated", False))
+        return {
+            "auth": {
+                "enforced": bool(self.api_keys),
+                "credentials": len(self.api_keys),
+                "sources": self._api_key_sources,
+                "single_operator_mode": self.single_operator_mode,
+                "multi_principal_refusal_active": is_multi_principal(
+                    self.api_keys, self.single_operator_mode
+                ),
+            },
+            "websocket": {
+                "delivery_queue_size": self._ws_delivery_queue_size,
+                "send_deadline_seconds": self._ws_send_deadline,
+                "auth_deadline_seconds": self._ws_auth_deadline,
+                "inbound_max_message_bytes": self._ws_max_message_bytes,
+                "enforced_settings": enforced_session_keys,
+            },
+            "session_token": {
+                "enforced_by": "web UI serving path (web/server/main.py)",
+                "secret_configured": bool(getattr(_server_settings, "server_session_secret", None)),
+                "secret_source": (
+                    "auto-generated per-process (set server.server_session_secret "
+                    "for multi-worker deployments; tokens will not verify across "
+                    "workers)"
+                    if secret_auto
+                    else "explicit operator configuration"
+                ),
+                "ttl_seconds": getattr(_server_settings, "server_session_ttl_seconds", None),
+                "max_sessions": getattr(_server_settings, "server_max_sessions", None),
+            },
+            "declared_but_not_enforced": {
+                "rate_limit_rpm": (
+                    f"configured to {self.rate_limit_rpm} but the FastAPI server "
+                    "mounts no rate limiter (the aiohttp RateLimiter is deprecated "
+                    "and unmounted)"
+                    if self.rate_limit_rpm
+                    else "not configured"
+                ),
+            },
+        }
+
     def _make_auth_dependency(self):
         """Build the HTTP-route auth dependency (closure over this server)."""
 
-        async def _enforce_api_auth(request: Request) -> None:
+        async def _enforce_api_auth(request: Request):
             """Auth gate for HTTP routes: a valid API key is required when
             keys are configured. Keyless servers (local dev, most tests) are
             unaffected — the gate short-circuits without keys.
 
-            On success the resolved principal (client_id) is recorded on
-            ``request.state`` so broadcast call sites can bind event delivery
-            to the owning principal."""
-            if not self.api_keys:
+            On success the resolved :class:`VerifiedPrincipal` (FOU-A4a) is
+            recorded on ``request.state.verified_principal`` plus the
+            ``request.state.client_id`` compatibility shim, so broadcast
+            call sites can bind event delivery to the owning principal.
+
+            FEP-0020 attribution join (FOU-A4b): the principal's
+            subject/group is bound for the whole request — dependencies and
+            the handler run in the same request task, so per-route
+            re-verification binds are deduped away. Best-effort: an
+            attribution failure never fails the request.
+            """
+            if not self.api_keys or request.url.path in self.AUTH_EXEMPT_PATHS:
+                yield
                 return
-            if request.url.path in self.AUTH_EXEMPT_PATHS:
-                return
-            client_id = await self._verify_api_key(request)
-            request.state.client_id = client_id
+            principal = await self._verify_api_key(request)
+            request.state.verified_principal = principal
+            request.state.client_id = principal.client_id if principal else None
+            with bind_principal_attribution(principal):
+                yield
 
         return _enforce_api_auth
 
@@ -839,17 +1021,42 @@ class VictorFastAPIServer:
             """Auth gate for websocket routes: Bearer header or ?api_key=
             query parameter. The /ws chat socket is exempt (message-level
             auth); this guards event streams (/ws/events, workflow streams,
-            GraphQL subscriptions)."""
+            GraphQL subscriptions).
+
+            On success the resolved principal (FOU-A4a) is stamped onto
+            ``websocket.state`` — with the ``client_id`` shim mirroring the
+            HTTP dependency — so the event transports can bind it as the
+            verified owner of the connection's subscription records (Codex
+            finding 9): authenticating the KEY must also identify the
+            PRINCIPAL, or every authenticated user shares one broadcast.
+            """
             if not self.api_keys:
                 return
             header = websocket.headers.get("Authorization", "")
-            if header.startswith("Bearer ") and header[7:] in self.api_keys:
-                return
-            if websocket.query_params.get("api_key") in self.api_keys:
-                return
-            # In websocket scope FastAPI closes the connection when a
-            # dependency raises HTTPException.
-            raise HTTPException(status_code=403, detail="Not authenticated")
+            matched = None
+            if header.startswith("Bearer "):
+                candidate = header[7:]
+                matched = next(
+                    (k for k in self.api_keys if secrets.compare_digest(k, candidate)),
+                    None,
+                )
+            if matched is None:
+                query_key = websocket.query_params.get("api_key")
+                if query_key is not None:
+                    matched = next(
+                        (k for k in self.api_keys if secrets.compare_digest(k, query_key)),
+                        None,
+                    )
+            if matched is None:
+                # In websocket scope FastAPI closes the connection when a
+                # dependency raises HTTPException.
+                raise HTTPException(status_code=403, detail="Not authenticated")
+            if not hasattr(websocket, "state"):
+                websocket.state = type("State", (), {})()
+            websocket.state.authenticated = True
+            principal = self._principal_for_key(matched, self.api_keys[matched])
+            websocket.state.verified_principal = principal
+            websocket.state.client_id = principal.client_id
 
         return _enforce_ws_auth
 
@@ -906,6 +1113,16 @@ class VictorFastAPIServer:
     async def _lifespan(self, app: FastAPI) -> AsyncIterator[None]:
         """Manage server lifespan."""
         logger.info(f"Starting Victor FastAPI server on {self.host}:{self.port}")
+        # Effective-posture check (Codex finding 22): log what this running
+        # server ACTUALLY enforces per advertised setting, so a configured
+        # control that no serving path consumes is visible at startup.
+        try:
+            logger.info(
+                "Effective server posture: %s",
+                json.dumps(self.effective_posture(), default=str),
+            )
+        except Exception as e:  # pragma: no cover - posture logging must not block startup
+            logger.debug("Effective-posture logging failed: %s", e)
 
         # Initialize EventBridge for real-time event streaming
         event_bus = get_observability_bus()
@@ -1221,6 +1438,24 @@ class VictorFastAPIServer:
         """
         msg_type = data.get("type", "")
 
+        # Inbound payload cap (Codex finding 22): the advertised
+        # ``server.server_max_message_bytes`` control is enforced here —
+        # oversized frames are refused with a typed error, not processed.
+        if self._ws_max_message_bytes:
+            payload_bytes = len(json.dumps(data, separators=(",", ":")).encode("utf-8"))
+            if payload_bytes > self._ws_max_message_bytes:
+                await self._send_ws_frame(
+                    ws,
+                    {
+                        "type": "error",
+                        "message": (
+                            f"Message exceeds server_max_message_bytes "
+                            f"({payload_bytes} > {self._ws_max_message_bytes})"
+                        ),
+                    },
+                )
+                return
+
         if msg_type == "chat":
             messages = data.get("messages", [])
             if not messages:
@@ -1237,15 +1472,18 @@ class VictorFastAPIServer:
 
             client = await self._get_victor_client()
 
-            # FEP-0020 attribution join: the client_id resolved by the WebSocket
-            # `auth` message is bound for this turn so downstream cost/usage
-            # records carry the authenticated subject.
-            from victor.core.context import bind_attribution
-
-            ws_client_id = getattr(getattr(ws, "state", None), "client_id", None)
+            # FEP-0020 attribution join (FOU-A4b): the principal resolved by
+            # the WebSocket `auth` message is bound for this turn so
+            # downstream cost/usage records carry the authenticated
+            # subject/group. Best-effort: an attribution failure never fails
+            # the turn (falling back to the legacy client_id label if a
+            # custom integration set it without the A4a principal).
+            ws_state = getattr(ws, "state", None)
+            ws_principal = getattr(ws_state, "verified_principal", None)
+            ws_client_id = getattr(ws_state, "client_id", None)
 
             try:
-                with bind_attribution(subject_id=ws_client_id):
+                with bind_principal_attribution(ws_principal, fallback_subject_id=ws_client_id):
                     async for chunk in client.stream_chat(messages[-1].get("content", "")):
                         content = getattr(chunk, "content", "")
                         metadata = getattr(chunk, "metadata", {}) or {}
@@ -1282,7 +1520,9 @@ class VictorFastAPIServer:
                     if not hasattr(ws, "state"):
                         ws.state = type("State", (), {})()
                     ws.state.authenticated = True
-                    ws.state.client_id = self.api_keys[matched]
+                    principal = self._principal_for_key(matched, self.api_keys[matched])
+                    ws.state.verified_principal = principal
+                    ws.state.client_id = principal.client_id
                     logger.debug("WebSocket client authenticated via message")
                     # Keyed servers deferred delivery registration to the
                     # handshake: an authenticated socket can now receive

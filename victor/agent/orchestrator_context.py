@@ -129,6 +129,7 @@ class OrchestratorContextMixin:
         selected_tools: Optional[list[Any]] = None,
         planned_tools: Optional[list[Any]] = None,
         goals: Optional[list[str]] = None,
+        include_memory_block: bool = True,
     ) -> List["Message"]:
         """Get context-assembled messages for provider calls.
 
@@ -154,6 +155,7 @@ class OrchestratorContextMixin:
             selected_tools=selected_tools,
             planned_tools=planned_tools,
             goals=goals,
+            include_memory_block=include_memory_block,
         )
 
     def _check_context_overflow(self, max_context_chars: int = 200000) -> bool:

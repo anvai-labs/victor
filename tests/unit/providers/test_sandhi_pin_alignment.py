@@ -37,6 +37,15 @@ def test_all_dependency_locks_use_the_same_published_sandhi_pin():
     assert pins == {expected}
 
 
+def test_canonical_gateway_qualification_tracks_current_pin():
+    document = (ROOT / "docs/architecture/sandhi-subscription-gateway.md").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "Victor's consumer candidate pins the prepared Sandhi release\n" "`sandhi-gateway==0.23.0`."
+    ) in document
+
+
 def test_installed_binding_matches_source_pin():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     expected = next(

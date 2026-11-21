@@ -60,7 +60,8 @@ through the parent's approval path (member approval context).
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+import uuid
+from typing import Any, Dict, Iterable, List, Optional
 
 from victor.tools.base import AccessMode, DangerLevel, ExecutionCategory, Priority
 from victor.tools.decorators import resolve_tool_name, tool
@@ -86,6 +87,73 @@ def sanitize_subagent_tool_list(tools: Optional[List[str]]) -> Optional[List[str
     if tools is None:
         return None
     return [t for t in tools if resolve_tool_name(t) != SPAWN_SUBAGENT_TOOL_NAME]
+
+
+def compute_child_tool_set(
+    requested: Optional[List[str]],
+    role_grants: Iterable[str],
+    parent_admitted: Iterable[str],
+) -> List[str]:
+    """Final child tool set: requested ∩ role grants ∩ parent-admitted.
+
+    Finding (delegation grant widening): a restrict-list must never REPLACE
+    the role's grant list, and delegation must never widen the session's
+    enabled tool set. Every candidate name is alias-resolved to its canonical
+    form first, then must appear in BOTH the effective role grants and the
+    parent's admitted capabilities to survive. Requested order is preserved.
+
+    Args:
+        requested: Alias-resolved-sanitized restrict-list from the caller
+            (``None`` = no explicit list; role defaults then apply, still
+            bounded by the parent's admitted set).
+        role_grants: The effective role-provider grant list for the child role.
+        parent_admitted: Canonical names the parent session actually admits.
+
+    Returns:
+        The final allowed_tools list for the child (never contains the spawn
+        tool — depth 1).
+    """
+    role_set = {resolve_tool_name(t) for t in role_grants}
+    parent_set = {resolve_tool_name(t) for t in parent_admitted}
+
+    final: List[str] = []
+    seen: set[str] = set()
+
+    def _admit(name: str) -> None:
+        canonical = resolve_tool_name(name)
+        if canonical == SPAWN_SUBAGENT_TOOL_NAME or canonical in seen:
+            return
+        if canonical not in role_set or canonical not in parent_set:
+            return
+        seen.add(canonical)
+        final.append(canonical)
+
+    if requested is None:
+        for name in role_grants:
+            _admit(name)
+    else:
+        for name in requested:
+            _admit(name)
+    return final
+
+
+def mint_child_session_id(parent_session_id: Optional[str]) -> str:
+    """Mint a UNIQUE child session id for one spawn invocation.
+
+    Finding (spawn session ids): every foreground spawn used to share one
+    member id (``spawn_subagent``), so the substrate's session derivation
+    collapsed to ``{parent}-spawn_subagent`` for concurrent children — a
+    shared upstream session/cache key — and the tool's ``child_session_id``
+    read an optional input that was never supplied. The minted id is passed
+    as the explicit ``child_session_id``, which is precedence 1 in
+    ``SubAgentConfig.resolve_member_session_id``: the SAME value then keys
+    the provider session binding, the result metadata and the audit record.
+    """
+    if not parent_session_id or not str(parent_session_id).strip():
+        from victor.core.context import get_session_id
+
+        parent_session_id = get_session_id() or "subagent"
+    return f"{parent_session_id}-spawn-{uuid.uuid4().hex[:12]}"
 
 
 def _refusal(error: str) -> Dict[str, Any]:
@@ -208,6 +276,8 @@ async def spawn_subagent(
 __all__ = [
     "spawn_subagent",
     "sanitize_subagent_tool_list",
+    "compute_child_tool_set",
+    "mint_child_session_id",
     "SPAWN_SUBAGENT_TOOL_NAME",
     "MAX_SPAWN_DEPTH",
 ]

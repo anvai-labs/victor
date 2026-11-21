@@ -202,6 +202,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
                 "tests/unit/agent/services/test_stream_turn_guards.py",
                 "tests/unit/agent/services/test_streaming_act_port.py",
                 "tests/unit/agent/services/test_streaming_act_adapter.py",
+                "tests/unit/agent/test_memory_delivery_provider_messages.py",
             },
         ),
         (
@@ -385,6 +386,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
                 "tests/unit/config/test_tool_selection_access.py",
                 "tests/unit/config/test_settings_stratification.py",
                 "tests/unit/security/test_injection_hard_fail.py",
+                "tests/unit/tools/test_web_fetch_destination_policy.py",
             ],
         ),
         (
@@ -572,6 +574,24 @@ def test_attribution_guard_selects_its_policy_regressions():
 )
 def test_mcp_schema_owners_include_legacy_location_and_end_to_end_contract(source, contract_test):
     assert {contract_test, "tests/unit/tools/test_mcp_schema_fidelity.py"} <= set(select([source]))
+
+
+def test_reasoning_capability_changes_select_nonblocking_and_exact_metadata_regressions():
+    selected = select(
+        [
+            "victor/agent/provider_capabilities.py",
+            "victor/providers/moonshot_provider.py",
+        ]
+    )
+    assert {
+        "tests/unit/agent/planning/test_readable_schema.py",
+        "tests/unit/agent/services/test_chat_stream_helpers_cleanup.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+        "tests/unit/providers/test_sandhi_thinking_capabilities.py",
+        "tests/unit/providers/test_moonshot_kimi_k3.py",
+    } == set(selected)
+    transport_selected = set(select(["victor/providers/sandhi_transport.py"]))
+    assert "tests/unit/providers/test_sandhi_thinking_capabilities.py" in transport_selected
 
 
 def test_stream_helper_changes_select_retry_and_boundary_regressions():

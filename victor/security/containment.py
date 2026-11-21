@@ -135,6 +135,11 @@ class UntrustedSourceClass(str, Enum):
     MCP = "mcp"
     PLUGIN = "plugin"
     TOOL = "tool"
+    #: Long-term preference/episode memory recalled into the prompt
+    #: (FEP-0048): user-authored free-form content, so it enters context as
+    #: provenance-tagged data under the same envelope contract (ADR-037),
+    #: never as raw system-prompt input.
+    MEMORY = "memory"
 
 
 def new_session_canary() -> str:

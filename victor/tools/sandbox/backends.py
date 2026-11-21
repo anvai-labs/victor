@@ -46,10 +46,11 @@ import os
 import platform
 import shutil
 import struct
+import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from victor.config.secure_paths import get_victor_dir
 
@@ -85,6 +86,56 @@ def _prepare_victor_state_root() -> Path:
 def _absolute_mount_path(path: Path | str) -> Path:
     """Normalize an operator or workspace path without creating it."""
     return Path(path).expanduser().resolve()
+
+
+def writable_surface_roots(
+    *,
+    workspace_root: Optional[str] = None,
+    allowed_mounts: Optional[List[str]] = None,
+) -> List[Dict[str, str]]:
+    """Enumerate the host directories sandboxed tool execution can write to.
+
+    Authoritative inventory of the writable surfaces (ADR-037) across the
+    containment mediums: the workspace root (bwrap ``--bind`` /
+    Seatbelt ``file-write*`` subpath; also the only host root the container
+    sandbox admits for workspace transfers), the Victor user-state root
+    (``~/.victor``), the temp dirs the Seatbelt profile opens for writes
+    plus the private tmpfs root, and operator ``sandbox_allowed_mounts``.
+    The workspace root is listed conservatively regardless of the
+    ``sandbox_filesystem_mode`` — placement policy must assume it can be
+    writable.
+
+    Consumers MUST iterate this list (or pass equivalent inputs) instead of
+    re-deriving writable classes, so a sandbox change cannot silently
+    desync a consumer. Current consumer: the FOU-A4 D4 principals-registry
+    placement invariant.
+    """
+    surfaces: List[Dict[str, str]] = []
+
+    def _add(kind: str, root: Path) -> None:
+        resolved = str(root)
+        if resolved not in {s["root"] for s in surfaces}:
+            surfaces.append({"kind": kind, "root": resolved})
+
+    if workspace_root:
+        _add("workspace", _absolute_mount_path(workspace_root))
+
+    # The Victor user-state root is prepared on demand for sandbox mounts;
+    # fall back to the canonical path when preparation fails so the
+    # inventory still reports it.
+    try:
+        _add("victor_state", _prepare_victor_state_root())
+    except RuntimeError:
+        _add("victor_state", Path(get_victor_dir()).expanduser().resolve())
+
+    for tmp in (*_SEATBELT_WRITABLE_TEMP, tempfile.gettempdir()):
+        _add("temp", Path(tmp).resolve())
+
+    for mount in allowed_mounts or []:
+        if str(mount).strip():
+            _add("operator_mount", _absolute_mount_path(mount))
+
+    return surfaces
 
 
 # -- seccomp deny filter (classic BPF) ---------------------------------------
