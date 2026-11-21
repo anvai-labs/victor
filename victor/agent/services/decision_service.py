@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from inspect import iscoroutinefunction
 from victor.core.json_utils import json_dumps, json_loads
 from json import JSONDecodeError
 import logging
@@ -431,16 +432,19 @@ class LLMDecisionService:
         max_tokens = self._config.max_tokens_override or prompt_config.max_tokens
         provider_instance = provider or self._provider
 
-        # Disable thinking/reasoning for edge decisions — we need raw JSON,
-        # not reasoning text. ``thinking`` is Victor's portable transport
-        # field; the Sandhi Ollama adapter maps it to native ``think``.
+        # Prefer fast JSON decisions. Where the transport exposes exact model
+        # facts, request a thinking disable only when that model supports it.
+        supports_disable = getattr(provider_instance, "supports_thinking_disable_async", None)
+        disable_thinking = not iscoroutinefunction(supports_disable) or await supports_disable(
+            self._model
+        )
         response = await provider_instance.chat(
             messages=messages,
             model=self._model,
             temperature=self._config.temperature,
             max_tokens=max_tokens,
             tools=None,
-            thinking=False,
+            **({"thinking": False} if disable_thinking else {}),
         )
 
         # Extract text content from response

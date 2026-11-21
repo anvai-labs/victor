@@ -2,8 +2,8 @@
 
 ## Coordinated execution-contract migration
 
-Victor's 0.31.1 maintenance candidate is the release carrier for published
-`sandhi-gateway==0.21.0`. This consumer pin does not imply a service upgrade.
+Victor's consumer candidate pins the prepared Sandhi release
+`sandhi-gateway==0.23.0`. Publication of the matching wheel is required for rollout.
 The user authorized a coordinated migration because Victor is the sole client;
 there is no requirement to retain a permissive Sandhi legacy mode.
 
@@ -19,7 +19,7 @@ An explicit transient provider rejection can still use the logical-call retry
 policy and keeps the same call identity across authorized attempts.
 
 Sandhi's four admitted typed streaming source families share source validation
-and actual token observation across embedded and accounted calls. Published 0.21.0
+and actual token observation across embedded and accounted calls. Published 0.22.1
 retains the durable HTTP execution boundary, explicit gateway-peer contract,
 optional authentication profiles and model-scoped OIDC budgets, and adds
 hierarchical rolling budget windows. HTTP
@@ -30,7 +30,7 @@ delivery or be refused explicitly. Disjoint fresh/read/write/output token counts
 are evidence; cache policy and provider price schedules remain separate concerns.
 An embedded observation is not a gateway ledger receipt.
 
-The official published Sandhi 0.21.0 wheel has passed focused compatibility checks
+The official published Sandhi 0.22.1 wheel has passed focused compatibility checks
 against this Victor source: installed version and contract constants, generated
 Python-stub identity, and the Sandhi binding/provider suites. Keep Contracts and
 CodeGraph on their independent release lines. The matching
@@ -38,11 +38,11 @@ Victor consumer remains subject to independent review, public-hosted CI and its
 own release gate. Deployment is a separate decision.
 
 The root, API and CPU-embeddings deployment locks carry the same exact Sandhi
-pin. The mandatory dependency resolves from the official PyPI 0.21.0 release.
+pin. Local validation installs the wheel built from the matching Sandhi source.
 The 0.20.0 consumer qualification remains the latest comprehensive public record;
-0.21.0 retains its generated Python contract and wire/chat contract versions, and
-the 0.31.1 maintenance candidate repeats the binding and provider checks before
-promotion. The 0.17.x–0.20.x records remain historical and do not substitute for
+0.21.0 retained its generated Python contract and wire/chat contract versions;
+the 0.32.0 candidate repeats the binding, semantic-thinking and provider checks
+before promotion. The 0.17.x–0.20.x records remain historical and do not substitute for
 this acceptance.
 
 ### Explicit endpoint usage conventions
@@ -71,7 +71,7 @@ account headers and cache capabilities remain server owned.
 
 ### Independent gateway client dialect
 
-The Victor 0.31.1 candidate and published Sandhi 0.21.0 support a local
+The Victor 0.32.0 candidate and published Sandhi 0.22.1 support a local
 starter with no client credential. A gateway URL deliberately selects that
 gateway before upstream account or API-key discovery:
 
@@ -114,7 +114,7 @@ Users do not create a fake key. The current binding requires a non-empty bearer,
 so Victor internally sends the fixed public `Bearer not-needed` marker in starter
 mode. It carries no identity or authority; a None-mode server ignores it and
 creates its own fixed principal. A protected server refuses it. Published Sandhi
-0.20.0 introduced the starter server mode retained by 0.21.0.
+0.20.0 introduced the starter server mode retained by 0.22.1.
 
 `gateway.protocol` accepts `chat_completions`, `anthropic_messages`, `responses`, or
 `gemini_generate_content`. It overrides the provider's direct protocol hint. With no
@@ -617,27 +617,23 @@ profiles:
     reasoning_effort: high
 ```
 
-The profile value reaches the orchestrator and both buffered and streaming
-requests when the provider reports reasoning support. An explicit per-request
-value takes precedence; explicit `None` suppresses the profile default. Leaving
-it unset preserves the upstream default. GPT-6 models are recognized by the
-OpenAI capability check. The profile schema accepts a cross-provider vocabulary;
-the selected upstream model remains authoritative for the supported subset.
+A per-request effort value takes precedence over the profile default. Explicit
+`None` suppresses the default. Victor passes the resulting `ThinkingRequestV1`
+to Sandhi in both buffered and streaming calls. Direct Sandhi handles check
+exact model facts. In gateway mode the selected server backend owns model
+capability and grant admission. Model discovery remains available for selecting
+profile defaults. An explicit request requires no discovery in the transport.
 
-[OpenAI documents GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol)
-with `none`, `low`, `medium` (default), `high`, `xhigh`, and `max`. Values such as
-`minimal` or `ultra` used by other models are not claimed to work with Sol.
-Reasoning effort controls model deliberation, not tool permissions or policy.
-
-Sandhi already preserves the typed request's `reasoning_effort` and maps it to
-`reasoning.effort` for the subscription Responses backend. No gateway-wide
-effort default or override is introduced: Victor selects the default, Sandhi
-forwards it, and admission still enforces identity, model grants and budgets.
-This route uses Responses upstream, including when Victor supplies tools.
-
-TDD reproduced dropped profile values, omitted streaming defaults, missing
-GPT-6 capability recognition and unvalidated labels. Regression coverage also
-checks unsupported providers and per-request overrides (including `None`).
+One neutral request path serves Victor's Sandhi-backed providers. Sandhi owns
+provider encoding, including Messages cache marker placement and sampling
+constraints. Direct calls identify the stable tool prefix by length, keeping
+tool-tier policy in Victor and marker placement in Sandhi. Gateway cache policy
+continues to select the server-side boundary. A portable request refuses options
+that require a native SDK dialect.
+A selected gateway dialect must be able to express a requested control for it
+to reach the server. The prepared binding qualifies adaptive
+thinking for Claude Sonnet 4.6, thinking levels for Gemini 3 Flash Preview, and
+thinking toggles for the qualified Ollama models.
 
 ## Streaming body-budget preflight (2026-11-17)
 
@@ -655,8 +651,8 @@ before partial JSON generation instead of timing out minutes later. Authenticate
 model discovery can expose the sanitized effective limits without revealing
 backend URLs, credentials or provider references.
 
-Exact-policy comparison and sanitized discovery are Sandhi 0.21 capabilities.
-Victor's embedded `sandhi-gateway==0.21.0` binding remains wire-compatible.
+Sandhi 0.21 introduced exact-policy comparison and sanitized discovery. Victor's
+embedded `sandhi-gateway==0.23.0` binding retains wire compatibility.
 Enable the declared 600-second planning budget only after the target gateway
 reports an effective policy that admits it.
 

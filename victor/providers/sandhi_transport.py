@@ -16,6 +16,8 @@ import platform
 import re
 import socket
 import ssl
+
+import httpx
 from contextlib import aclosing
 from json import JSONDecodeError
 from collections.abc import Mapping
@@ -112,7 +114,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.21.0 is required for provider transport",
+            "sandhi-gateway 0.23.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -130,22 +132,9 @@ def _typed_error_payload(message: str) -> Optional[Dict[str, Any]]:
 # Single source for the request "schema_version" field and the handshake below.
 EXPECTED_WIRE_CONTRACT = "1"
 
-# Additive rounds of the v1 contract Victor knows how to consume (W3c):
-# 3 = wire-truth latency on UsageV2 (sandhi#97); 4 = reasoning_effort +
-# thinking typed request fields (W3d/G7); 5 = UsageV2.basis measured-vs-estimated
-# (TD-0013 D5); 6 = RunCostTreeV1 server-side run cost tree (ADR-0005 D7,
-# sandhi PR #149); 7 = explicit reasoning inclusion; 8 = origin/boundary timing
-# provenance; 9 = cache-read observations (metadata-only stream corrections).
-# The installed runtime's minor is read once by the handshake
-# below; bindings predating chat_contract_minor() report 0 — their documents
-# simply never carry the newer fields, which every consumer tolerates by
-# construction. installed_minor > KNOWN stays valid forward-compat.
-KNOWN_CONTRACT_MINOR = 14
-
-# The typed request fields land at minor 4 (W3d/G7). Below it, the runtime has
-# no such fields, so Victor dual-writes into extensions and only drops the
-# extensions copy once the installed runtime speaks >= this.
-_W3D_TYPED_FIELDS_MINOR = 4
+# Sandhi 0.23 adds a stable tool-prefix hint and exact Ollama thinking toggles
+# to the v1 semantic contract. Newer additive minors remain readable.
+KNOWN_CONTRACT_MINOR = 2
 
 # Stream-timeout ceilings shared by the transport validators and the
 # settings-layer pydantic fields (single source: timeout_profile.py is the
@@ -153,21 +142,6 @@ _W3D_TYPED_FIELDS_MINOR = 4
 _SANDHI_STREAM_TIMEOUT_MAX_SECS: float = 600.0
 _SANDHI_BODY_TIMEOUT_MAX_SECS: float = 840.0
 _SANDHI_BODY_TIMEOUT_MIN_MS = 1
-
-# First chat-contract minor that parses x-sandhi-stream-body-budget-ms
-# (sandhi 0.21.0). MUST match the gateway's declared bump — the sandhi
-# session owns the authoritative number; until confirmed, the header is
-# dropped (with a one-time warning) for older bindings rather than sent
-# blind.
-_STREAM_BODY_BUDGET_MINOR = 14  # body-budget shipped with contract minor 14 (#1895, post-#1891)
-
-# Non-openai families whose sandhi encoder is a NATIVE translator (it clones
-# extensions[<family>] as the base request body). Victor's neutral mixin builds
-# an OpenAI-shaped bucket, so re-labeling it to these keys lets openai-shaped
-# params land inside a native Gemini/Cohere/Ollama body (shape corruption,
-# W3d/G7 D3). The bucket is dropped for these — typed fields carry what the
-# native encoders honor.
-_NATIVE_ENCODER_SLUGS = frozenset({"gemini", "cohere", "ollama"})
 
 # Internal orchestration keys that must never reach a provider request body
 # (W3d/G7 D4). They ride **kwargs from the runtime and would otherwise land in
@@ -189,101 +163,72 @@ _wire_contract_checked = False
 _installed_contract_minor: int = 0
 
 
-def _is_thinking_active(value: Any) -> bool:
-    """Return True when a thinking kwarg value signals enabled extended thinking.
-
-    Handles all shapes Victor callers produce:
-    - ``True`` (bare bool)
-    - ``{"type": "enabled", ...}``  (Anthropic-native shape)
-    - ``{"enabled": True, ...}``    (neutral ThinkingV1 shape)
-    Returns False for None, ``False``, ``{"type": "disabled"}``, or any
-    unrecognised shape so the caller can safely fall through.
-    """
-    if value is None or value is False:
-        return False
-    if value is True:
-        return True
-    if isinstance(value, dict):
-        if "enabled" in value:
-            return bool(value["enabled"])
-        if "type" in value:
-            return str(value["type"]) != "disabled"
-    return False
-
-
-def _anthropic_cache_marker_count(native: Mapping[str, Any]) -> int:
-    """Count ``cache_control`` entries on an Anthropic native body's cacheables."""
-    count = 0
-    system = native.get("system")
-    if isinstance(system, list):
-        count += sum(1 for block in system if isinstance(block, dict) and "cache_control" in block)
-    tools = native.get("tools")
-    if isinstance(tools, list):
-        count += sum(1 for tool in tools if isinstance(tool, dict) and "cache_control" in tool)
-    return count
-
-
-def _assert_anthropic_cache_channel(
-    native: Mapping[str, Any],
-    request: Mapping[str, Any],
-    *,
-    supports_caching: bool,
-) -> None:
-    """Loud invariant for the FEP-0011 prompt-cache channel through Sandhi.
-
-    ``cache_control`` markers reach the Anthropic wire only inside
-    ``extensions["anthropic"]``: the typed contract has no field for them, and
-    Sandhi's anthropic encoder re-encodes messages/tools from the typed fields,
-    merging markers from the native bucket alone (system blocks by index, tools
-    by name). Losing the bucket does NOT fail the request — Anthropic just
-    silently stops caching (zero cache hits, every read full price). Fail fast
-    instead, on both severance directions:
-
-    1. the native body must carry markers whenever the provider supports prompt
-       caching and there is a system block or tool list to cache;
-    2. whatever markers the native body carries must still be attached to the
-       typed request's anthropic bucket.
-    """
-    markers = _anthropic_cache_marker_count(native)
-    cacheable = isinstance(native.get("system"), list) or bool(native.get("tools"))
-    if supports_caching and cacheable and markers == 0:
-        raise RuntimeError(
-            "anthropic prompt-cache markers missing: _build_request_params produced a "
-            "system block or tool list without any cache_control entry while "
-            "supports_prompt_caching() is True — FEP-0011 prefix-caching policy "
-            "regression (every request would silently read at full price)"
-        )
-    if markers:
-        extensions = request.get("extensions")
-        attached = extensions.get("anthropic") if isinstance(extensions, dict) else None
-        if not isinstance(attached, Mapping) or _anthropic_cache_marker_count(attached) < markers:
-            raise RuntimeError(
-                f"anthropic prompt-cache markers severed: the native body carries {markers} "
-                "cache_control entries but the typed request's extensions['anthropic'] "
-                "does not — Sandhi's encoder takes cache_control only from that bucket, "
-                "so the request would succeed with zero cache hits"
-            )
-
-
 def _normalize_thinking(value: Any) -> Optional[Dict[str, Any]]:
-    """Coerce Victor's `{type: enabled|disabled, budget_tokens?}` thinking arg
-    into the neutral ThinkingV1 shape `{enabled: bool, budget_tokens?: int}`
-    (W3d/G7). Returns None for shapes that carry no signal."""
+    """Validate Victor's portable thinking intent before sending it to Sandhi."""
     if isinstance(value, bool):
         return {"enabled": value}
-    if not isinstance(value, dict):
+    if not isinstance(value, dict) or type(value.get("enabled")) is not bool:
         return None
-    if "enabled" in value:
-        enabled = bool(value["enabled"])
-    elif "type" in value:
-        enabled = str(value.get("type")) != "disabled"
-    else:
-        enabled = True
-    normalized: Dict[str, Any] = {"enabled": enabled}
+    if value.keys() - {"enabled", "effort", "budget_tokens"}:
+        return None
+    effort = value.get("effort")
     budget = value.get("budget_tokens")
-    if isinstance(budget, int) and budget > 0:
-        normalized["budget_tokens"] = budget
-    return normalized
+    if effort is not None and (not isinstance(effort, str) or not effort):
+        return None
+    if budget is not None and (type(budget) is not int or budget <= 0):
+        return None
+    return {key: item for key, item in value.items() if item is not None}
+
+
+def _validated_thinking_capability(value: Any) -> Dict[str, Any]:
+    """Validate the v1 thinking capability shape without inventing defaults."""
+    if not isinstance(value, dict) or type(value.get("supported")) is not bool:
+        raise ValueError("invalid Sandhi thinking capability")
+    effort = value.get("effort")
+    if effort is not None:
+        values = effort.get("values") if isinstance(effort, dict) else None
+        if (
+            not isinstance(effort, dict)
+            or not isinstance(values, list)
+            or not values
+            or any(not isinstance(item, str) or not item for item in values)
+            or len(set(values)) != len(values)
+        ):
+            raise ValueError("invalid Sandhi thinking effort capability")
+    budget = value.get("budget_tokens")
+    if budget is not None:
+        minimum = budget.get("min") if isinstance(budget, dict) else None
+        maximum = budget.get("max") if isinstance(budget, dict) else None
+        if (
+            not isinstance(budget, dict)
+            or type(minimum) is not int
+            or type(maximum) is not int
+            or minimum <= 0
+            or maximum < minimum
+        ):
+            raise ValueError("invalid Sandhi thinking budget capability")
+    allow_combined = value.get("allow_effort_and_budget")
+    can_disable = value.get("can_disable")
+    if (allow_combined is not None and type(allow_combined) is not bool) or (
+        can_disable is not None and type(can_disable) is not bool
+    ):
+        raise ValueError("invalid Sandhi thinking capability")
+    return value
+
+
+def _final_thinking_control(kwargs: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return the semantic thinking control that payload promotion would select."""
+    if kwargs.get("thinking") is not None:
+        normalized = _normalize_thinking(kwargs["thinking"])
+        if normalized is None:
+            raise ValueError("thinking must be a boolean or a supported thinking object")
+        return normalized
+    effort = kwargs.get("reasoning_effort")
+    if effort is not None:
+        if not isinstance(effort, str) or not effort:
+            raise ValueError("reasoning_effort must be a nonempty effort label or None")
+        return {"enabled": False} if effort == "none" else {"enabled": True, "effort": effort}
+    return None
 
 
 def installed_chat_contract_minor() -> int:
@@ -634,7 +579,7 @@ def _gateway_family_base(root: str, protocol: str) -> str:
 
 
 def _gateway_wire_headers(headers: Mapping[str, str]) -> Dict[str, str]:
-    """Exclude logical-meter dedup keys from the gateway execution boundary."""
+    """Drop headers governed by the gateway configuration or execution owner."""
     blocked = {
         "idempotency-key",
         "authorization",
@@ -646,6 +591,7 @@ def _gateway_wire_headers(headers: Mapping[str, str]) -> Dict[str, str]:
         "openai-organization",
         "openai-project",
         "x-sandhi-usage-convention",
+        "x-sandhi-grant",
     }
     return {name: value for name, value in headers.items() if name.lower() not in blocked}
 
@@ -737,20 +683,9 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
         stop = payload["stop"]
         request["stop"] = stop if isinstance(stop, list) else [stop]
 
-    # W3d/G7: promote reasoning_effort + thinking to typed fields so they are
-    # portable across families (in extensions they reach only the openai
-    # encoder). Dual-write into extensions while the runtime predates the
-    # typed fields — dropping the extensions copy early would lose them on a
-    # pinned runtime. The W3c handshake makes this rollout-order-free.
-    typed_promoted: set[str] = set()
-    if "reasoning_effort" in payload:
-        request["reasoning_effort"] = payload["reasoning_effort"]
-        typed_promoted.add("reasoning_effort")
-    if "thinking" in payload:
-        normalized = _normalize_thinking(payload["thinking"])
-        if normalized is not None:
-            request["thinking"] = normalized
-            typed_promoted.add("thinking")
+    thinking = _final_thinking_control(payload)
+    if thinking is not None:
+        request["thinking"] = thinking
 
     reserved = {
         "model",
@@ -766,13 +701,12 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
         "stop",
         "stream",
         "stream_options",
+        "reasoning_effort",
+        "thinking",
     }
-    # Drop the promoted keys from the extensions bucket once the runtime speaks
-    # the typed-field minor (else keep the copy — pinned runtimes have no typed
-    # fields). Internal orchestration keys never belong on the wire (D4).
+    # Promoted controls never remain in a dialect-specific extension bucket.
+    # Internal orchestration keys never belong on the wire (D4).
     excluded = reserved | _INTERNAL_KWARG_KEYS
-    if installed_chat_contract_minor() >= _W3D_TYPED_FIELDS_MINOR:
-        excluded = excluded | typed_promoted
     native = {key: value for key, value in payload.items() if key not in excluded}
     if native:
         request["extensions"] = {"openai": native}
@@ -902,6 +836,8 @@ class SandhiTypedProviderMixin:
 
     _sandhi_runtime: Any = None
     _sandhi_typed_providers: Optional[Dict[Tuple[str, ...], Any]] = None
+    _gateway_model_capabilities: Optional[Dict[str, Dict[str, Any]]] = None
+    _gateway_model_capabilities_key: Optional[Tuple[str, str, Optional[str]]] = None
 
     @staticmethod
     def _validate_call_options(options: Dict[str, Any]) -> None:
@@ -923,6 +859,203 @@ class SandhiTypedProviderMixin:
         finally:
             self._sandhi_typed_providers = None
             self._sandhi_runtime = None
+
+    def _static_sandhi_model_descriptor(self, model: str) -> Optional[Dict[str, Any]]:
+        """Return an exact model descriptor from the pinned binding catalog."""
+        if not model or _sg is None or not hasattr(_sg, "provider_descriptor_json"):
+            return None
+        model = self._direct_model_name(model)
+        try:
+            descriptor = json.loads(_sg.provider_descriptor_json(self._sandhi_slug()))
+            models = descriptor.get("models") if isinstance(descriptor, dict) else None
+        except Exception:
+            return None
+        if not isinstance(models, list):
+            return None
+        try:
+            validated: List[Dict[str, Any]] = []
+            for candidate in models:
+                if not isinstance(candidate, dict):
+                    raise ValueError("invalid Sandhi model descriptor")
+                _validated_thinking_capability(candidate.get("thinking"))
+                validated.append(candidate)
+        except ValueError:
+            return None
+        return next((candidate for candidate in validated if candidate.get("id") == model), None)
+
+    @staticmethod
+    def _parse_gateway_model_capabilities(body: Any) -> Dict[str, Dict[str, Any]]:
+        """Parse and strictly validate a sanitized model-discovery page."""
+        if (
+            not isinstance(body, dict)
+            or body.get("object") != "list"
+            or type(body.get("sandhi_contract_version")) is not int
+            or body["sandhi_contract_version"] != 1
+        ):
+            raise ValueError("unsupported Sandhi discovery contract")
+        models = body.get("data")
+        if not isinstance(models, list):
+            raise ValueError("unsupported Sandhi discovery contract")
+        result: Dict[str, Dict[str, Any]] = {}
+        for model in models:
+            if (
+                not isinstance(model, dict)
+                or model.get("object") != "model"
+                or not isinstance(model.get("id"), str)
+                or not model["id"]
+            ):
+                raise ValueError("invalid Sandhi model descriptor")
+            _validated_thinking_capability(model.get("thinking"))
+            if model["id"] in result:
+                raise ValueError("duplicate Sandhi model descriptor")
+            result[model["id"]] = model
+        return result
+
+    def _cached_gateway_model_capabilities(
+        self, gateway: Tuple[str, str, Optional[str]]
+    ) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Return discovery data for the current gateway credential and grant."""
+        if (
+            self._gateway_model_capabilities is not None
+            and self._gateway_model_capabilities_key == gateway
+        ):
+            return self._gateway_model_capabilities
+        return None
+
+    def _store_gateway_model_capabilities(
+        self, gateway: Tuple[str, str, Optional[str]], capabilities: Dict[str, Dict[str, Any]]
+    ) -> None:
+        self._gateway_model_capabilities = capabilities
+        self._gateway_model_capabilities_key = gateway
+
+    def _gateway_scope(self) -> Optional[Tuple[str, str, Optional[str]]]:
+        gateway = self._gateway_overrides()
+        if gateway is None:
+            return None
+        config = gateway_config((getattr(self, "extra_config", None) or {}).get("gateway"))
+        return (*gateway, config.get("grant") if config else None)
+
+    @staticmethod
+    def _gateway_discovery_headers(credential: str, grant: Optional[str]) -> Dict[str, str]:
+        headers = {"Authorization": f"Bearer {credential}"}
+        if grant is not None:
+            headers["x-sandhi-grant"] = grant
+        return headers
+
+    def _load_gateway_model_capabilities(self) -> Dict[str, Dict[str, Any]]:
+        """Fetch discovery synchronously for callers outside the event loop.
+
+        A failed page is cached for the credential and grant used to request it.
+        A refreshed token or different grant gets a new bounded attempt.
+        """
+        gateway = self._gateway_scope()
+        if gateway is None:
+            return {}
+        cached = self._cached_gateway_model_capabilities(gateway)
+        if cached is not None:
+            return cached
+        root, credential, grant = gateway
+        url = _gateway_family_base(root, "chat_completions") + "/models"
+        capabilities: Dict[str, Dict[str, Any]] = {}
+        try:
+            response = httpx.get(
+                url,
+                headers=self._gateway_discovery_headers(credential, grant),
+                timeout=min(self._sandhi_timeout(), 5.0),
+                follow_redirects=False,
+            )
+            response.raise_for_status()
+            capabilities = self._parse_gateway_model_capabilities(response.json())
+        except Exception as error:
+            logger.warning(
+                "Sandhi model discovery unavailable; reasoning effort stays disabled: %s",
+                type(error).__name__,
+            )
+        self._store_gateway_model_capabilities(gateway, capabilities)
+        return capabilities
+
+    async def _refresh_gateway_model_capabilities(self) -> None:
+        """Refresh a renewable gateway credential, then await discovery I/O."""
+        if self._gateway_overrides() is None:
+            return
+        refresh = getattr(self, "_refresh_host_credentials", None)
+        if callable(refresh):
+            await refresh()
+        gateway = self._gateway_scope()
+        if gateway is None:
+            return
+        cached = self._cached_gateway_model_capabilities(gateway)
+        if cached is not None:
+            return
+        root, credential, grant = gateway
+        url = _gateway_family_base(root, "chat_completions") + "/models"
+        capabilities: Dict[str, Dict[str, Any]] = {}
+        try:
+            async with httpx.AsyncClient(
+                timeout=min(self._sandhi_timeout(), 5.0),
+                follow_redirects=False,
+            ) as client:
+                response = await client.get(
+                    url, headers=self._gateway_discovery_headers(credential, grant)
+                )
+            response.raise_for_status()
+            capabilities = self._parse_gateway_model_capabilities(response.json())
+        except Exception as error:
+            logger.warning(
+                "Sandhi model discovery unavailable; reasoning effort stays disabled: %s",
+                type(error).__name__,
+            )
+        self._store_gateway_model_capabilities(gateway, capabilities)
+
+    def _sandhi_model_descriptor(self, model: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not model:
+            return None
+        gateway = self._gateway_scope()
+        if gateway is not None:
+            cached = self._cached_gateway_model_capabilities(gateway)
+            if cached is None:
+                try:
+                    asyncio.get_running_loop()
+                except RuntimeError:
+                    cached = self._load_gateway_model_capabilities()
+                else:
+                    # The synchronous public capability API must not block the
+                    # event loop. Async call sites prewarm with the method below.
+                    logger.debug(
+                        "Sandhi gateway model discovery awaits async prewarm; "
+                        "reasoning effort stays disabled for this synchronous check"
+                    )
+                    return None
+            return cached.get(model)
+        return self._static_sandhi_model_descriptor(model)
+
+    def supports_reasoning_effort(self, model: Optional[str] = None) -> bool:
+        """Use exact Sandhi model metadata; never infer from provider or prefix."""
+        descriptor = self._sandhi_model_descriptor(model)
+        thinking = descriptor.get("thinking") if isinstance(descriptor, dict) else None
+        effort = thinking.get("effort") if isinstance(thinking, dict) else None
+        values = effort.get("values") if isinstance(effort, dict) else None
+        return bool(
+            isinstance(thinking, dict)
+            and thinking.get("supported") is True
+            and isinstance(values, list)
+            and values
+        )
+
+    async def supports_reasoning_effort_async(self, model: Optional[str] = None) -> bool:
+        """Exact capability check with async gateway discovery and token refresh."""
+        await self._refresh_gateway_model_capabilities()
+        return self.supports_reasoning_effort(model)
+
+    async def supports_thinking_disable_async(self, model: str) -> bool:
+        await self._refresh_gateway_model_capabilities()
+        descriptor = self._sandhi_model_descriptor(model)
+        thinking = descriptor.get("thinking") if descriptor else None
+        return bool(
+            isinstance(thinking, dict)
+            and thinking.get("supported") is True
+            and thinking.get("can_disable") is True
+        )
 
     def _sandhi_slug(self) -> str:
         declared = str(getattr(self, "name", "openai"))
@@ -1011,19 +1144,9 @@ class SandhiTypedProviderMixin:
         headers = self._sandhi_base_wire_headers()
         if body_timeout is None:
             return headers
-        if installed_chat_contract_minor() >= _STREAM_BODY_BUDGET_MINOR:
-            # round(), not int(): fractional-millisecond budgets must not be
-            # silently floored below the caller's requested value.
-            headers["x-sandhi-stream-body-budget-ms"] = str(round(body_timeout * 1000))
-        else:
-            logger.warning(
-                "stream_body_timeout_secs is set but the installed sandhi "
-                "binding (chat contract minor %d) predates the body-budget "
-                "preflight (needs minor %d); the knob is inert for this "
-                "connection.",
-                installed_chat_contract_minor(),
-                _STREAM_BODY_BUDGET_MINOR,
-            )
+        # round(), not int(): fractional-millisecond budgets must not be
+        # silently floored below the caller's requested value.
+        headers["x-sandhi-stream-body-budget-ms"] = str(round(body_timeout * 1000))
         return headers
 
     def _sandhi_timeout(self) -> float:
@@ -1104,6 +1227,10 @@ class SandhiTypedProviderMixin:
             else declared
         )
 
+    def _direct_model_name(self, model: str) -> str:
+        resolve = getattr(self, "_clean_model_name", None)
+        return str(resolve(model)) if callable(resolve) else model
+
     def _usage_slug(self) -> str:
         if self._gateway_overrides() is not None:
             return "anthropic" if self._client_protocol() == "anthropic_messages" else "openai"
@@ -1154,7 +1281,8 @@ class SandhiTypedProviderMixin:
             or (config.get("endpoint_profile") if isinstance(config, dict) else "")
             or ""
         )
-        gateway = self._gateway_overrides()
+        gateway = self._gateway_scope()
+        grant = None
         # Run cost tree (sandhi PR #149): only gateway mode stamps the run id —
         # direct-provider mode must stay byte-identical on the wire.
         run_id = _gateway_run_id() if gateway is not None else ""
@@ -1162,7 +1290,7 @@ class SandhiTypedProviderMixin:
             # Gateway mode (TD-0003 P3): the FFI handle targets the Sandhi proxy with
             # the configured credential or starter marker. The explicit client
             # dialect is independent of the provider identity and server backend.
-            proxy_url, virtual_key = gateway
+            proxy_url, virtual_key, grant = gateway
             if not virtual_key:
                 raise ProviderConnectionError(
                     "configured gateway credential is unavailable",
@@ -1211,6 +1339,7 @@ class SandhiTypedProviderMixin:
             protocol,
             endpoint_profile,
             "sandhi_gateway_v1" if gateway is not None else "provider",
+            grant or "",
             run_id,
         )
         if cache_key not in self._sandhi_typed_providers:
@@ -1228,8 +1357,8 @@ class SandhiTypedProviderMixin:
             wire_headers = dict(getattr(self, "_wire_headers", None) or {})
             if gateway is not None:
                 wire_headers = _gateway_wire_headers(wire_headers)
-            if gateway is not None and config["gateway"].get("grant") is not None:
-                wire_headers["x-sandhi-grant"] = config["gateway"]["grant"]
+            if grant is not None:
+                wire_headers["x-sandhi-grant"] = grant
             if run_id:
                 # An explicit caller-set header wins; never clobber it.
                 wire_headers.setdefault("x-sandhi-run-id", run_id)
@@ -1527,93 +1656,8 @@ class SandhiTypedProviderMixin:
             raise mapped from exc
 
 
-class SandhiHttpxTransportMixin(SandhiTypedProviderMixin):
-    """OpenAI-compatible Victor policy hooks backed by Sandhi typed execution."""
-
-    @staticmethod
-    def _validate_call_options(options: Dict[str, Any]) -> None:
-        SandhiTypedProviderMixin._validate_call_options(options)
-        if "text_response_mode" in options:
-            raise ValueError("text_response_mode is a constructor-only provider option")
-
-    async def _refresh_host_credentials(self) -> None:
-        refresh = getattr(self, "_ensure_valid_token", None)
-        if callable(refresh) and (
-            self._gateway_overrides() is None
-            or getattr(self, "_gateway_credential", None) is not None
-        ):
-            await refresh()
-
-    async def chat(
-        self,
-        messages: List[Message],
-        *,
-        model: str,
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
-        tools: Optional[List[ToolDefinition]] = None,
-        **kwargs: Any,
-    ) -> CompletionResponse:
-        self._validate_call_options(kwargs)
-        await self._refresh_host_credentials()
-        cleaner = getattr(self, "_clean_model_name", None)
-        model = cleaner(model) if callable(cleaner) and self._gateway_overrides() is None else model
-        if self._gateway_overrides() is not None:
-            payload = {
-                "model": model,
-                "messages": build_openai_messages(messages),
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                **kwargs,
-            }
-            if tools:
-                payload["tools"] = convert_tools_to_openai_format(tools)
-                payload.setdefault("tool_choice", "auto")
-        else:
-            payload = self._build_request_payload(
-                messages, model, temperature, max_tokens, tools, False, **kwargs
-            )
-        response = await self._sandhi_complete(_typed_request_from_openai_payload(payload))
-        return self._completion_from_typed(response, model)
-
-    async def stream(
-        self,
-        messages: List[Message],
-        *,
-        model: str,
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
-        tools: Optional[List[ToolDefinition]] = None,
-        **kwargs: Any,
-    ) -> AsyncIterator[StreamChunk]:
-        self._validate_call_options(kwargs)
-        await self._refresh_host_credentials()
-        cleaner = getattr(self, "_clean_model_name", None)
-        model = cleaner(model) if callable(cleaner) and self._gateway_overrides() is None else model
-        if self._gateway_overrides() is not None:
-            payload = {
-                "model": model,
-                "messages": build_openai_messages(messages),
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                **kwargs,
-            }
-            if tools:
-                payload["tools"] = convert_tools_to_openai_format(tools)
-                payload.setdefault("tool_choice", "auto")
-        else:
-            payload = self._build_request_payload(
-                messages, model, temperature, max_tokens, tools, True, **kwargs
-            )
-        async with aclosing(
-            self._sandhi_stream(_typed_request_from_openai_payload(payload))
-        ) as upstream:
-            async for chunk in upstream:
-                yield chunk
-
-
 class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
-    """Build the neutral contract directly for providers with no reusable Victor wire policy."""
+    """Send portable Victor prompts through the neutral Sandhi transport."""
 
     async def _refresh_host_credentials(self) -> None:
         refresh = getattr(self, "_ensure_valid_token", None)
@@ -1632,6 +1676,9 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
         tools: Optional[List[ToolDefinition]],
         **kwargs: Any,
     ) -> Dict[str, Any]:
+        direct = self._gateway_overrides() is None
+        if direct:
+            model = self._direct_model_name(model)
         payload: Dict[str, Any] = {
             "model": model,
             "messages": build_openai_messages(messages),
@@ -1643,35 +1690,20 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
             payload["tools"] = convert_tools_to_openai_format(tools)
             payload.setdefault("tool_choice", "auto")
         request = _typed_request_from_openai_payload(payload)
-        slug = self._sandhi_slug()
-        if self._gateway_overrides() is not None:
-            native = request.get("extensions", {}).get("openai")
-            protocol = self._client_protocol()
-            if native and protocol != "chat_completions":
-                raise ValueError(
-                    "OpenAI-native call options require the Chat Completions gateway dialect; use canonical typed options for portable calls"
-                )
-            return request
-        if slug != "openai":
-            extensions = request.pop("extensions", {})
-            native = extensions.get("openai") if isinstance(extensions, dict) else None
-            # W3d/G7 D3: for families whose sandhi encoder is a native
-            # translator (gemini/cohere/ollama), the encoder clones
-            # extensions[<slug>] verbatim as the base body — re-labeling an
-            # OpenAI-shaped bucket to that key corrupts the native request.
-            # Drop it; the typed fields carry what those encoders honor.
-            if native and slug not in _NATIVE_ENCODER_SLUGS:
-                request["extensions"] = {slug: native}
-        # Sandhi's native Ollama encoder intentionally does not interpret the
-        # portable ``thinking`` field. Ollama does expose a native top-level
-        # ``think`` switch, however, and reasoning models can otherwise spend
-        # the complete micro-decision output budget on hidden reasoning. Keep
-        # the exception narrow and native-shaped so no OpenAI bucket is ever
-        # relabelled as an Ollama request body.
-        if slug == "ollama":
-            thinking = _normalize_thinking(kwargs.get("thinking"))
-            if thinking is not None:
-                request["extensions"] = {"ollama": {"think": thinking["enabled"]}}
+        if direct and tools:
+            # Tool selection orders stable schemas before stubs. Pass only the
+            # stable prefix length and let the transport place any breakpoint.
+            for index, tool in enumerate(tools):
+                if getattr(tool, "schema_level", None) == "stub":
+                    if index > 0:
+                        request["stable_tool_prefix_count"] = index
+                    break
+        native = request.get("extensions", {}).get("openai")
+        if native:
+            unsupported = ", ".join(sorted(native))
+            raise ValueError(
+                f"native call options have no portable Sandhi representation: {unsupported}"
+            )
         return request
 
     async def chat(
@@ -1702,158 +1734,27 @@ class SandhiNeutralProviderMixin(SandhiTypedProviderMixin):
         self._validate_call_options(kwargs)
         await self._refresh_host_credentials()
         request = self._neutral_request(messages, model, temperature, max_tokens, tools, **kwargs)
-        async for chunk in self._sandhi_stream(request):
-            yield chunk
+        async with aclosing(self._sandhi_stream(request)) as upstream:
+            async for chunk in upstream:
+                yield chunk
 
 
-class SandhiAnthropicProvider(SandhiTypedProviderMixin, AnthropicProvider):
-    """Anthropic prompt policy backed by Sandhi's typed Messages codec and transport."""
+class SandhiHttpxTransportMixin(SandhiNeutralProviderMixin):
+    """Reuse the neutral request path with OpenAI-compatible configuration."""
 
-    def _anthropic_request(
-        self,
-        messages: List[Message],
-        model: str,
-        temperature: float,
-        max_tokens: int,
-        tools: Optional[List[ToolDefinition]],
-        **kwargs: Any,
-    ) -> Dict[str, Any]:
-        if self._gateway_overrides() is not None:
-            unsupported = (
-                set(kwargs)
-                - _INTERNAL_KWARG_KEYS
-                - {
-                    "cache_intent",
-                    "thinking",
-                    "reasoning_effort",
-                    "stop",
-                    "seed",
-                    "response_format",
-                }
-            )
-            if unsupported:
-                raise ValueError(
-                    "Anthropic-native call options require direct mode: "
-                    + ", ".join(sorted(unsupported))
-                )
-            payload = {
-                "model": model,
-                "messages": build_openai_messages(messages),
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                **kwargs,
-            }
-            if tools:
-                payload["tools"] = convert_tools_to_openai_format(tools)
-                payload["tool_choice"] = "auto"
-            # Cache placement belongs to the selected server policy. An explicit
-            # intent is forwarded; absent intent leaves the server default intact.
-            return _typed_request_from_openai_payload(payload)
-        native = self._build_request_params(
-            messages,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            tools=tools,
-            **kwargs,
-        )
-        # Defence-in-depth, mirroring sandhi's encoder guard: `temperature`
-        # must never ride alongside active extended thinking on the native
-        # channel (Anthropic rejects the pair with a 400).
-        if "temperature" in native and _is_thinking_active(native.get("thinking")):
-            raise RuntimeError(
-                "anthropic request would send temperature alongside extended "
-                "thinking — _build_request_params must omit temperature when "
-                "thinking is active (Anthropic API rejects the combination)"
-            )
-        openai_payload: Dict[str, Any] = {
-            "model": model,
-            "messages": build_openai_messages(messages),
-            "max_tokens": max_tokens,
-        }
-        if tools:
-            openai_payload["tools"] = convert_tools_to_openai_format(tools)
-            openai_payload["tool_choice"] = "auto"
-        request = _typed_request_from_openai_payload(openai_payload)
-        # Temperature policy lives in exactly one place: _build_request_params
-        # already omits `temperature` when extended thinking is active — mirror
-        # its decision onto the typed contract instead of recomputing the
-        # thinking shape here (two independent checks could drift apart).
-        if "temperature" in native:
-            request["temperature"] = native["temperature"]
-        # Sandhi's anthropic encoder re-encodes messages/tools from the typed
-        # fields and merges `cache_control` only from extensions["anthropic"]
-        # (system blocks by index, tools by name) — the native body is the sole
-        # carrier of the FEP-0011 prompt-cache markers. Attach it, then verify
-        # the channel at construction time so a refactor that severs it (or
-        # strips the markers) fails loudly instead of silently decaching.
-        request["extensions"] = {"anthropic": native}
-        _assert_anthropic_cache_channel(
-            native, request, supports_caching=self.supports_prompt_caching()
-        )
-        return request
+    @staticmethod
+    def _validate_call_options(options: Dict[str, Any]) -> None:
+        SandhiTypedProviderMixin._validate_call_options(options)
+        if "text_response_mode" in options:
+            raise ValueError("text_response_mode is a constructor-only provider option")
 
-    async def chat(
-        self,
-        messages: List[Message],
-        *,
-        model: str,
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
-        tools: Optional[List[ToolDefinition]] = None,
-        **kwargs: Any,
-    ) -> CompletionResponse:
-        self._validate_call_options(kwargs)
-        if self._gateway_overrides() is None:
-            await self._ensure_valid_token()
-        request = self._anthropic_request(messages, model, temperature, max_tokens, tools, **kwargs)
-        return self._completion_from_typed(await self._sandhi_complete(request), model)
 
-    async def stream(
-        self,
-        messages: List[Message],
-        *,
-        model: str,
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
-        tools: Optional[List[ToolDefinition]] = None,
-        **kwargs: Any,
-    ) -> AsyncIterator[StreamChunk]:
-        self._validate_call_options(kwargs)
-        if self._gateway_overrides() is None:
-            await self._ensure_valid_token()
-        request = self._anthropic_request(messages, model, temperature, max_tokens, tools, **kwargs)
-        async for chunk in self._sandhi_stream(request):
-            yield chunk
+class SandhiAnthropicProvider(SandhiNeutralProviderMixin, AnthropicProvider):
+    pass
 
 
 class SandhiOpenAIProvider(SandhiNeutralProviderMixin, OpenAIProvider):
-    """OpenAI prompt policy with explicit Chat Completions vs Responses selection."""
-
-    def _neutral_request(
-        self,
-        messages: List[Message],
-        model: str,
-        temperature: float,
-        max_tokens: int,
-        tools: Optional[List[ToolDefinition]],
-        **kwargs: Any,
-    ) -> Dict[str, Any]:
-        request = super()._neutral_request(
-            messages, model, temperature, max_tokens, tools, **kwargs
-        )
-        if self._gateway_overrides() is None and self._is_o_series_model(model):
-            request.pop("temperature", None)
-        if self._client_protocol() in {"responses", "chatgpt_responses"}:
-            extensions = request.setdefault("extensions", {})
-            native = extensions.pop("openai", {})
-            if not isinstance(native, dict):
-                native = {}
-            effort = native.pop("reasoning_effort", None)
-            if effort is not None:
-                native["reasoning"] = {"effort": effort}
-            extensions["openai_responses"] = native
-        return request
+    pass
 
 
 class SandhiGoogleProvider(SandhiNeutralProviderMixin, GoogleProvider):

@@ -26,9 +26,6 @@ class MoonshotProvider(SandhiOpenAICompatPolicy):
 
     CONFIG_KEY = "moonshot"
 
-    def supports_reasoning_effort(self, model: str | None = None) -> bool:
-        return bool(model and model.startswith("kimi-k3"))
-
     @classmethod
     def resolve_base_url_for_model(cls, model: str) -> str:
         return str(sandhi_gateway.provider_spec("moonshot", model)["base_url"])

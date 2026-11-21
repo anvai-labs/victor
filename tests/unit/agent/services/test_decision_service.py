@@ -114,6 +114,25 @@ class TestLLMDecisionServiceProtocol:
         assert provider.chat.call_args.kwargs["thinking"] is False
         assert "think" not in provider.chat.call_args.kwargs
 
+    @pytest.mark.parametrize("supported", [False, True])
+    async def test_default_disable_follows_exact_transport_capability(self, supported):
+        provider = _make_provider({"is_complete": True, "confidence": 0.9, "phase": "done"})
+        provider.supports_thinking_disable_async = AsyncMock(return_value=supported)
+        service = LLMDecisionService(provider=provider, model="selected")
+
+        await service.decide(
+            DecisionType.TASK_COMPLETION,
+            context={"response_tail": "done", "deliverable_count": 1, "signal_count": 1},
+            heuristic_confidence=0.1,
+        )
+
+        provider.supports_thinking_disable_async.assert_awaited_once_with("selected")
+        options = provider.chat.call_args.kwargs
+        if supported:
+            assert options["thinking"] is False
+        else:
+            assert "thinking" not in options
+
 
 class TestHeuristicFastPath:
     """Test that heuristic results are returned when confidence is high."""

@@ -108,7 +108,23 @@ class FakeRuntime:
 
 def install_runtime(monkeypatch, handle: FakeTypedProvider | None = None) -> FakeRuntime:
     runtime = FakeRuntime(handle or FakeTypedProvider())
-    monkeypatch.setattr(st, "_sg", SimpleNamespace(ProviderRuntime=lambda: runtime))
+    binding = st._sg
+
+    def provider_descriptor_json(slug: str) -> str:
+        assert binding is not None
+        return binding.provider_descriptor_json(slug)
+
+    # Intercept runtime construction without discarding the installed binding
+    # catalog. Exact capability admission can therefore exercise the same
+    # descriptor metadata that the pinned Sandhi release provides.
+    monkeypatch.setattr(
+        st,
+        "_sg",
+        SimpleNamespace(
+            ProviderRuntime=lambda: runtime,
+            provider_descriptor_json=provider_descriptor_json,
+        ),
+    )
     return runtime
 
 
@@ -267,25 +283,25 @@ async def test_openai_oauth_explicitly_selects_responses_and_refreshes_before_ha
 
     await provider.chat(
         [Message(role="developer", content="policy"), Message(role="user", content="hi")],
-        model="o3",
+        model="gpt-5",
         reasoning_effort="high",
     )
 
     args, kwargs = runtime.calls[0]
-    assert args[:3] == ("openai", "o3", "fresh-oauth")
+    assert args[:3] == ("openai", "gpt-5", "fresh-oauth")
     assert kwargs["protocol"] == "chatgpt_responses"
     assert "peer_role" not in kwargs
     assert kwargs["base_url"] == "https://chatgpt.com/backend-api/codex"
     assert json.loads(kwargs["headers_json"])["originator"] == "victor"
     assert json.loads(kwargs["headers_json"])["ChatGPT-Account-ID"] == "workspace_123"
     request = runtime.handle.requests[0]
-    assert "temperature" not in request
-    # At sandhi's >= 0.1.5 floor (contract minor >= 4) reasoning_effort rides the
+    assert request["temperature"] == 0.7
+    # Sandhi 0.22 promotes SDK reasoning_effort to the semantic thinking field;
     # typed ChatRequestV1 field; sandhi's Responses codec maps it to reasoning.effort
     # in the native body (openai_responses_typed.rs), so victor no longer dual-writes
     # it into the extensions bucket.
-    assert request["reasoning_effort"] == "high"
-    assert request["extensions"] == {"openai_responses": {}}
+    assert request["thinking"] == {"enabled": True, "effort": "high"}
+    assert "extensions" not in request
 
 
 def test_resolver_fails_closed_when_binding_is_missing(monkeypatch):
@@ -1432,19 +1448,19 @@ def test_installed_minor_read_from_binding(monkeypatch):
 
 
 def test_handshake_accepts_current_known_minor(monkeypatch, caplog):
-    """Victor consumes contract minor 9 (cache-read observations);
+    """Victor consumes contract minor 2 (stable tool prefix and Ollama toggles);
     the handshake reads it exactly and does not warn it is 'ahead'."""
     import types
 
-    assert st.KNOWN_CONTRACT_MINOR == 14
+    assert st.KNOWN_CONTRACT_MINOR == 2
     fake_sg = types.SimpleNamespace(
-        wire_contract_version=lambda: "1", chat_contract_minor=lambda: 9
+        wire_contract_version=lambda: "1", chat_contract_minor=lambda: st.KNOWN_CONTRACT_MINOR
     )
     monkeypatch.setitem(sys.modules, "sandhi_gateway", fake_sg)
     monkeypatch.setattr(st, "_wire_contract_checked", False)
     monkeypatch.setattr(st, "_installed_contract_minor", 0)
     with caplog.at_level("INFO"):
-        assert st.installed_chat_contract_minor() == 9
+        assert st.installed_chat_contract_minor() == st.KNOWN_CONTRACT_MINOR
     assert not any("ahead of victor" in r.getMessage() for r in caplog.records)
 
 
@@ -1490,34 +1506,22 @@ def _openai_payload(**extra):
 
 def test_reasoning_effort_promoted_to_typed_field(monkeypatch):
     monkeypatch.setattr(st, "_wire_contract_checked", True)
-    monkeypatch.setattr(st, "_installed_contract_minor", 4)
     request = st._typed_request_from_openai_payload(_openai_payload(reasoning_effort="high"))
-    assert request["reasoning_effort"] == "high"
-    # At minor >= 4 the extensions copy is dropped (no dual-write).
+    assert request["thinking"] == {"enabled": True, "effort": "high"}
+    assert "reasoning_effort" not in request
     assert "reasoning_effort" not in request.get("extensions", {}).get("openai", {})
 
 
 def test_thinking_normalized_from_victor_shape(monkeypatch):
     monkeypatch.setattr(st, "_wire_contract_checked", True)
-    monkeypatch.setattr(st, "_installed_contract_minor", 4)
     request = st._typed_request_from_openai_payload(
-        _openai_payload(thinking={"type": "enabled", "budget_tokens": 2048})
+        _openai_payload(thinking={"enabled": True, "budget_tokens": 2048})
     )
     assert request["thinking"] == {"enabled": True, "budget_tokens": 2048}
 
 
-def test_dual_write_keeps_extensions_copy_below_minor_4(monkeypatch):
-    monkeypatch.setattr(st, "_wire_contract_checked", True)
-    monkeypatch.setattr(st, "_installed_contract_minor", 3)  # pinned pre-W3d runtime
-    request = st._typed_request_from_openai_payload(_openai_payload(reasoning_effort="high"))
-    assert request["reasoning_effort"] == "high"  # typed field always emitted
-    # ...and the extensions copy is retained so the old runtime still sees it.
-    assert request["extensions"]["openai"]["reasoning_effort"] == "high"
-
-
 def test_internal_kwargs_never_reach_extensions(monkeypatch):
     monkeypatch.setattr(st, "_wire_contract_checked", True)
-    monkeypatch.setattr(st, "_installed_contract_minor", 4)
     request = st._typed_request_from_openai_payload(
         _openai_payload(execution_mode="fast", topology_action="escalate", top_p=0.9)
     )
@@ -1530,7 +1534,8 @@ def test_internal_kwargs_never_reach_extensions(monkeypatch):
 
 def test_normalize_thinking_shapes():
     assert st._normalize_thinking(True) == {"enabled": True}
-    assert st._normalize_thinking({"type": "disabled"}) == {"enabled": False}
+    assert st._normalize_thinking({"enabled": False}) == {"enabled": False}
+    assert st._normalize_thinking({"type": "disabled"}) is None
     assert st._normalize_thinking({"enabled": True, "budget_tokens": 100}) == {
         "enabled": True,
         "budget_tokens": 100,
@@ -1538,13 +1543,12 @@ def test_normalize_thinking_shapes():
     assert st._normalize_thinking("nonsense") is None
 
 
-def test_neutral_mixin_drops_bucket_for_native_encoder_families(monkeypatch):
+def test_neutral_mixin_rejects_native_options_without_a_portable_mapping(monkeypatch):
     """W3d/G7 D3: gemini/cohere/ollama encoders clone extensions[<slug>] as the
     base body, so an OpenAI-shaped bucket must NOT be re-labeled to their key."""
     from victor.providers.base import Message
 
     monkeypatch.setattr(st, "_wire_contract_checked", True)
-    monkeypatch.setattr(st, "_installed_contract_minor", 4)
 
     class _Stub(st.SandhiNeutralProviderMixin):
         def __init__(self, slug):
@@ -1554,19 +1558,16 @@ def test_neutral_mixin_drops_bucket_for_native_encoder_families(monkeypatch):
             return self._slug
 
     msgs = [Message(role="user", content="hi")]
-    # Gemini: native encoder → bucket dropped even with a passthrough param.
-    gemini_req = _Stub("gemini")._neutral_request(msgs, "g", 0.7, 100, None, top_p=0.9)
-    assert "extensions" not in gemini_req
-    # An openai-compat local (lmstudio): bucket re-labeled, not dropped.
-    local_req = _Stub("lmstudio")._neutral_request(msgs, "m", 0.7, 100, None, top_p=0.9)
-    assert local_req.get("extensions", {}).get("lmstudio", {}).get("top_p") == 0.9
+    with pytest.raises(ValueError, match="portable Sandhi representation"):
+        _Stub("gemini")._neutral_request(msgs, "g", 0.7, 100, None, top_p=0.9)
+    with pytest.raises(ValueError, match="portable Sandhi representation"):
+        _Stub("lmstudio")._neutral_request(msgs, "m", 0.7, 100, None, top_p=0.9)
 
 
-def test_neutral_mixin_maps_disabled_thinking_to_native_ollama_switch(monkeypatch):
+def test_neutral_mixin_leaves_disabled_thinking_encoding_to_sandhi(monkeypatch):
     from victor.providers.base import Message
 
     monkeypatch.setattr(st, "_wire_contract_checked", True)
-    monkeypatch.setattr(st, "_installed_contract_minor", 4)
 
     class _Stub(st.SandhiNeutralProviderMixin):
         def _sandhi_slug(self):
@@ -1581,7 +1582,7 @@ def test_neutral_mixin_maps_disabled_thinking_to_native_ollama_switch(monkeypatc
         thinking=False,
     )
     assert request["thinking"] == {"enabled": False}
-    assert request["extensions"] == {"ollama": {"think": False}}
+    assert "extensions" not in request
 
 
 # =============================================================================
@@ -1804,9 +1805,8 @@ async def test_sandhi_stream_idle_timeout_passes_through_chunks():
     assert "world" in chunks[1]
 
 
-def test_known_contract_minor_tracks_gateway_021():
-    """Handoff fix: sandhi-gateway 0.21.0 ships CHAT_CONTRACT_MINOR 14;
-    victor's known minor was 9, causing a contract-mismatch warning."""
+def test_known_contract_minor_tracks_gateway_023_portability():
+    """Sandhi 0.23 publishes the portable request additions at v1 minor 2."""
     from victor.providers.sandhi_transport import KNOWN_CONTRACT_MINOR
 
-    assert KNOWN_CONTRACT_MINOR == 14
+    assert KNOWN_CONTRACT_MINOR == 2

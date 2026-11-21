@@ -22,7 +22,15 @@ def test_sandhi_catalog_owns_kimi_model_endpoint_and_temperature() -> None:
     descriptor = json.loads(sandhi_gateway.provider_descriptor_json("moonshot"))
     kimi_k3 = next(model for model in descriptor["models"] if model["id"] == "kimi-k3")
     assert kimi_k3["default_temperature"] == 1.0
-    assert kimi_k3["extensions"]["reasoning_effort_values"] == ["low", "high", "max"]
+    assert kimi_k3["thinking"]["effort"]["values"] == ["low", "high", "max"]
+    assert not (kimi_k3.get("extensions") or {}).get("reasoning_effort_values")
+
+
+def test_reasoning_effort_comes_from_exact_catalog_entry() -> None:
+    provider = MoonshotProvider(api_key="test-key")
+    assert provider.supports_reasoning_effort("kimi-k3") is True
+    assert provider.supports_reasoning_effort("kimi-k3-preview") is False
+    assert provider.supports_reasoning_effort(None) is False
 
 
 def test_compatibility_payload_reflects_k3_constraints() -> None:
