@@ -1115,6 +1115,12 @@ RELATED_TESTS = {
         "tests/unit/agent/conversation/test_message_source.py",
     ),
     "victor/agent/services/task_runtime.py": ("tests/unit/agent/test_task_coordinator.py",),
+    "victor/agent/provider_capabilities.py": (
+        "tests/unit/agent/planning/test_readable_schema.py",
+        "tests/unit/agent/services/test_chat_stream_helpers_cleanup.py",
+        "tests/unit/agent/services/test_turn_execution_runtime.py",
+        "tests/unit/providers/test_sandhi_thinking_capabilities.py",
+    ),
     "victor/config/prompt_optimization_settings.py": (
         "tests/unit/evaluation/test_benchmark_ab_hygiene.py",
     ),
@@ -1146,6 +1152,7 @@ RELATED_TESTS = {
             "tests/unit/providers/test_provider_stream_aclosing.py",
         ),
     ),
+    "victor/providers/moonshot_provider.py": ("tests/unit/providers/test_moonshot_kimi_k3.py",),
     "victor/providers/sandhi_transport.py": (
         "tests/unit/providers/test_sandhi_pin_alignment.py",
         "tests/unit/providers/test_sandhi_consumed_contract_pin.py",
@@ -1153,6 +1160,7 @@ RELATED_TESTS = {
         "tests/unit/providers/test_sandhi_openai_compat_policy.py",
         "tests/unit/providers/test_provider_stream_aclosing.py",
         "tests/unit/providers/test_sandhi_transport.py",
+        "tests/unit/providers/test_sandhi_thinking_capabilities.py",
     ),
     "victor/providers/openai_compat_model_policy.py": (
         "tests/unit/providers/test_sandhi_pin_alignment.py",

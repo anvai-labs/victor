@@ -6,11 +6,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from victor.config.settings import ProviderGatewayConfig
-from victor.providers.base import Message
+from victor.providers.base import Message, ToolDefinition
 from victor.providers.sandhi_transport import resolve_transport_class
 from victor.providers.anthropic_provider import AnthropicProvider
 from victor.providers.google_provider import GoogleProvider
 from victor.providers.openai_provider import OpenAIProvider
+from victor.providers.xai_provider import XAIProvider
 from victor.providers.zai_provider import ZAIProvider
 from types import SimpleNamespace
 import victor.providers.sandhi_transport as st
@@ -59,6 +60,89 @@ PROTOCOLS = {
     "responses": "/v1",
     "gemini_generate_content": "/v1beta",
 }
+
+
+@pytest.mark.parametrize(
+    "provider_type,model,selected",
+    [
+        (ZAIProvider, "glm-5.2:coding", "glm-5.2"),
+        (XAIProvider, "grok-4.1-fast", "grok-4-1-fast"),
+    ],
+)
+@pytest.mark.parametrize("via_gateway", [False, True])
+async def test_model_selector_normalizes_direct_names_and_preserves_gateway_aliases(
+    monkeypatch, provider_type, model, selected, via_gateway
+):
+    runtime = install_runtime(monkeypatch)
+    options = (
+        {"gateway": {"url": "https://gateway.example.test", "virtual_key": "vk_fixture"}}
+        if via_gateway
+        else {"api_key": "fixture", "model": model}
+    )
+    provider = provider_type(**options)
+    try:
+        await provider.chat([Message(role="user", content="hi")], model=model)
+        expected = model if via_gateway else selected
+        assert runtime.calls[0][0][1] == expected
+        assert runtime.handle.requests[0]["model"] == expected
+    finally:
+        await provider.close()
+
+
+@pytest.mark.parametrize("via_gateway", [False, True])
+async def test_stable_tool_prefix_is_neutral_and_direct_only(monkeypatch, via_gateway):
+    runtime = install_runtime(monkeypatch)
+    cls = resolve_transport_class("anthropic", AnthropicProvider, {})
+    options = (
+        {"gateway": {"url": "https://gateway.example.test", "virtual_key": "vk_fixture"}}
+        if via_gateway
+        else {"api_key": "fixture"}
+    )
+    provider = cls(**options)
+    try:
+        await provider.chat(
+            [Message(role="user", content="hi")],
+            model="claude-sonnet-4-6",
+            tools=[
+                ToolDefinition(name=level, description=level, parameters={}, schema_level=level)
+                for level in ("full", "compact", "stub")
+            ],
+        )
+        request = runtime.handle.requests[0]
+        assert request.get("stable_tool_prefix_count") == (None if via_gateway else 2)
+        assert "cache_control" not in json.dumps(request)
+        assert not request.get("extensions")
+    finally:
+        await provider.close()
+
+
+async def test_gateway_inference_handle_is_scoped_to_current_grant(monkeypatch):
+    runtime = install_runtime(monkeypatch)
+    cls = resolve_transport_class("openai", OpenAIProvider, {})
+    provider = cls(
+        gateway={
+            "url": "https://gateway.example.test",
+            "virtual_key": "vk_fixture",
+            "grant": "constructor",
+        }
+    )
+    assert provider._wire_headers["x-sandhi-grant"] == "constructor"
+    gateway = provider.extra_config["gateway"]
+    try:
+        for grant in ("coding", "general", None, "coding"):
+            if grant is None:
+                gateway.pop("grant")
+            else:
+                gateway["grant"] = grant
+            await provider.chat([Message(role="user", content="hi")], model="alias")
+        assert len(runtime.calls) == 3
+        assert [
+            json.loads(options.get("headers_json", "{}")).get("x-sandhi-grant")
+            for _, options in runtime.calls
+        ] == ["coding", "general", None]
+        assert len(runtime.handle.requests) == 4
+    finally:
+        await provider.close()
 
 
 @pytest.mark.parametrize("protocol,suffix", PROTOCOLS.items())

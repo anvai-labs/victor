@@ -38,11 +38,11 @@ Python extension is `_native`. Install `victor-coding` as well; the native wheel
 does not replace that package. It is distinct from the framework's `victor_native`
 extension in the root `rust/` directory.
 
-Use Python 3.12 or newer, a current stable Rust toolchain and `maturin>=1.10,<2`.
+Use Python 3.12 or newer, Rust 1.100.0 and `maturin==1.16.0`.
 From the monorepo root:
 
 ```bash
-python -m pip install 'maturin>=1.10,<2'
+python -m pip install 'maturin==1.16.0'
 cd verticals/victor-coding/native
 maturin build --release --locked --out dist
 python -m pip install dist/victor_coding_native-*.whl

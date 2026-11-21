@@ -138,7 +138,7 @@ This is the canonical native-build recipe. Activate the development virtual
 environment first, then build the in-repository Rust extension:
 
 ```bash
-pip install maturin
+pip install maturin==1.16.0
 cd rust
 maturin develop --release
 cargo test --workspace --locked

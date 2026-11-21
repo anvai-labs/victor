@@ -63,9 +63,11 @@ def test_compatibility_parser_keeps_reasoning_content() -> None:
 
 @pytest.mark.parametrize("model", ["glm-5.3", "glm-5.3:coding", "glm-5.3:china-coding"])
 @pytest.mark.parametrize("effort", ["low", "high", "max"])
-def test_glm53_reasoning_effort_reaches_request_payload(model: str, effort: str) -> None:
+def test_direct_glm53_reasoning_effort_fails_closed_until_catalogued(
+    model: str, effort: str
+) -> None:
     provider = ZAIProvider(api_key="test-key")
-    assert provider.supports_reasoning_effort(model)
+    assert provider.supports_reasoning_effort(model) is False
     payload = provider._build_request_payload(
         [Message(role="user", content="hi")],
         model,
@@ -75,28 +77,57 @@ def test_glm53_reasoning_effort_reaches_request_payload(model: str, effort: str)
         False,
         reasoning_effort=effort,
     )
-    assert payload["reasoning_effort"] == effort
-    assert payload["max_tokens"] == 64
-    assert "tools" not in payload
-    request = _typed_request_from_openai_payload(payload)
-    assert request["reasoning_effort"] == effort
-    assert request["max_output_tokens"] == 64
-
-
-@pytest.mark.parametrize("model", ["glm-5.2", "glm-4.7", "glm-unknown", "glm-5.3-unknown"])
-def test_unqualified_models_do_not_inherit_glm53_effort_support(model: str) -> None:
-    provider = ZAIProvider(api_key="test-key")
-    assert not provider.supports_reasoning_effort(model)
-    payload = provider._build_request_payload(
-        [Message(role="user", content="hi")],
-        model,
-        0.2,
-        64,
-        None,
-        False,
-        reasoning_effort="low",
-    )
     assert "reasoning_effort" not in payload
+    request = _typed_request_from_openai_payload(payload)
+    assert "thinking" not in request
+
+
+@pytest.mark.asyncio
+async def test_gateway_discovery_can_admit_glm53_reasoning_effort(monkeypatch) -> None:
+    provider = ZAIProvider.__new__(ZAIProvider)
+    provider._spec = ZAIProvider.provider_spec()
+    provider.extra_config = {
+        "gateway": {"url": "http://127.0.0.1:8080", "virtual_key": "vk-synthetic"}
+    }
+    captured = {}
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, **kwargs):
+            captured["url"] = url
+            captured["authorization"] = kwargs["headers"]["Authorization"]
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {
+                    "object": "list",
+                    "sandhi_contract_version": 1,
+                    "data": [
+                        {
+                            "id": "glm-5.3",
+                            "object": "model",
+                            "thinking": {
+                                "supported": True,
+                                "effort": {"values": ["low", "high", "max"]},
+                            },
+                        }
+                    ],
+                },
+            )
+
+    monkeypatch.setattr("victor.providers.sandhi_transport.httpx.AsyncClient", Client)
+    assert await provider.supports_reasoning_effort_async("glm-5.3") is True
+    assert captured["url"] == "http://127.0.0.1:8080/v1/models"
+    assert captured["authorization"] == "Bearer vk-synthetic"
 
 
 @pytest.mark.parametrize("effort", ["medium", "none", "ultra", "invalid", 1, [], {}])

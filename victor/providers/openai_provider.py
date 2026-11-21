@@ -278,7 +278,9 @@ class OpenAIProvider(BaseProvider):
                 ) from None
             if token.token != self._api_key:
                 self._api_key = token.token
-                self.client.api_key = token.token
+                client = getattr(self, "client", None)
+                if client is not None:
+                    client.api_key = token.token
                 # Retire cached handles containing old access tokens. In-flight
                 # calls retain their own handle; no inference request is replayed.
                 cached = getattr(self, "_sandhi_typed_providers", None)

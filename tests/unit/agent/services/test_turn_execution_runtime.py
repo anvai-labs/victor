@@ -2071,6 +2071,32 @@ def _text_response(text: str = "final answer") -> CompletionResponse:
 
 
 @pytest.mark.asyncio
+async def test_execute_model_turn_uses_async_reasoning_capability_probe():
+    """Configured effort must await gateway discovery instead of blocking it."""
+    executor = _make_executor()
+    provider = SimpleNamespace(
+        supports_reasoning_effort_async=AsyncMock(return_value=True),
+        supports_reasoning_effort=MagicMock(
+            side_effect=AssertionError("synchronous discovery must not run")
+        ),
+    )
+    executor._provider_context = SimpleNamespace(
+        model="qwen3.7-plus",
+        reasoning_effort="high",
+        max_tokens=128,
+        provider=provider,
+    )
+    executor._execution_provider.execute_turn = AsyncMock(return_value=_text_response())
+    executor._resolve_turn_temperature = MagicMock(return_value=0.2)
+
+    await executor._execute_model_turn()
+
+    provider.supports_reasoning_effort_async.assert_awaited_once_with("qwen3.7-plus")
+    provider.supports_reasoning_effort.assert_not_called()
+    assert executor._execution_provider.execute_turn.await_args.kwargs["reasoning_effort"] == "high"
+
+
+@pytest.mark.asyncio
 async def test_execute_turn_keeps_tool_offer_when_budget_exhausted():
     """Exhausting the tool budget must not empty the request's tool offer.
 

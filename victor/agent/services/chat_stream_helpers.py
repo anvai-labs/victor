@@ -16,6 +16,7 @@ import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from victor.agent.conversation.history_metadata import build_internal_history_metadata
+from victor.agent.provider_capabilities import provider_supports_reasoning_effort
 from victor.agent.paradigm_router import get_paradigm_router
 from victor.agent.prompt_requirement_extractor import extract_prompt_requirements
 from victor.agent.topology_contract import TopologyAction
@@ -1016,13 +1017,11 @@ class ChatStreamHelperMixin:
             base_temperature=orch.temperature,
         )
         reasoning_effort = getattr(orch, "reasoning_effort", None)
-        supports_reasoning = getattr(orch.provider, "supports_reasoning_effort", None)
-        if (
-            reasoning_effort
-            and "reasoning_effort" not in provider_kwargs
-            and callable(supports_reasoning)
-            and supports_reasoning(orch.model)
-        ):
+        if reasoning_effort and "reasoning_effort" not in provider_kwargs:
+            supports_reasoning = await provider_supports_reasoning_effort(orch, orch.model)
+        else:
+            supports_reasoning = False
+        if reasoning_effort and "reasoning_effort" not in provider_kwargs and supports_reasoning:
             provider_kwargs = {**provider_kwargs, "reasoning_effort": reasoning_effort}
         provider_stream = self.services.metrics.stream(
             orch.provider,

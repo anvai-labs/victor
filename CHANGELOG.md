@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.32.0] - Source candidate, 2026-11-20
+
+Prepared package version: **0.32.0**.
+
+### Changed
+
+- Pin `sandhi-gateway==0.23.0`. Sandhi-backed providers share one portable
+  request path and delegate exact model admission, provider-specific request
+  encoding, and native cache-marker placement to Sandhi. Victor expresses
+  reasoning effort through the version-1 `thinking` control.
+- Derive `supports_reasoning_effort(model)` from exact Sandhi model metadata.
+  Direct transports use the binding descriptor and gateway transports use the
+  key-scoped `/v1/models` page; missing, malformed, offline, or unsupported
+  metadata fails closed instead of inferring capability from provider names or
+  model prefixes.
+- Advance Victor AI and Victor Native release metadata to 0.32.0 for the
+  coordinated capability and dependency change.
+- Pin local Rust development and every Rust CI/release job to 1.100.0 so the
+  coordinated native extension is qualified on the same compiler version.
+- Pin Maturin 1.16.0 for local native builds and every CI/release wheel job,
+  including the portable CCG qualification matrix, to prevent builder skew.
 ## [0.31.1] - Maintenance candidate, 2026-11-18
 
 Prepared package version: **0.31.1**.
