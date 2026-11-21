@@ -6,9 +6,11 @@ Auth design of record for the principal/policy shapes:
 [victor-agent-service-auth-policy.md](victor-agent-service-auth-policy.md) (VAS-05a).
 Attribution contract: [FEP-0020](../feps/fep-0020-ai-gateway-usage-attribution.md).
 
-Created: 2026-11-19. This document is the A4 pass a follow-up implementation
-PR executes without re-litigating scope. All `file:line` references are
-against `develop` at `b1d584955`.
+Created: 2026-11-19. Updated: 2026-11-21 (owner-directed evolution: Sentinelpass-backed
+credentials, TLS, passkey — §5). This document is the A4 pass a follow-up
+implementation PR executes without re-litigating scope. `file:line` references are
+against Victor `develop` at `3af58a89f` and the local Sentinelpass checkout
+(`~/code/sentinelpass`, Apache-2.0) at `52079eb`.
 
 ## 1. Scope
 
@@ -397,51 +399,457 @@ approval owner with policy allow (no bypass).
 
 ### Sequencing and dependencies
 
-A4a → A4b → A4c → A4d strictly (each phase consumes the previous
-principal object). A4a+A4b are Victor-local and carry no new dependencies;
-A4c adds the `sso` extra; A4d is config-gated. Ledger rows: record as
-FOU-A4a..A4d in the foundations tracker with the standard RED/GREEN
-evidence discipline.
+A4a → A4b (merged, #1993) → the A4c family → A4d (each phase consumes the
+same `VerifiedPrincipal` object). The A4c family now has two independent
+tracks: the owner-directed §5 phases **A4c-1 → A4c-2 → A4c-3**
+(Sentinelpass credentials → TLS → passkey; A4c-3 hard-depends on A4c-2
+because browser WebAuthn needs a secure context), and the Kanidm OIDC
+phase (§A4c above, unchanged) which interleaves once D1/D2/D6 are decided.
+A4d remains gated on D3 and enforces per-principal regardless of auth
+method, so passkey/OIDC principals need no policy-model change. Ledger
+rows: record as FOU-A4a..A4d (plus A4c-1/-2/-3) in the foundations tracker
+with the standard RED/GREEN evidence discipline.
 
-## 5. Decision register (owner calls required)
+## 4.1 Implementation status (2026-11-20; updated 2026-11-21)
+
+- **A4a + A4b MERGED** into `develop` as PR **#1993** (commit `f0d85b2f6`):
+  principal shape as designed, resolved inside the existing dependencies
+  (no ASGI middleware); the `client_id` shim preserved; keyless/exempt
+  behavior byte-identical (pinned); attribution centralized in the
+  dependency with the `/ws` turn binding upgraded to principal
+  subject+group; FEP-0020 best-effort rule pinned by tests; dormancy guard
+  via orchestrator- and provider-observed identity (streaming span
+  included).
+- **D4 registry implemented** per the (then) blessed decision above
+  (`auth/principals_registry.py` + `server.auth_principals_path` +
+  startup invariant over `writable_surface_roots`). The 2026-11-21
+  owner-directed evolution (§5) revises D4: the YAML registry becomes the
+  FALLBACK once A4c-1 lands; until then it stays the primary, unchanged.
+- Reconciliation with #1981: the single-trusted-operator posture claim
+  (`claim_shared_state`) now consumes the dependency-set
+  `request.state.client_id` shim instead of re-calling `_verify_api_key`
+  per route; posture semantics unchanged (enforced by the
+  `test_multi_principal_refusal` suite).
+- A4c (D1/D2/D6), A4c-1/-2/-3 (D4-revised/D11/D12), and A4d (D3) remain
+  pending their decisions / implementation.
+
+## 5. Sentinelpass-backed credentials, TLS, and passkey authentication (owner-directed evolution)
+
+**Owner directive (2026-11-21)**: use [Sentinelpass](https://github.com/anvai-labs/sentinelpass)
+— the operator's local-first, zero-knowledge password manager — as the
+credential/principal store for Victor's server auth (API keys AND
+TLS certificates/private keys), add comprehensive TLS 1.2/1.3 for the
+server endpoint, and add passkey (WebAuthn/FIDO2) authentication with
+Victor as the relying party/callback where feasible, so users can
+authenticate to Victor's API with a passkey. This section is the design of
+record for those capabilities; phases **A4c-1/-2/-3** below slot into the
+A4 sequencing (§4) without disturbing the merged A4a/A4b behavior
+(#1993) or A4d's gating. This is docs-only: no behavior changes without
+each phase's explicit flags.
+
+### 5.1 What Sentinelpass actually provides (verified against `~/code/sentinelpass` at `52079eb`)
+
+- **Surfaces**: CLI (`sentinelpass`), background daemon, desktop UI,
+  browser extension, sync relay (`README.md:15`). Apache-2.0, Rust.
+- **Secrets broker for local tools** (`README.md:65-84`): tools
+  authenticate with a per-client token and may only touch exactly the
+  `client × domain × field` scopes granted. Surfaces: `secret allow`,
+  `secret get`, `secret exec` (env injection into a child process),
+  `secret list`, `secret audit`, `secret token mint/rotate/revoke`
+  (revocation fail-closed).
+- **Grant shape** — `ExternalSecretGrant`
+  (`sentinelpass-core/src/external_secret_access.rs:26-35`): `client_id`,
+  `domain`, `field: ExternalSecretField`, `expires_at`, `allow_write`.
+  Scope matching is **exact triple equality — no wildcards**
+  (`matches_scope`, `external_secret_access.rs:42-44`). `client_id` is
+  normalized to lowercase ASCII alphanumerics plus `-`/`_`
+  (`external_secret_access.rs:478-490`); `domain` is a host/service key
+  where `/` and whitespace are rejected (`external_secret_access.rs:492-500`).
+  Victor therefore uses `client_id = "victor"` and service domains such
+  as `victor-auth` / `victor-tls`.
+- **Field types are narrow**: `ExternalSecretField` has exactly three
+  variants — `Username | Password | Title`
+  (`sentinelpass-protocol/src/message.rs:9-13`). There is **no
+  certificate/private-key field type**; PEM material rides the
+  `password` field (typed upstream proposal recorded, §5.7).
+  `CredentialType` is `Password | ApiKey | PasskeyReference`
+  (`sentinelpass-core/src/vault/mod.rs:54-59`).
+- **Client tokens**: `spt_`-prefixed, shown once at mint, stored only as
+  SHA-256 (`external_secret_access.rs:345-366`); rotation kills the old
+  token immediately (`:369-378`); **revocation is fail-closed** — a
+  revoked client is denied even with its old token and never degrades to
+  token-less legacy (`:57-68`, `:382-389`); constant-time verification
+  (`:414-429`). The allowlist file itself is born-0600, refuses to load
+  or write through symlinks, and fails closed on loose permissions
+  (`:87-168`).
+- **Daemon + IPC**: every secret fetch is allowlist-scoped and
+  token-enforced under a client id (`get_secret_from_daemon`,
+  `sentinelpass-cli/src/commands/secret.rs:70-105`); the CLI can request
+  biometric unlock when the daemon is locked (`secret.rs:41-68`).
+  **Exact-entry retrieval**: `VaultOp::ServiceGetSecret` serves "one field
+  of one EXACT entry under a service grant (client token + exact entry_id
+  + field). Never step-up"
+  (`sentinelpass-protocol/src/service.rs:400-408`); grants are minted via
+  `sentinelpass service grant` with optional expiry and optional SP-3
+  executable pins (`main.rs:747-772`) — an SP-3/ADR-016 grant may pin
+  SHA-256 digests of approved client binaries resolved from the kernel's
+  `/proc/<pid>/exe`, denying when evidence is unavailable
+  (`sentinelpass-core/src/daemon/exe_policy.rs`).
+- **Vault model**: zero-knowledge at rest — Argon2id (t=3, m=256MB, p=4;
+  `SECURITY_ARCHITECTURE.md:83`), AES-256-GCM, DEK-wrapped entries;
+  biometric unlock stores OS-protected DEK material, never the master
+  password (`SECURITY_ARCHITECTURE.md:76`); the Windows Hello-bound wrap
+  requires a Hello-gated TPM signing operation to recover the DEK
+  (`sentinelpass-core/src/biometric_hello.rs`). One daemon per vault
+  (`README.md:206`).
+- **Audit**: per-request daemon audit with purpose labels (`--purpose`,
+  `secret.rs`), queryable with `sentinelpass secret audit --client-id
+  victor [--failures-only]`.
+- **Passkeys today are metadata references only**: `sentinelpass passkey
+  add/list/get/delete` store `PasskeyReferenceMetadata` (RP ID, account
+  label, platform, credential-id hint, sync source) and state "This is
+  metadata only. Authentication remains with the platform
+  authenticator." (`sentinelpass-cli/src/commands/passkey.rs:103-105`,
+  `:195-198`). Actual passkey **private-key custody is an explicitly
+  DEFERRED upstream roadmap item** (`ROADMAP.md:151`, guarded by "Passkey
+  reference records remain metadata-only until a separate authenticator
+  or credential-provider architecture is accepted and reviewed",
+  `ROADMAP.md:153`). The `custody/` module (KC-01/02) exists but exposes
+  no production enrollment constructor
+  (`sentinelpass-core/src/custody/mod.rs:3-5`).
+
+### 5.2 A4c-1 — Sentinelpass as the principal store (revises Decision D4)
+
+**Decision (D4, revised 2026-11-21)**: the Sentinelpass vault becomes the
+PRIMARY store of Victor's API-key credentials once `server.auth_credential_source:
+sentinelpass` is set; the #1993 YAML registry
+(`victor/integrations/api/auth/principals_registry.py`) becomes the
+FALLBACK. Default source stays `yaml` until an operator opts in.
+
+**Provisioning shape.**
+
+- Each Victor principal is one vault entry (`CredentialType::api_key`):
+  `title` = `principal_id`, service domain `victor-auth`, the raw API key
+  in the `password` field.
+- Authorization is one Sentinelpass **service grant** per entry:
+  `client_id=victor`, exact `entry_id`, `fields=["password"]`, optional
+  `expires_at`, and — recommended for the server deployment — an
+  `--exe-sha256` pin of the server binary so the grant is bound to the
+  actual `victor` executable, not merely to the client token.
+- The YAML registry's role changes from secret store to **non-secret
+  digest index**: per entry `key_digest` (the `sha256:<16hex>` form
+  already used by `VerifiedPrincipal.credential_id`,
+  `victor/integrations/api/auth/principal.py:129-135`), `principal_id`,
+  `kind`, `subject_label`, `groups`, `expiry`,
+  `sentinelpass_entry_id`. Strict parsing, uniqueness checks, and the
+  placement invariant are kept — see below for why the invariant
+  survives.
+
+**Startup invariant: partially moot, and that is the security upgrade.**
+The original D4 invariant (registry must live outside every
+sandbox-writable surface, typed `PrincipalsRegistryPathError` otherwise)
+existed because a file-based registry holding RAW keys inside
+agent-writable state would let the agent rewrite its own principals. With
+Sentinelpass-primary the secret material is no longer in any file: the
+vault is zero-knowledge (Argon2id/AES-256-GCM), unlocked only by the
+operator's master password or a biometric gesture, lives in the
+Sentinelpass config dir rather than `~/.victor`, and grants are
+operator-minted and revocable — the agent can neither read nor mutate
+granted credentials. **The invariant therefore becomes moot for secret
+material but is retained for the digest index and the YAML fallback**:
+the index still carries authorization metadata (`groups`, `expiry`,
+principal identity), so an agent-writable index would still let the agent
+grant itself groups. Placement enforcement stays unconditional on the
+resolved index/fallback path.
+
+**Request-time resolution (the ordering problem, honestly).** A presented
+bearer key must map to an entry without Victor storing raw keys. The
+chain:
+
+1. digest the presented key (SHA-256) → look up the digest in the index
+   (unindexed digest = 401 immediately; no vault call for unknown keys);
+2. fetch the entry's `password` from the vault through the service
+   grant (exact-entry lookup);
+3. constant-time compare the fetched key against the presented key;
+4. build the `VerifiedPrincipal` (`auth_method=api_key`,
+   `principal_id`/`subject_label`/`groups`/`expires_at` from the index)
+   and drop the fetched secret from memory. The secret is never logged,
+   cached to disk, or emitted in errors.
+
+One vault round trip per authenticated request; unknown-key requests cost
+nothing. Recorded upstream enhancement (§5.7): a digest-only
+`ServiceVerifySecret` op would keep the secret vault-side entirely;
+fetch-and-compare is the honest minimum until then. Caching is **off by
+default** (revocation latency ≈ zero); `server.auth_sentinelpass_cache_ttl_seconds`
+(default `0`) lets high-QPS deployments opt into a TTL-bounded window
+explicitly.
+
+**Lookup transport: CLI subprocess, not direct IPC.** The
+`sentinelpass` CLI is the documented public surface for exactly this use
+("least-privilege secrets broker for developer tools (AI agents, proxies,
+scripts)", `README.md:65-67`). The daemon IPC is a Rust-native serde
+envelope with its own enrollment/token machinery; a second external
+protocol client would be an unreviewed trust-boundary contribution, so
+Victor shells out via argv (no shell), with a bounded timeout, the client
+token taken from `SENTINELPASS_CLIENT_TOKEN` or a 0600 token file
+(`server.auth_sentinelpass_token_file`), and stderr captured but never
+emitted above DEBUG (logging-level policy). Direct daemon IPC is recorded
+as future work for when/whether Sentinelpass declares its wire protocol
+stable for third-party clients.
+
+**Typed degradation matrix (fail-closed discipline).**
+
+| Condition | Behavior |
+| --- | --- |
+| Daemon not running / vault locked | Use the **startup-loaded** YAML fallback snapshot if one is configured (structured WARNING; per-request cost is one bounded failed lookup). No fallback configured → 401. No biometric prompt exists for a headless server; operators run the daemon unlocked or accept degraded operation explicitly. |
+| Grant expired / client token revoked / allowlist deny | **FAIL CLOSED — never degrade.** These are operator decisions (`revoke_client_token` is fail-closed upstream, `external_secret_access.rs:380-389`); silently falling back to YAML after a revocation would defeat the revocation. |
+| Digest indexed but entry/grant missing | 401 + audit-visible typed error (`SentinelpassDenied` vs `SentinelpassUnavailable` are distinct types so the matrix is enforceable). |
+| `yaml` source selected | Today's byte-identical behavior (pinned by negative test). |
+
+**Tests** (RED-first): granted key resolves to the correct principal
+including groups; locked-vault condition falls back only when a fallback
+snapshot exists; revoked-token denial does NOT fall back (negative);
+expired grant = 401; digest mismatch = 401; absent fallback + daemon down
+= 401; `yaml` mode byte-identical; secret absent from logs/metrics/errors
+(redaction sweep); subprocess invoked without a shell and with timeout.
+
+**Files**: new `auth/sentinelpass.py` (CLI wrapper, typed errors, index→
+principal resolver), `auth/principals_registry.py` (index schema: `key`
+→ `key_digest` + `sentinelpass_entry_id`, backward-compatible parsing of
+full-key entries for fallback mode), `fastapi_server.py` (source
+selection in `_verify_api_key`, `fastapi_server.py:857`),
+`victor/config/groups/server_config.py` (`auth_credential_source`,
+`auth_sentinelpass_*` settings),
+`tests/unit/integrations/api/test_sentinelpass_credentials.py` (new).
+
+### 5.3 A4c-2 — TLS 1.2/1.3 with vault-held certificates
+
+- **Cert material in the vault**: the leaf certificate (public PEM) and
+  the private key (PKCS#8 PEM) are two vault entries under service domain
+  `victor-tls`, served to the server at startup through the same
+  authorized-lookup machinery as A4c-1 (separate grants; the private-key
+  grant SHOULD pin the server binary via `--exe-sha256`). Honest
+  constraint: there is no certificate/key field type upstream
+  (`ExternalSecretField` = `Username|Password|Title`,
+  `sentinelpass-protocol/src/message.rs:9-13`), so PEM text rides the
+  `password` field; entry encryption (AES-256-GCM) protects it
+  regardless of the type label. A `CredentialType::Certificate` upstream
+  proposal is recorded (§5.7).
+- **Alternative launch shape**: `sentinelpass exec --client-id victor
+  --env VICTOR_TLS_KEY=victor-tls-key -- victor serve ...` injects
+  values as child-process environment (`README.md:78-80`) — documented as
+  an operator alternative, not the default: the in-process startup lookup
+  is testable without wrapping the process tree, and env-planted secrets
+  would be inherited by every tool subprocess Victor spawns.
+- **Fallbacks**: filesystem paths (today's posture: `server.tls.cert_path`/
+  `key_path`) and OS keyring (via `python-keyring`, optional). Source
+  precedence is explicit per config — no silent probing order.
+- **Termination choice (Decision D12)**: uvicorn native TLS. Both
+  `uvicorn.Config` construction sites (`victor/ui/commands/serve.py:250`,
+  `serve.py:416`) and the server-managed run path
+  (`fastapi_server.py:1850-1859`) receive a Victor-constructed
+  `ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)` rather than uvicorn's ad-hoc
+  `ssl_*` kwargs, so the policy below is enforced in one auditable
+  builder. rustls termination would require replacing the ASGI server
+  stack (uvicorn is OpenSSL-backed through Python `ssl`; it has no
+  rustls option) — rejected for A4c-2 as a larger trust-boundary change
+  than a policy-pinned SSLContext; Granian (rustls) is recorded as a
+  future alternative if OpenSSL CVE posture ever drives the decision.
+- **Policy**: minimum **TLS 1.2** (`minimum_version = TLSv1_2`);
+  **TLS 1.3 preferred** and negotiated automatically where both peers
+  support it (TLS 1.3 suites are OpenSSL-managed, not operator-tunable);
+  TLS 1.2 cipher string pinned to forward-secret AEAD suites only:
+  `ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256`.
+  HSTS (`Strict-Transport-Security: max-age=63072000; includeSubDomains`)
+  is set by a small HTTP dependency whenever TLS is enabled. OCSP
+  stapling deferred (uvicorn limitation, recorded).
+- **Config**: `server.tls.enabled` (default `false`),
+  `server.tls.cert_source: sentinelpass|file|keyring`,
+  `server.tls.min_tls_version` (validated to the {`1.2`, `1.3`} set),
+  `server.tls.hsts_enabled` (default `true` when TLS is on).
+- **Rotation**: restart-bounded in v1. uvicorn materializes the ssl
+  context at config time and does not support hot context swap; this
+  matches A4's registry activation semantics (restart or explicit
+  reload). Runbook: rotate the vault entries, restart. Expiry monitoring
+  is operator-side (follow-up recorded).
+- **Attribution unchanged**: TLS is transport; the FEP-0020 join remains
+  verified-principal → usage events (§A4b;
+  `fastapi_server.py:1012,1486`). mTLS client certificates as an
+  authentication method are explicitly out of A4c-2 scope and recorded —
+  they would enter as a new `AuthMethod` consuming the same
+  `VerifiedPrincipal` shape.
+- **Tests**: SSLContext assertions (minimum version, TLS 1.2 set
+  restricted to the pinned AEAD suites, TLS 1.3 left to OpenSSL); cert
+  source matrix (vault fetch / file / keyring) with failure modes typed;
+  HSTS present only when TLS is on; default-off byte-identical startup.
+
+**Files**: new `victor/integrations/api/tls.py` (context builder + cert
+source resolution, reusing the A4c-1 lookup client), `serve.py` (both
+uvicorn sites), `server_config.py` (`server.tls` block),
+`fastapi_server.py` (HSTS dependency), `tests/unit/integrations/api/test_tls_context.py`
+(new).
+
+### 5.4 A4c-3 — Passkey (WebAuthn/FIDO2) authentication, Victor as RP
+
+**Feasibility verdict (honest).**
+
+- Victor-as-RP with **platform authenticators** (iCloud Keychain, Windows
+  Hello, Google Password Manager, roaming security keys): **feasible
+  now**. WebAuthn ceremonies run between the user agent and Victor's
+  server; Victor never handles passkey private keys.
+- **Sentinelpass-held passkeys** (vault-side private-key custody): **not
+  feasible today**. Private-key custody is an explicitly deferred
+  upstream roadmap item (`ROADMAP.md:151`, guarded at `:153`), passkey
+  entries are metadata-only references (`passkey.rs:103-105`), and the
+  custody module exposes no production enrollment constructor
+  (`custody/mod.rs:3-5`). This spec reserves the seam for it
+  (`PasskeyCredentialStore`, below) and uses platform authenticators
+  meanwhile. Naming trap: Sentinelpass's `biometric_hello`/Touch ID work
+  (`biometric_hello.rs`) is **vault unlock**, not WebAuthn — do not
+  conflate the two.
+- **"Victor as the callback/RP"**: feasible and is exactly the v1 design
+  — Victor hosts `/auth/passkey/*`, acts as relying party for the
+  registration (attestation) and authentication (assertion) ceremonies,
+  and issues a session after a verified assertion.
+
+**Library evaluation.**
+
+- `python-fido2` (Yubico) — **selected**. Actively maintained (v2.2.1,
+  released 2026-06-29); provides a full WebAuthn RP implementation
+  (`fido2.server.Fido2Server`) with registration/assertion verification,
+  strict RP-ID/origin enforcement, attestation-policy handling, and
+  first-class credential-id (non-resident) flows. Rationale: continuous
+  security maintenance from the FIDO reference vendor and fail-closed
+  verification defaults that match Victor's posture; also covers the
+  exact v1 scope (server-side credential-id registration, no
+  resident-key discovery).
+- `py_webauthn` (duo-labs) — simpler, higher-level RP API, but the weaker
+  maintenance signal of the two in 2026; positioned for prototyping.
+  Rejected for v1; revisit if `python-fido2`'s API friction dominates
+  real cost.
+
+Behind optional extra `victor[passkey]` (mirroring the D2 `victor[sso]`
+discipline): absent extra + passkey configured = loud startup failure,
+never silent downgrade.
+
+**Design.**
+
+- New `AuthMethod.PASSKEY = "passkey"` (enum extension in
+  `auth/principal.py`; `VerifiedPrincipal` is unchanged —
+  `principal_id`, `groups`, `expires_at` all apply).
+- **Credential storage is server-side public-key material, NOT the
+  vault**: a `PasskeyCredentialStore` protocol backed by the project DB
+  (consistent with the D6 leanings) maps `credential_id → principal_id`,
+  public key, sign count, user-verified flag, transports,
+  created/last-used. The RP registry must be queryable at assertion time
+  without the operator unlocking a vault; isolating it behind the
+  protocol keeps a future Sentinelpass-custody authenticator free to
+  implement the assertion side when upstream custody ships.
+- **Endpoints** (browser surface only; the API/SDK path stays API-key /
+  OIDC): `POST /auth/passkey/register/start|finish` (attestation
+  ceremony) and `POST /auth/passkey/assert/start|finish` (assertion
+  ceremony). Registration requires an EXISTING authenticated principal
+  (session or API key) or a one-time operator enrollment token —
+  anonymous self-registration is refused. On a verified assertion the
+  principal resolves from `credential_id`, and a session is issued in
+  the D6 server-side session shape (Secure/HttpOnly cookie, CSRF + Origin
+  checks); the WS auth frame gains a session-token form.
+- **Secure-context requirement**: browsers restrict WebAuthn to HTTPS
+  (or localhost), so passkey mode **hard-requires A4c-2 TLS** on any
+  non-loopback bind — loud startup refusal otherwise.
+- **v1 scope honestly bounded**: NO resident-key/discoverable-credential
+  discovery flows; single-use challenges with bounded ceremony TTL and
+  sign-count/clone detection enforced; `user_verification="required"`
+  (the passkey is the primary factor, not a second factor); attestation
+  conveyance = "none" with format enforcement optional-off (platform
+  authenticators attest anonymously; metadata enforcement is recorded as
+  future hardening); programmatic (non-browser) assertion out of scope.
+- **Origin/RP-ID pinning**: RP ID = the deployed hostname; allowed
+  origins = an explicit exact-match config list; any mismatch rejects
+  the ceremony (D11).
+- **Route wiring note**: `/auth/passkey/assert/*` must be reachable
+  pre-authentication by design; it is added to the explicit
+  `AUTH_EXEMPT_PATHS` enumeration (`fastapi_server.py:596` semantics),
+  never a blanket dependency bypass, and `/auth/passkey/register/*`
+  stays guarded.
+- **Tests** (RED-first, fixture authenticator doubles / `python-fido2`
+  ceremony vectors): register→assert round trip issues a session;
+  wrong origin / wrong RP-ID / replayed challenge / missing-UV assertion
+  rejected; anonymous registration refused; passkey principal flows into
+  attribution and owner scoping unchanged; disabled mode byte-identical;
+  missing `victor[passkey]` extra = loud failure; TLS-off on non-loopback
+  = loud refusal.
+
+**Files**: new `auth/passkey.py` (RP config + ceremony handlers over
+`Fido2Server`) and the `PasskeyCredentialStore` protocol + project-DB
+implementation, `auth/principal.py` (enum value), `fastapi_server.py`
+(route registration through `_include_with_auth` + exempt-path entry),
+`server_config.py` (`server.auth.passkey` block),
+`tests/unit/integrations/api/test_passkey_auth.py` (new).
+
+### 5.5 Phase summary (A4c family)
+
+| Phase | Goal | Default-off flag | Depends on | Decision |
+| --- | --- | --- | --- | --- |
+| A4c-1 | Sentinelpass API-key lookup (vault primary, YAML fallback) | `server.auth_credential_source: yaml` | none | D4 revised |
+| A4c-2 | TLS 1.2/1.3 + vault-held certs | `server.tls.enabled: false` | A4c-1 lookup machinery | D12 |
+| A4c-3 | Passkey WebAuthn RP | `server.auth.passkey.enabled: false` | A4c-2 (secure context) | D11 |
+| A4c (§4, unchanged) | Kanidm OIDC SSO | `server.auth.mode: api_key` | D1/D2/D6 | D1/D2/D6 |
+| A4d (§4, unchanged) | Roles + policy enforcement | `server.auth.policy_path: None` | D3 | unchanged |
+
+### 5.6 Security posture notes (honest limits)
+
+- **What the vault does and does not protect**: it removes secret
+  material from at-rest files and makes credentials operator-unlockable
+  and revocable; it does not protect secrets once fetched into the Victor
+  server process. An attacker with code execution inside the server
+  process can still read process memory — the boundary is against at-rest
+  exfiltration and agent-rewritable config, which is strictly stronger
+  than the YAML status quo (keys at rest forever vs. in memory only for
+  the comparison window). Victor's existing log/metric redaction
+  discipline applies unchanged.
+- **Availability dependency**: server auth now optionally depends on the
+  operator's Sentinelpass daemon being up and unlocked. The YAML fallback
+  plus the typed degradation matrix is the availability answer; the
+  fail-closed denial rules are the security answer.
+- **No new authorization authority**: Sentinelpass grants authorize
+  *credential lookup only*; every authorization decision remains with
+  A4d policy + owner scoping (attribution ≠ authorization rule, §6/§7).
+
+### 5.7 Upstream (Sentinelpass) items recorded, not required
+
+- `CredentialType::Certificate` / a dedicated PEM field type (cleaner
+  TLS entry typing than password-field PEM).
+- A digest-only `ServiceVerifySecret {entry_id, sha256}` op so the
+  auth path never fetches the secret.
+- A stable third-party client contract for the daemon IPC protocol
+  (would replace the CLI subprocess transport).
+- Passkey private-key custody and synchronization (`ROADMAP.md:151`) —
+  enables the future Sentinelpass authenticator behind
+  `PasskeyCredentialStore`.
+
+## 6. Decision register (owner calls required)
 
 | # | Decision | Recommendation (default) | Notes |
 | --- | --- | --- | --- |
 | D1 | Auth provider for SSO | Kanidm OIDC — already selected 2026-10-08 (auth-policy doc header); confirm the deployed DS3 registration/issuer/audience before A4c merges | Entra delegated flow (`core/identity/oidc.py`) stays HITL-approver-only |
 | D2 | Token validation strategy + library | RFC 7662 introspection default; RFC 9068 JWT profile as config; `authlib` in optional `victor[sso]` extra | Depends on verified Kanidm deployment capabilities (introspection method, ES256); probe before pinning |
 | D3 | Role model | Named role bundles per VAS-05a (`run_operator`, `run_observer`, `approver`, distinct admins); no hierarchy, no ADMIN shortcut reuse from tool policy | Policy contract section of the auth-policy doc |
-| D4 | Principal/key registry storage | **BLESSED 2026-11-20 (modified recommendation)**: versioned YAML file at `/etc/victor/api_principals.yaml` by default, `server.auth_principals_path` as the operator override; operator-managed immutable revision, not DB rows; **startup invariant**: refuse to start (typed error naming the colliding surface) if the resolved path falls inside ANY sandbox-writable surface (workspace root, Victor state root `~/.victor`, temp dirs, configured allowed mounts — enumerated by `victor.tools.sandbox.writable_surface_roots`) | `~/.victor/api_principals.yaml` FAILS the invariant by design (the exact Codex finding: the registry must not sit inside agent-writable state — the agent could rewrite its own principals). Matches the policy document's revision discipline; avoids a settings-DB schema commitment |
+| D4 | Principal/key registry storage | **REVISED 2026-11-21 (owner-directed; supersedes the raw-key portion of the 2026-11-20 blessing, which is retained as the fallback)**: Sentinelpass vault is the PRIMARY credential store (`server.auth_credential_source: sentinelpass`) — one `CredentialType::api_key` vault entry per principal, one exact-entry service grant per entry (`client_id=victor`, `entry_id`, `fields=["password"]`, optional expiry + `--exe-sha256` binary pin); the #1993 YAML registry becomes a **non-secret digest index** (`key_digest`/`principal_id`/`kind`/`subject_label`/`groups`/`expiry`/`sentinelpass_entry_id`) and the FALLBACK when the vault is unavailable; default source stays `yaml` (byte-identical) until an operator opts in. The startup placement invariant is RETAINED for the index/fallback file (it carries groups/expiry authorization metadata — versioned YAML at `/etc/victor/api_principals.yaml` default, `server.auth_principals_path` override, refusal inside any sandbox-writable surface per `victor/tools/sandbox/backends.py:91` `writable_surface_roots`) and is MOOT for secret material: the vault is zero-knowledge (Argon2id/AES-256-GCM), operator-unlocked, never agent-writable — strictly stronger than any file store. Typed degradation: infra-unavailable → startup-loaded YAML snapshot + WARNING (401 if none); grant/token deny → **fail closed, never degrade after revocation** | Acceptance (§5.2): positive grant→principal test incl. groups; locked-vault fallback honored only when configured; revoked-token no-degrade negative; digest mismatch 401; `yaml` mode byte-identical; secrets absent from logs/errors. Full design: §5.2; upstream follow-ups §5.7 |
 | D5 | Attribution subject identity under OIDC | Immutable Victor principal ID derived from verified `(issuer, sub)`; email/username display-only | Auth-policy: caller names/emails are not keys |
 | D6 | Browser session semantics | Server-side session (Secure/HttpOnly cookie, CSRF + Origin checks) issued by `/auth/login`; decide persistence home (project DB vs signed stateless cookie) — recommend DB-backed for revocation | The dormant `ServerSettings` HMAC knobs are the natural seam to wire or formally retire; owner chooses wire-vs-retire |
 | D7 | `client_id` compatibility lifetime | Keep `client_id` as the key-only attribution label indefinitely; OIDC principals get issuer-qualified IDs; no rename of existing fields in A4 window | Protects dashboards/sandhi virtual-key continuity |
 | D8 | Dormant `victor/integrations/api/middleware.py` aiohttp stack | Do not port into A4; schedule deletion in a duplication-sweep PR (its rate limiter idea may be re-homed later as a FastAPI dependency) | Zero callers today; keeping it invites the dormancy trap |
 | D9 | WS subscription-granular policy | Defer per-subscription scoping to VAS-05c/VAS-06; A4d enforces at connect + reconnect only | Scoped subscription records are an existing open VAS item |
-| D10 | Default posture flips | None in A4: mode stays `api_key`, policy off, attribution values change only for deployments that adopt the registry/OIDC | Key-only users are behavior-neutral by construction |
+| D10 | Default posture flips | None in A4: mode stays `api_key`, policy off, credential source stays `yaml`, TLS off, passkey off; attribution values change only for deployments that adopt the registry/OIDC/vault/passkey | Key-only users are behavior-neutral by construction (extended to the §5 phases: every phase ships behind a default-off flag) |
+| D11 | Passkey (WebAuthn) RP policy | Optional extra `victor[passkey]`; **`python-fido2` (Yubico) selected** over `py_webauthn` (v2.2.1, 2026-06-29, full `Fido2Server` RP + strict origin/RP-ID enforcement vs. weaker 2026 maintenance signal and prototyping-oriented API); `server.auth.passkey.enabled: false` default; RP ID + exact origin allowlist pinned at config; `user_verification="required"`; attestation conveyance "none"; **no resident-key discovery flows in v1** — credential-id registration stored server-side (project DB) behind the `PasskeyCredentialStore` protocol (reserved for future Sentinelpass custody, an upstream roadmap item); registration requires an existing authenticated principal or a one-time operator enrollment token; ceremonies require TLS (A4c-2) on non-loopback binds | Blocks A4c-3 only. Acceptance (§5.4): fixture-authenticator register→assert round trip issuing a session; wrong origin/RP-ID/replayed-challenge/missing-UV rejections; anonymous registration refusal; attribution + owner-scoping unchanged for passkey principals; disabled mode byte-identical; missing extra = loud failure; TLS-off non-loopback = loud refusal |
+| D12 | TLS termination | **uvicorn + Python `ssl` (OpenSSL) with a Victor-constructed `SSLContext`** built in one auditable place (`victor/integrations/api/tls.py`), not uvicorn's ad-hoc `ssl_*` kwargs; **TLS 1.2 minimum**, TLS 1.3 preferred (OpenSSL-managed suites), TLS 1.2 pinned to the six-suite ECDHE+AEAD list (§5.3); HSTS on whenever TLS is on; cert sources: **Sentinelpass vault (primary), filesystem, OS keyring** (explicit precedence, no silent probing); rotation restart-bounded (uvicorn materializes the context at config time); rustls rejected for A4c-2 (would replace the ASGI server stack — Granian recorded as the future alternative); mTLS-as-authentication out of scope, recorded | Blocks A4c-2. Acceptance (§5.3): SSLContext assertions (min version + TLS 1.2 cipher set), vault/file/keyring source matrix with typed failures, HSTS-only-with-TLS, default-off byte-identical startup |
 
-Decisions D1/D2/D6 block A4c only; A4a/A4b are executable immediately
-after this design lands; A4d needs D3/D4 confirmed before merge.
+Decisions D1/D2/D6 block the Kanidm OIDC phase (§4 A4c) only; D4-revised
+gates A4c-1, D12 gates A4c-2, D11 gates A4c-3; A4a/A4b are merged
+(#1993); A4d needs D3 confirmed before merge.
 
-## 4.1 Implementation status (2026-11-20)
-
-- **A4a + A4b implemented** on `feat/fou-a4ab-principal-attribution`
-  (rebased onto develop after the #1975–#1990 wave): principal shape as
-  designed, resolved inside the existing dependencies (no ASGI
-  middleware); the `client_id` shim preserved; keyless/exempt behavior
-  byte-identical (pinned); attribution centralized in the dependency with
-  the `/ws` turn binding upgraded to principal subject+group; FEP-0020
-  best-effort rule pinned by tests; dormancy guard via orchestrator- and
-  provider-observed identity (streaming span included).
-- **D4 registry implemented** per the blessed decision above
-  (`auth/principals_registry.py` + `server.auth_principals_path` +
-  startup invariant over `writable_surface_roots`).
-- Reconciliation with #1981: the single-trusted-operator posture claim
-  (`claim_shared_state`) now consumes the dependency-set
-  `request.state.client_id` shim instead of re-calling `_verify_api_key`
-  per route; posture semantics unchanged (enforced by the
-  `test_multi_principal_refusal` suite).
-- A4c (D1/D2/D6) and A4d (D3) remain pending owner decisions.
-
-## 6. Risks and non-goals
+## 7. Risks and non-goals
 
 - **Do not weaken the existing gates**: the `_include_with_auth` child-router
   split, the keyless no-op short-circuit, and the owner-scoped broadcast
@@ -456,8 +864,15 @@ after this design lands; A4d needs D3/D4 confirmed before merge.
   metering rule from FEP-0020 Phase 2 is preserved).
 - Sandhi-side delegation (initiator/actor/provider-credential separation)
   remains VAS-05e/f; A4 only guarantees the Victor-side principal is real.
+- **§5 evolution limits** (restated from §5.6): the vault protects at-rest
+  material and revocability, not the server process's memory; the
+  Sentinelpass daemon becomes an optional availability dependency with a
+  typed (never security-weakening) degradation matrix; passkey custody
+  upstream does not exist yet, so A4c-3 ships on platform authenticators
+  only; and none of the §5 machinery creates a second authorization
+  authority — grants authorize lookup, A4d authorizes actions.
 
-## 7. References
+## 8. References
 
 - [FEP-0020 — AI usage gateway](../feps/fep-0020-ai-gateway-usage-attribution.md)
 - [Agent-service auth policy (VAS-05a design)](victor-agent-service-auth-policy.md)
@@ -465,3 +880,18 @@ after this design lands; A4d needs D3/D4 confirmed before merge.
 - [Victor agent-service plan — VAS-05 rows](victor-agent-service-plan.md)
 - Kanidm OAuth2 integration and custom claims docs (see auth-policy
   Standards section)
+- Sentinelpass (local checkout `~/code/sentinelpass` at `52079eb`,
+  Apache-2.0): `README.md` (secrets broker, `:65-84`),
+  `SECURITY_ARCHITECTURE.md` (vault model),
+  `sentinelpass-core/src/external_secret_access.rs`
+  (`ExternalSecretGrant`/`ExternalSecretAllowlist`, client tokens),
+  `sentinelpass-cli/src/commands/{secret,passkey}.rs`,
+  `sentinelpass-protocol/src/{message,service}.rs`
+  (`ExternalSecretField`, `VaultOp::ServiceGetSecret`),
+  `sentinelpass-core/src/daemon/exe_policy.rs` (SP-3 binary pins),
+  `sentinelpass-core/src/{biometric_hello,custody/mod}.rs`, `ROADMAP.md:151`
+- WebAuthn server libraries: `python-fido2`
+  (Yubico, selected — release notes
+  <https://developers.yubico.com/python-fido2/Release_Notes.html>),
+  `py_webauthn` (duo-labs, evaluated and deferred); W3C WebAuthn L2 spec
+  for RP-ID/origin and UV semantics
