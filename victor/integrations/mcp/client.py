@@ -182,33 +182,46 @@ class MCPClient:
 
     async def _start_process(self, command: List[str]):
         """Start with the configured policy; publish no partially started owner."""
+        from victor.tools.sandbox import close_pass_fds, prepare_launch
+
         launch_decision = _resolve_mcp_launch_policy(self._run_policy_snapshot)
-        admitted_command = list(command)
-        if launch_decision.required_active and launch_decision.backend is not None:
-            admitted_command = launch_decision.backend.wrap_argv(admitted_command, Path.cwd())
-
-        if self._sandbox_config is not None:
-            from victor.integrations.mcp.sandbox import SandboxedProcess
-
-            owner = SandboxedProcess(self._sandbox_config)
-            try:
-                return await owner.start(admitted_command), owner
-            except BaseException:
-                # Retain owner cleanup even if startup is cancelled again.
-                await asyncio.shield(self._retire_transport(StdioTransport(None, owner)))
-                raise
-        return (
-            subprocess.Popen(
-                admitted_command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                start_new_session=os.name == "posix",
-            ),
-            None,
+        # The wrap and the launch travel together through the shared seam:
+        # an enforcing backend hands back its owned descriptors (bwrap's
+        # seccomp filter fd) alongside the wrapped argv, and they are both
+        # forwarded to whichever owner spawns.
+        launch = prepare_launch(
+            launch_decision.backend if launch_decision.required_active else None,
+            list(command),
+            Path.cwd(),
         )
+        admitted_command = list(launch.argv)
+
+        try:
+            if self._sandbox_config is not None:
+                from victor.integrations.mcp.sandbox import SandboxedProcess
+
+                owner = SandboxedProcess(self._sandbox_config)
+                try:
+                    return await owner.start(admitted_command, pass_fds=launch.pass_fds), owner
+                except BaseException:
+                    # Retain owner cleanup even if startup is cancelled again.
+                    await asyncio.shield(self._retire_transport(StdioTransport(None, owner)))
+                    raise
+            return (
+                subprocess.Popen(
+                    admitted_command,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    pass_fds=launch.pass_fds,
+                    text=True,
+                    bufsize=1,
+                    start_new_session=os.name == "posix",
+                ),
+                None,
+            )
+        finally:
+            close_pass_fds(launch.pass_fds)
 
     def _cleanup_pending(self) -> bool:
         self._retired_transports = {

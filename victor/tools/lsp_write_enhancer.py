@@ -315,14 +315,22 @@ class LSPWriteEnhancer:
         try:
             cmd = formatter.command.copy()
             cmd.append(tmp_path)
-            if launch_decision.required_active and launch_decision.backend is not None:
-                cmd = launch_decision.backend.wrap_argv(cmd, Path(self._workspace_root))
 
-            # Use asyncio subprocess to avoid blocking event loop
+            # Use asyncio subprocess to avoid blocking event loop. The wrap
+            # and the launch travel together through the shared seam so the
+            # backend-owned descriptors (bwrap's seccomp filter fd) reach the
+            # formatter process.
             import asyncio
 
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
+            from victor.tools.sandbox import prepare_launch, run_launch_async
+
+            launch = prepare_launch(
+                launch_decision.backend if launch_decision.required_active else None,
+                cmd,
+                Path(self._workspace_root),
+            )
+            proc = await run_launch_async(
+                launch,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self._workspace_root,

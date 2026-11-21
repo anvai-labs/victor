@@ -687,16 +687,76 @@ candidate Codex review (`~/code/victor-review-findings.md`), branch
   proving the filter is attached; argv-only negative control fails
   loudly), skip-with-reason on unqualified hosts
   (`tests/unit/tools/sandbox/test_launch_helper.py`).
-- **Residual (wave-2 candidates, unchanged here)**: same defect class in
-  launchers outside the named finding scope — bash tool, workflow sandbox
-  executor, MCP stdio client, filesystem write enhancer, merge manager,
-  temporal analyzer, auto-commit, snapshot store, navigation slash
-  command. They wrap-then-spawn without `take_pass_fds` and can adopt the
-  shared helper.
+- **Residual (wave-2 candidates)**: FIXED in wave 2 — see the next section.
 - **Gates**: unit tools/graph_rag/security 6128 passed; api/storage/
   config/ui-command suites green; collect-only clean (42029); black
   26.10.1 + ruff clean on changed files. The seccomp/bwrap live tests run
   on qualified Linux only.
+## Codex review fix wave 2 — seccomp residual at every wrap-then-spawn site (FIXED, 2026-11-20)
+
+Closes the finding-8 residual left by #1984: all nine wrap-then-spawn
+launchers now go through the shared `victor/tools/sandbox/launch.py` seam
+(`prepare_launch` + `run_launch`/`run_launch_async`), so under the fail-closed
+required posture each carries its seccomp filter descriptor and no parent
+descriptor leaks. Branch `fix/w2-seccomp-residual` off `origin/develop` @
+`fcb1f8f3a`. PR: #1988.
+
+Converted sites (behavioral parity where the site was correct: `None`/none
+backend → raw argv, zero descriptors; refusal paths unchanged, pre-wrap):
+
+1. **bash tool** (`victor/tools/bash.py`) — wraps `["/bin/sh", "-c", cmd]`
+   via `prepare_launch`; `run_managed_process` receives `argv` AND
+   `pass_fds`; owned fds closed in a `finally` around the runner.
+2. **workflow sandbox executor** (`victor/workflows/sandbox_executor.py`)
+   — `_execute_process` wraps via `prepare_launch`;
+   `SandboxedProcess.start` gained a `pass_fds` parameter forwarded to its
+   `Popen`; fds closed in the existing `finally`.
+3. **MCP stdio client** (`victor/integrations/mcp/client.py`) —
+   `_start_process` wraps via `prepare_launch`; both owners (the
+   rlmit `SandboxedProcess` and the plain `Popen`) receive `pass_fds`; fds
+   closed in a `finally` covering the cancelled-startup path.
+4. **filesystem write enhancer** (`victor/tools/lsp_write_enhancer.py`) —
+   formatter subprocess now spawns through `run_launch_async` (was inline
+   `asyncio.create_subprocess_exec`); error handling and temp-file cleanup
+   preserved.
+5. **merge manager** (`victor/processing/merge/manager.py`) — `_run_git`
+   spawns via `run_launch` (raised `CalledProcessError` contract kept).
+6. **temporal analyzer** (`victor/tools/verification/temporal_analyzer.py`)
+   — `_run_git` spawns via `run_launch`; degrade-to-empty-string paths
+   unchanged.
+7. **auto-commit** (`victor/agent/auto_commit.py`) — `_run_git` spawns via
+   `run_launch` with `check` forwarded (typed refusals unchanged).
+8. **snapshot store** (`victor/agent/snapshot_store.py`) — `_run_git`
+   spawns via `run_launch`.
+9. **navigation slash command** (`victor/ui/slash/commands/navigation.py`)
+   — `_run_git` spawns via `run_launch`.
+10. **(sweep find, same defect class)** filesystem read-root discovery
+    (`victor/tools/filesystem.py:_discover_read_roots`) — was wrapping
+    `git worktree list` without descriptors; now through the seam.
+
+**Structural guard**: `test_no_call_site_wraps_argv_outside_the_shared_seam`
+(`tests/unit/tools/sandbox/test_launch_call_sites.py`) asserts no module
+outside `victor/tools/sandbox/` contains a `.wrap_argv(`/`take_pass_fds(`
+call — a wrap anywhere else is by construction a leak. The only sanctioned
+consumer is `prepare_launch` itself.
+
+**Tests** (`tests/unit/tools/sandbox/test_launch_call_sites.py`, mirrors of
+`test_launch_helper.py`): per-site pass_fds forwarding under an enforcing
+fake backend, raw-argv + zero-descriptor parity without one, descriptor
+drain + close on every exit (including failing spawns), parent fd-table
+stability across repeated failing launches, a live bwrap qualification
+through the snapshot-store site (skip-with-reason on unqualified hosts).
+Updated call-shape assertions in `test_mcp_factory_lifecycle.py`,
+`test_failure_boundaries.py` (`start(..., pass_fds=())`) and the workflow
+`_RecordingBackend` stub (now honors the `take_pass_fds` contract).
+
+**RELATED_TESTS** entries added for all ten touched production modules.
+
+**Gates**: `tests/unit/tools/ tests/unit/security/ tests/unit/integrations/`
+green (5179+ passed; the 8 pre-existing `MCP factory lifecycle` call-shape
+failures fixed in-PR); sandbox/workflows/agent/processing/commands suites
+green; black 26.10.1 + ruff clean.
+
 ## Codex review fix wave 1 — owner isolation (2026-11-20)
 
 Near-term fixes for Codex v0.32-candidate review findings 3, 4 and 13

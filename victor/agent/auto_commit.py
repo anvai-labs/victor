@@ -154,11 +154,18 @@ class AutoCommitter:
             CompletedProcess result
         """
         launch_decision = decision if decision is not None else self._resolve_policy_decision()
-        argv = ["git", *args]
-        if launch_decision.required_active and launch_decision.backend is not None:
-            argv = launch_decision.backend.wrap_argv(argv, self.workspace_root)
-        return subprocess.run(
-            argv,
+        # The wrap and the launch travel together through the shared seam:
+        # the backend's owned descriptors (bwrap's seccomp filter fd) are
+        # forwarded to the spawn and closed on every exit.
+        from victor.tools.sandbox import prepare_launch, run_launch
+
+        launch = prepare_launch(
+            launch_decision.backend if launch_decision.required_active else None,
+            ["git", *args],
+            self.workspace_root,
+        )
+        return run_launch(
+            launch,
             capture_output=True,
             text=True,
             timeout=30,

@@ -22,7 +22,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 try:
     import resource
@@ -287,6 +287,7 @@ class SandboxedProcess:
         command: List[str],
         cwd: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
+        pass_fds: Sequence[int] = (),
     ) -> subprocess.Popen:
         """Start a sandboxed subprocess.
 
@@ -294,6 +295,8 @@ class SandboxedProcess:
             command: Command to execute
             cwd: Working directory
             env: Additional environment variables
+            pass_fds: Descriptors the child must inherit (a wrapping launch
+                backend such as bwrap hands its seccomp filter through one)
 
         Returns:
             Subprocess handle
@@ -311,7 +314,7 @@ class SandboxedProcess:
             sandbox_env["TMPDIR"] = temp_dir
 
         try:
-            process = await self._start_basic(command, cwd, sandbox_env)
+            process = await self._start_basic(command, cwd, sandbox_env, pass_fds)
 
             self._processes[process.pid] = process
             process_group = owned_process_group(process)
@@ -336,6 +339,7 @@ class SandboxedProcess:
         command: List[str],
         cwd: Optional[str],
         env: Dict[str, str],
+        pass_fds: Sequence[int] = (),
     ) -> subprocess.Popen:
         """Start process with basic resource limits.
 
@@ -343,6 +347,7 @@ class SandboxedProcess:
             command: Command to execute
             cwd: Working directory
             env: Environment variables
+            pass_fds: Descriptors the child must inherit
 
         Returns:
             Subprocess handle
@@ -354,6 +359,7 @@ class SandboxedProcess:
             stderr=subprocess.PIPE,
             cwd=cwd,
             env=env,
+            pass_fds=tuple(pass_fds),
             text=True,
             bufsize=1,
             preexec_fn=self._create_preexec_fn(),

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 from pathlib import Path
 
 from rich.panel import Panel
@@ -66,10 +65,17 @@ def _resolve_commit_launch(settings: object):
 
 def _run_git(argv: list[str], *, decision, workspace_root: Path, **kwargs):
     """Run one UI-commit git child through the shared launch decision."""
-    command = list(argv)
-    if decision.required_active and decision.backend is not None:
-        command = decision.backend.wrap_argv(command, workspace_root)
-    return subprocess.run(command, **kwargs)
+    from victor.tools.sandbox import prepare_launch, run_launch
+
+    # The wrap and the launch travel together through the shared seam: the
+    # backend's owned descriptors (bwrap's seccomp filter fd) are forwarded
+    # to the spawn and closed on every exit.
+    launch = prepare_launch(
+        decision.backend if decision.required_active else None,
+        list(argv),
+        workspace_root,
+    )
+    return run_launch(launch, **kwargs)
 
 
 @register_command

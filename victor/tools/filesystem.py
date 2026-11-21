@@ -17,7 +17,6 @@
 import asyncio
 import logging
 import os
-import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -1336,12 +1335,19 @@ def _discover_read_roots(project_root: Path, run_policy_snapshot: Any = None) ->
     if launch_decision is None:
         return frozenset(roots)
 
-    argv = ["git", "-C", str(project_root), "worktree", "list", "--porcelain"]
-    if launch_decision.required_active and launch_decision.backend is not None:
-        argv = launch_decision.backend.wrap_argv(argv, project_root)
+    # The wrap and the launch travel together through the shared seam: the
+    # backend's owned descriptors (bwrap's seccomp filter fd) are forwarded
+    # to the spawn and closed on every exit.
+    from victor.tools.sandbox import prepare_launch, run_launch
+
+    launch = prepare_launch(
+        launch_decision.backend if launch_decision.required_active else None,
+        ["git", "-C", str(project_root), "worktree", "list", "--porcelain"],
+        project_root,
+    )
     try:
-        proc = subprocess.run(
-            argv,
+        proc = run_launch(
+            launch,
             capture_output=True,
             text=True,
             timeout=5,

@@ -1,6 +1,7 @@
 """Workflow process execution respects actual MCP text I/O and cleanup."""
 
 import asyncio
+import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -468,14 +469,29 @@ def _install_reloaded_globals(monkeypatch, policy: str, *, network_isolation=Fal
 
 
 class _RecordingBackend:
+    """Enforcing-backend stand-in honoring the full launch contract.
+
+    ``take_pass_fds`` is part of the seam contract: ``prepare_launch`` drains
+    it right after ``wrap_argv``, so a stub without it is not a valid
+    enforcing backend anymore.
+    """
+
     type_name = "fake"
 
     def __init__(self):
         self.calls = []
+        self._pending_fds: list = []
 
     def wrap_argv(self, argv, cwd=None):
         self.calls.append((list(argv), cwd))
+        r, w = os.pipe()
+        os.close(w)
+        self._pending_fds.append(r)
         return ["policy-wrapper", *argv]
+
+    def take_pass_fds(self):
+        fds, self._pending_fds = self._pending_fds, []
+        return fds
 
 
 async def test_admitted_required_workflow_process_beats_reloaded_disabled(monkeypatch):
