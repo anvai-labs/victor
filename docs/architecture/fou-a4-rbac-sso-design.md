@@ -274,7 +274,18 @@ the verified principal's subject and group.
   (`sandhi_meter.py:85-92`) already accepts `group_id` — pass the bound
   group through `SessionCostTracker.record_request`
   (`session_cost_tracker.py:363` mirror call) so virtual keys and the
-  neutral event gain verified groups.
+  neutral event gain verified groups. **Billing-group rule (Codex
+  finding 23, resolved):** the gateway's meter path is key-authoritative
+  (sandhi ADR-0004 D4 — `meter_tokens` resolves the event's
+  `subject_id`/`group_id` from the virtual key; the Python binding admits
+  no per-event group parameter), so the per-event group is realized as the
+  **versioned metering key**: `victor:{subject}` (no verified group) or
+  `victor:{subject}:{group}`. The stable principal key stays the subject
+  (D5); a group change meters through a NEW key — subsequent events carry
+  the new group, historical events keep the group they were recorded
+  with, and overlapping HTTP/SSE/WS calls are race-free because each
+  event's key encodes its own event-time group. Key-only principals keep
+  the unversioned key — behavior-neutral (pinned).
 - Keyless posture: `bind_attribution()` with nothing stays a no-op;
   `UsageGatewaySettings.subject_id`/`group_id` operator fallbacks
   (`usage_gateway_config.py:33-37`) remain the only attribution — pinned
@@ -430,6 +441,13 @@ with the standard RED/GREEN evidence discipline.
   `request.state.client_id` shim instead of re-calling `_verify_api_key`
   per route; posture semantics unchanged (enforced by the
   `test_multi_principal_refusal` suite).
+- **Codex finding 23 (billing-group rule) FIXED** (2026-11-21): the A4b
+  join forwarded the group per event, but the gateway froze it at the
+  first virtual-key registration — a group change never reached later
+  events. Resolved with the versioned metering key above; the legacy
+  per-route `bind_attribution` cited at `routes/chat_routes.py:155` no
+  longer exists (removed by A4a/A4b — attribution is owned by the
+  server-wide auth dependency).
 - A4c (D1/D2/D6), A4c-1/-2/-3 (D4-revised/D11/D12), and A4d (D3) remain
   pending their decisions / implementation.
 
