@@ -621,6 +621,7 @@ from victor.config.groups import (
     ToolSelectionSettings,
     FuzzyMatchingSettings,
     GovernanceSettings,
+    EvaluationSettings,
 )
 
 # Old config imports (to be migrated to groups)
@@ -732,6 +733,7 @@ _NESTED_GROUPS = {
     "fuzzy_matching": FuzzyMatchingSettings,
     "governance": GovernanceSettings,
     "temperature_policy": TemperatureSettings,
+    "evaluation": EvaluationSettings,
 }
 
 
@@ -1333,6 +1335,7 @@ class Settings(BaseSettings):
     tool_selection: Optional[ToolSelectionSettings] = Field(default=None, exclude=True, repr=False)
     fuzzy_matching: Optional[FuzzyMatchingSettings] = Field(default=None, exclude=True, repr=False)
     governance: Optional[GovernanceSettings] = Field(default=None, exclude=True, repr=False)
+    evaluation: Optional[EvaluationSettings] = Field(default=None, exclude=True, repr=False)
     temperature_policy: Optional[TemperatureSettings] = Field(
         default=None, exclude=True, repr=False
     )
@@ -1376,6 +1379,17 @@ class Settings(BaseSettings):
     user_scope_enabled: bool = True
     project_scope_enabled: bool = True
     memory_injection_max_tokens: int = 500
+
+    # ADR-036 field-data collection (flag-graduation evidence). Strictly opt-in:
+    # when enabled, each session records flag exposure + outcome markers — NO
+    # conversation content, NO code, NO raw identifiers — to an append-only
+    # JSONL store (one file per day, size-capped rotation). Aggregate with
+    # `victor evaluation field-data summary`.
+    # NOTE: field_data_enabled / field_data_store_dir / field_data_max_file_bytes
+    # now in the evaluation nested group
+    field_data_enabled: bool = False
+    field_data_store_dir: Optional[str] = None
+    field_data_max_file_bytes: int = 5 * 1024 * 1024
 
     # ==========================================================================
     # Vertical Configuration

@@ -1633,6 +1633,48 @@ class StreamingChatExecutor:
             from victor.agent.edge_turn_judge import build_edge_turn_judge
 
             _turn_judge = build_edge_turn_judge()
+
+        # ADR-036 field data (opt-in, default OFF): record this session run's flag
+        # exposure + outcome markers through the REAL session path (dormancy
+        # lesson: placement, not existence). The module import is guarded by a
+        # cheap env/settings hint — victor.evaluation is heavy and must stay off
+        # the default chat path; when the hint is on, the production resolver
+        # makes the final call and every write is best-effort (collection never
+        # affects the run).
+        _field_recorder = None
+        _field_session_id = ""
+        _field_outcome: Dict[str, Any] = {"cancelled": False, "meta": {}, "error_kind": None}
+        import os as _os
+
+        if _os.environ.get("VICTOR_FIELD_DATA_ENABLED") or bool(
+            getattr(getattr(_settings, "evaluation", None), "field_data_enabled", False)
+        ):
+            import uuid
+
+            from victor.evaluation.field_data import (
+                STATUS_CANCELLED,
+                STATUS_COMPLETED,
+                STATUS_ERROR,
+                FieldDataRecorder,
+                resolve_field_data_enabled,
+            )
+
+            _field_data_enabled = resolve_field_data_enabled(_settings)
+            _field_recorder = FieldDataRecorder(settings=_settings, enabled=_field_data_enabled)
+            _field_session_id = str(getattr(stream_ctx, "session_id", None) or uuid.uuid4().hex)
+            if _field_recorder.active:
+                try:
+                    _provider_name, _model_name = self._resolve_provider_identity(orch)
+                    _field_recorder.record_session_start(
+                        session_id=_field_session_id,
+                        mode=str(getattr(executor, "value", executor)),
+                        provider=_provider_name,
+                        model=_model_name,
+                        settings=_settings,
+                    )
+                except Exception:  # noqa: BLE001 — collection must never break a session
+                    logger.debug("field-data session-start recording failed", exc_info=True)
+
         if _caller_ctx is not None:
             # Structured path: loop config from the object; the criteria gate
             # resolution (FEP-0043) and completion-tool names travel inside it.
@@ -1696,45 +1738,80 @@ class StreamingChatExecutor:
             loop_context["runtime_context_overrides"] = dict(caller_overrides)
 
         conversation_history = self._get_conversation_history(runtime_owner, orch, user_message)
-        async with aclosing_if_supported(
-            loop.run_streaming(
-                user_message,
-                context=loop_context or None,
-                conversation_history=conversation_history,
-            )
-        ) as stream:
-            iterator = aiter(stream)
-            cancelled = False
-            while True:
-                if self.services.stream_lifecycle.is_cancelled():
-                    cancelled = True
-                    break
-                try:
-                    chunk = await anext(iterator)
-                except _StreamingCancelled:
-                    cancelled = True
-                    break
-                except StopAsyncIteration:
-                    cancelled = self.services.stream_lifecycle.is_cancelled()
-                    break
-                if self.services.stream_lifecycle.is_cancelled():
-                    cancelled = True
-                    break
-                if getattr(chunk, "is_final", False) and chunk.metadata:
-                    recovered = await _deliver_post_loop_recovery(
-                        self.services,
-                        _te,
-                        chunk,
-                        usage_totals=getattr(stream_ctx, "cumulative_usage", None),
-                    )
-                    if recovered is not None:
-                        yield recovered
+        try:
+            async with aclosing_if_supported(
+                loop.run_streaming(
+                    user_message,
+                    context=loop_context or None,
+                    conversation_history=conversation_history,
+                )
+            ) as stream:
+                iterator = aiter(stream)
+                cancelled = False
+                while True:
                     if self.services.stream_lifecycle.is_cancelled():
                         cancelled = True
                         break
-                yield chunk
-        if cancelled:
-            yield _cancelled_stream_chunk(self.services, stream_ctx)
+                    try:
+                        chunk = await anext(iterator)
+                    except _StreamingCancelled:
+                        cancelled = True
+                        break
+                    except StopAsyncIteration:
+                        cancelled = self.services.stream_lifecycle.is_cancelled()
+                        break
+                    if self.services.stream_lifecycle.is_cancelled():
+                        cancelled = True
+                        break
+                    if getattr(chunk, "is_final", False) and chunk.metadata:
+                        if "agentic_loop_success" in chunk.metadata:
+                            _field_outcome["meta"] = dict(chunk.metadata)
+                        recovered = await _deliver_post_loop_recovery(
+                            self.services,
+                            _te,
+                            chunk,
+                            usage_totals=getattr(stream_ctx, "cumulative_usage", None),
+                        )
+                        if recovered is not None:
+                            yield recovered
+                        if self.services.stream_lifecycle.is_cancelled():
+                            cancelled = True
+                            break
+                    yield chunk
+            _field_outcome["cancelled"] = bool(cancelled)
+            if cancelled:
+                yield _cancelled_stream_chunk(self.services, stream_ctx)
+        except (asyncio.CancelledError, GeneratorExit):
+            _field_outcome["cancelled"] = True
+            raise
+        except Exception as _field_exc:  # noqa: BLE001 — re-raised below
+            _field_outcome["error_kind"] = type(_field_exc).__name__
+            raise
+        finally:
+            if _field_recorder is not None and _field_recorder.active:
+                try:
+                    _field_meta = _field_outcome["meta"]
+                    _field_error_kind = _field_outcome["error_kind"]
+                    _field_status = (
+                        STATUS_ERROR
+                        if _field_error_kind
+                        else (STATUS_CANCELLED if _field_outcome["cancelled"] else STATUS_COMPLETED)
+                    )
+                    _field_recorder.record_session_end(
+                        _field_session_id,
+                        completion_status=_field_status,
+                        turn_count=int(
+                            _field_meta.get(
+                                "agentic_loop_iterations",
+                                getattr(stream_ctx, "total_iterations", 0) or 0,
+                            )
+                        ),
+                        tool_call_count=int(getattr(stream_ctx, "tool_calls_used", 0) or 0),
+                        error_count=1 if _field_error_kind else 0,
+                        error_kind=_field_error_kind,
+                    )
+                except Exception:  # noqa: BLE001 — collection must never break a session
+                    logger.debug("field-data session-end recording failed", exc_info=True)
 
 
 async def _deliver_post_loop_recovery(

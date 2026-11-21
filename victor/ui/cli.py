@@ -93,6 +93,7 @@ from victor.ui.commands.vertical import vertical_app
 from victor.ui.commands.plugin import plugin_app
 from victor.ui.commands.skills import skills_app
 from victor.ui.commands.workflow import workflow_app
+from victor.ui.commands.field_data import field_data_app
 from victor.ui.commands.ab_testing import ab_app
 
 # Import new unified auth command
@@ -469,6 +470,13 @@ app.add_typer(serve_app, rich_help_panel="Development")
 app.add_typer(viz_app, rich_help_panel="Development")
 app.add_typer(mcp_app, rich_help_panel="Development")
 app.add_typer(verify_app, name="verify", rich_help_panel="Development")
+
+# ADR-036 flag-graduation field data (opt-in collection + evidence table).
+evaluation_app = typer.Typer(
+    name="evaluation", help="Flag-graduation evaluation and field-data utilities."
+)
+evaluation_app.add_typer(field_data_app)
+app.add_typer(evaluation_app, rich_help_panel="Development")
 
 # --- Observability / Data verbs ---
 app.add_typer(observe_app, rich_help_panel="Observability")

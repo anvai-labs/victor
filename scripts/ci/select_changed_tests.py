@@ -1265,6 +1265,21 @@ RELATED_TESTS = {
         "tests/unit/integrations/api/test_ws_delivery_bounds.py",
         "tests/unit/integrations/api/test_server_effective_posture.py",
     ),
+    # ADR-036 field-data harness: recorder + real-path wiring (placement tests
+    # drive run_unified; the CLI renders the evidence table).
+    "victor/evaluation/field_data.py": (
+        "tests/unit/evaluation/test_field_data.py",
+        "tests/unit/agent/services/test_field_data_wiring.py",
+        "tests/unit/ui/commands/test_field_data.py",
+    ),
+    "victor/ui/commands/field_data.py": (
+        "tests/unit/ui/commands/test_field_data.py",
+        "tests/unit/evaluation/test_field_data.py",
+    ),
+    "victor/ui/cli.py": (
+        "tests/unit/ui/commands/test_field_data.py",
+        "tests/unit/ui/test_cli_verb_consolidation.py",
+    ),
     # EventBridge: bounded queues (VAS-06/10) and owner-bound subscription
     # records / protected-event admission (Codex finding 9).
     "victor/integrations/api/event_bridge.py": (
@@ -1346,6 +1361,8 @@ RELATED_TESTS = {
         "tests/unit/agent/services/test_streaming_act_port.py",
         "tests/unit/agent/services/test_streaming_act_adapter.py",
         "tests/unit/agent/test_memory_delivery_provider_messages.py",
+        "tests/unit/agent/services/test_field_data_wiring.py",
+        "tests/unit/agent/services/test_chat_stream_executor_lifetime.py",
     ),
     **dict.fromkeys(
         (
@@ -1401,6 +1418,8 @@ RELATED_TESTS = {
         "tests/unit/config/test_intent_flag_migration.py",
         "tests/unit/config/groups/test_subprocess_config.py",
         "tests/unit/config/test_security_settings.py",
+        "tests/unit/config/groups/test_evaluation_config.py",
+        "tests/unit/evaluation/test_field_data.py",
     ),
     "victor/config/groups/subprocess_config.py": (
         "tests/unit/config/groups/test_subprocess_config.py",
