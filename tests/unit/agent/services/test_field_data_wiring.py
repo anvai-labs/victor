@@ -161,6 +161,9 @@ async def test_run_unified_records_start_and_end_when_enabled(
 
     end = records[1]
     assert end["completion_status"] == "completed"
+    # The loop's terminal verdict rides the recorded outcome (ADR-036
+    # demotion evidence: an ON-arm skew in failed completions).
+    assert end["success"] is True
     assert end["turn_count"] == 7
     assert end["tool_call_count"] == 12
     assert end["duration_seconds"] is not None

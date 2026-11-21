@@ -251,8 +251,15 @@ class FieldDataRecorder:
         tool_call_count: int = 0,
         error_count: int = 0,
         error_kind: Optional[str] = None,
+        success: bool = False,
     ) -> Optional[Dict[str, Any]]:
-        """Record one session run's outcome markers. No-op when disabled."""
+        """Record one session run's outcome markers. No-op when disabled.
+
+        ``success`` is the loop's terminal verdict
+        (``agentic_loop_success``): a ``completed`` status with a False
+        verdict is a failed run, not a cancelled one — the ON-vs-OFF skew of
+        that signal is exactly the demotion evidence ADR-036 reads.
+        """
         if not self.active:
             return None
         session_hash = anonymize_session_id(session_id)
@@ -265,6 +272,7 @@ class FieldDataRecorder:
             "event": SESSION_END_EVENT,
             "ts": round(float(ts), 3),
             "session_hash": session_hash,
+            "success": bool(success),
             "completion_status": str(completion_status)[:32],
             "turn_count": max(0, int(turn_count)),
             "duration_seconds": (
@@ -369,6 +377,7 @@ def aggregate_field_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "duration_seconds": end.get("duration_seconds") if end is not None else None,
                 "turn_count": end.get("turn_count", 0) if end is not None else 0,
                 "tool_call_count": end.get("tool_call_count", 0) if end is not None else 0,
+                "success": bool(end.get("success", False)) if end is not None else False,
             }
         )
 
@@ -379,6 +388,7 @@ def aggregate_field_data(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         durations = [r["duration_seconds"] for r in ended if r["duration_seconds"] is not None]
         return {
             "sessions": len(rows),
+            "succeeded": sum(1 for r in rows if r["success"]),
             "completed": sum(1 for r in rows if r["status"] == STATUS_COMPLETED),
             "cancelled": sum(1 for r in rows if r["status"] == STATUS_CANCELLED),
             "error": sum(1 for r in rows if r["status"] == STATUS_ERROR),
@@ -426,9 +436,9 @@ def format_evidence_table(aggregated: Dict[str, Any]) -> str:
         f"sessions: {session_count} | statuses: "
         + ", ".join(f"{k}={v}" for k, v in sorted(status_counts.items())),
         "",
-        "| flag | arm | sessions | completed | cancelled | error | no_end"
+        "| flag | arm | sessions | succeeded | completed | cancelled | error | no_end"
         " | mean_duration_s | mean_turns | mean_tool_calls |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
 
     def num(value: Any) -> str:
@@ -439,7 +449,8 @@ def format_evidence_table(aggregated: Dict[str, Any]) -> str:
         for arm in ("on", "off"):
             stats = arms.get(arm, {})
             lines.append(
-                f"| {flag} | {arm} | {stats.get('sessions', 0)} | {stats.get('completed', 0)} "
+                f"| {flag} | {arm} | {stats.get('sessions', 0)} | {stats.get('succeeded', 0)} "
+                f"| {stats.get('completed', 0)} "
                 f"| {stats.get('cancelled', 0)} | {stats.get('error', 0)} | {stats.get('no_end', 0)} "
                 f"| {num(stats.get('mean_duration_seconds'))} | {num(stats.get('mean_turns'))} "
                 f"| {num(stats.get('mean_tool_calls'))} |"

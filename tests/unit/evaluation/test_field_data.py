@@ -219,7 +219,7 @@ def _fixture_records() -> list[dict]:
             }
         )
 
-    def end(h: str, ts: float, status: str, turns: int, tools: int) -> None:
+    def end(h: str, ts: float, status: str, turns: int, tools: int, ok: bool) -> None:
         records.append(
             {
                 "schema_version": 1,
@@ -227,6 +227,7 @@ def _fixture_records() -> list[dict]:
                 "ts": ts,
                 "session_hash": h,
                 "completion_status": status,
+                "success": ok,
                 "turn_count": turns,
                 "duration_seconds": round(ts % 100, 3),
                 "tool_call_count": tools,
@@ -236,13 +237,13 @@ def _fixture_records() -> list[dict]:
         )
 
     start("a" * 16, 10.0, True)
-    end("a" * 16, 20.0, "completed", 6, 12)
+    end("a" * 16, 20.0, "completed", 6, 12, True)
     start("b" * 16, 11.0, True)
-    end("b" * 16, 25.0, "error", 3, 2)
+    end("b" * 16, 25.0, "error", 3, 2, False)
     start("c" * 16, 12.0, False)
-    end("c" * 16, 30.0, "cancelled", 2, 1)
+    end("c" * 16, 30.0, "cancelled", 2, 1, False)
     start("d" * 16, 13.0, False)
-    end("d" * 16, 40.0, "completed", 8, 20)
+    end("d" * 16, 40.0, "completed", 8, 20, True)
     start("e" * 16, 14.0, True)  # no end record → no_end
     return records
 
@@ -258,12 +259,14 @@ def test_aggregate_joins_start_and_end_and_counts_outcomes() -> None:
     }
     on = agg["flags"]["per_turn_auditor"]["on"]
     assert on["sessions"] == 3
+    assert on["succeeded"] == 1
     assert on["completed"] == 1
     assert on["error"] == 1
     assert on["no_end"] == 1
     assert on["mean_turns"] == pytest.approx((6 + 3) / 2)
     off = agg["flags"]["per_turn_auditor"]["off"]
     assert off["sessions"] == 2
+    assert off["succeeded"] == 1
     assert off["completed"] == 1
     assert off["cancelled"] == 1
     assert agg["flags"]["codebase_intent_indexing_enabled"]["on"]["sessions"] == 0
@@ -275,17 +278,17 @@ def test_aggregate_reads_a_real_store_directory(tmp_path: Path) -> None:
     settings.search = SimpleNamespace(graph=SimpleNamespace(codebase_intent_indexing_enabled=False))
     recorder = FieldDataRecorder(settings=settings, store_dir=tmp_path)
     recorder.record_session_start(session_id="x", mode="auto", provider="p", model="m")
-    recorder.record_session_end("x", completion_status="completed", turn_count=2)
+    recorder.record_session_end("x", completion_status="completed", turn_count=2, success=True)
     agg = aggregate_field_data(read_store(tmp_path))
     assert agg["session_count"] == 1
-    assert agg["flags"]["per_turn_auditor"]["on"]["sessions"] == 1
+    assert agg["flags"]["per_turn_auditor"]["on"]["succeeded"] == 1
 
 
 def test_evidence_table_lists_both_flag_arms() -> None:
     table = format_evidence_table(aggregate_field_data(_fixture_records()))
     for flag in FIELD_DATA_FLAGS:
         assert flag in table
-    for status in ("completed", "cancelled", "error", "no_end"):
+    for status in ("succeeded", "completed", "cancelled", "error", "no_end"):
         assert status in table
     assert "sessions" in table
     # Markdown table rows: one per flag × arm.

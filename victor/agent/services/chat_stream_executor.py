@@ -1809,6 +1809,7 @@ class StreamingChatExecutor:
                         tool_call_count=int(getattr(stream_ctx, "tool_calls_used", 0) or 0),
                         error_count=1 if _field_error_kind else 0,
                         error_kind=_field_error_kind,
+                        success=bool(_field_meta.get("agentic_loop_success", False)),
                     )
                 except Exception:  # noqa: BLE001 — collection must never break a session
                     logger.debug("field-data session-end recording failed", exc_info=True)
