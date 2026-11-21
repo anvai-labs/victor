@@ -258,6 +258,12 @@ async def _run_graph_execution_loop(
 
     active_node: Optional[str] = None
     node_start_time = time.time()
+    # Last node whose completion was durably checkpointed; under sparse
+    # ``checkpoint_after_nodes`` the graph tail completes unrecorded, and the
+    # completion boundary below must cover the gap (FEP-0032, FOU-C2 item 24).
+    last_checkpointed_node: Optional[str] = None
+    # Last real node that completed (never a ``send:`` pseudo-history entry).
+    last_completed_node: Optional[str] = None
     # Applies to the first node only: a resume continues past the interrupt it paused at.
     resume_past_interrupt = checkpoint_manager.resume_past_interrupt
     checkpoint_manager.resume_past_interrupt = None
@@ -353,6 +359,7 @@ async def _run_graph_execution_loop(
 
             logger.debug("Executed node: %s", current_node)
             node_history.append(current_node)
+            last_completed_node = current_node
             next_target = None
             if sequential_fanout:
                 visited_nodes.add(current_node)
@@ -379,7 +386,7 @@ async def _run_graph_execution_loop(
                 else:
                     resume_target = _resolve_resume_target(get_next_node, current_node, state)
             try:
-                await checkpoint_manager.save_checkpoint(
+                saved_checkpoint = await checkpoint_manager.save_checkpoint(
                     thread_id, current_node, state, next_node=resume_target, completed=True
                 )
             except Exception as checkpoint_error:
@@ -392,6 +399,8 @@ async def _run_graph_execution_loop(
                         time.time() - node_start_time,
                     )
                 raise
+            if saved_checkpoint:
+                last_checkpointed_node = current_node
             if node_observer is not None:
                 await node_observer(
                     "complete", current_node, state, None, time.time() - node_start_time
@@ -446,6 +455,29 @@ async def _run_graph_execution_loop(
             else:
                 current_node = next_target
 
+        completed_node = last_completed_node
+        if completed_node is not None and completed_node != last_checkpointed_node:
+            # FEP-0032 / FOU-C2 item 24: with sparse ``checkpoint_after_nodes``
+            # (the agentic-loop executor compiles with ``{"act"}``) the last
+            # per-node checkpoint of a *completed* run sat mid-graph, so the
+            # thread's durable state claimed the completed tail was still
+            # pending and a later resume re-executed it. Record the END
+            # boundary; skipped when redundant (full checkpointing already
+            # persisted the final node, whose resume resolves to END).
+            try:
+                await checkpoint_manager.save_checkpoint(
+                    thread_id, completed_node, state, next_node=end_node_token, completed=True
+                )
+            except Exception as checkpoint_error:
+                recovery_observer = getattr(node_observer, "observe_checkpoint_failure", None)
+                if recovery_observer is not None:
+                    await recovery_observer(
+                        completed_node,
+                        state,
+                        str(checkpoint_error),
+                        time.time() - node_start_time,
+                    )
+                raise
         event_emitter.emit_graph_completed(
             success=True,
             iterations=iteration_controller.iterations,
