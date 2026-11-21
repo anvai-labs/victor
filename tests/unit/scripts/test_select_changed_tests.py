@@ -203,6 +203,7 @@ def test_similarity_reporting_selects_real_store_and_native_integration(source):
                 "tests/unit/agent/services/test_streaming_act_port.py",
                 "tests/unit/agent/services/test_streaming_act_adapter.py",
                 "tests/unit/agent/test_memory_delivery_provider_messages.py",
+                "tests/unit/agent/services/test_field_data_wiring.py",
             },
         ),
         (
