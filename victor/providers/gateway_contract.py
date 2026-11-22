@@ -2,6 +2,7 @@
 
 import re
 from typing import Any, Optional
+from pathlib import Path
 from urllib.parse import urlsplit
 
 PROTOCOLS = {"chat_completions", "anthropic_messages", "responses", "gemini_generate_content"}
@@ -55,6 +56,7 @@ def gateway_config(value: Any) -> Optional[dict]:
         "audience",
         "grant",
         "protocol",
+        "ca_file",
     }:
         raise ValueError("gateway contains unsupported configuration fields")
     url = value.get("url")
@@ -87,6 +89,13 @@ def gateway_config(value: Any) -> Optional[dict]:
         not isinstance(grant, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", grant)
     ):
         raise ValueError("gateway grant must be an unambiguous policy name")
+    ca_file = value.get("ca_file")
+    if "ca_file" in value and (
+        not isinstance(ca_file, str)
+        or not ca_file.strip()
+        or not Path(ca_file.strip()).is_absolute()
+    ):
+        raise ValueError("gateway ca_file must be an absolute filesystem path")
     return value
 
 

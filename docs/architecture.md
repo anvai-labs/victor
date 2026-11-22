@@ -263,7 +263,7 @@ The provider diagram distinguishes admitted Sandhi-backed families, explicit
 native-only protocol or execution models, and optional routing. The provider registry resolves
 each admitted family through `victor/providers/sandhi_transport.py`; an unclassified
 Victor provider fails construction instead of silently bypassing the boundary. The
-required `sandhi-gateway==0.23.0` dependency supplies the versioned neutral chat
+required `sandhi-gateway==0.24.0` dependency supplies the versioned neutral chat
 contract and Rust `ProviderRuntime` used by both front doors.
 
 **Direct FFI mode** uses the in-process Rust binding with a Victor-resolved endpoint
@@ -280,6 +280,13 @@ subject identity, model/backend admission, upstream
 credential references, budgets, run attribution, durable attempt evidence, and
 settlement receipts. Client-visible gateway usage remains a projection; the
 server-owned run-cost tree and ledger are the accounting authority.
+
+A gateway profile may declare an absolute `ca_file`. The path participates in
+model-discovery and typed-handle identity, is passed only to that gateway
+provider, and never mutates `SSL_CERT_FILE`, `SSL_CERT_DIR`, or the system trust
+store. Sandhi validates a bounded regular PEM/DER file, configures replacement
+roots, and continues to enforce hostname verification, redirect refusal, and the
+TLS 1.2 minimum.
 
 Both front doors set `max_retries=0`. The Sandhi handle performs no hidden retry or
 fallback, and a terminal or ambiguous Sandhi failure stops that handle. Victor's

@@ -503,6 +503,21 @@ class ProviderGatewayConfig(BaseModel):
     ] = None
     oidc: Optional[GatewayOidcConfig] = None
     grant: Optional[str] = None
+    ca_file: Optional[str] = Field(
+        default=None,
+        description=(
+            "Absolute path to a PEM/DER CA bundle used only by this gateway profile. "
+            "Sandhi applies it as a replacement trust root without changing "
+            "process-global SSL_CERT_FILE or SSL_CERT_DIR."
+        ),
+    )
+
+    @field_validator("ca_file")
+    @classmethod
+    def validate_gateway_ca_file(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and (not value.strip() or not Path(value).is_absolute()):
+            raise ValueError("gateway ca_file must be an absolute filesystem path")
+        return value
 
     @property
     def virtual_key_value(self) -> Optional[str]:
