@@ -114,7 +114,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.23.0 is required for provider transport",
+            "sandhi-gateway 0.24.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -341,7 +341,8 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
                 return (
                     "the endpoint's TLS certificate is not trusted by this "
                     "machine's trust store (private/self-signed CA). Configure "
-                    "SSL_CERT_FILE with a trusted CA bundle for the SDK process "
+                    "gateway ca_file for this Victor profile, configure "
+                    "SSL_CERT_FILE with a trusted CA bundle for a legacy SDK process "
                     "(verify support on the installed SDK/platform), import "
                     f"the issuing CA into the system trust store ({_tls_trust_remediation()}), "
                     "or serve a publicly-trusted certificate"
@@ -837,7 +838,7 @@ class SandhiTypedProviderMixin:
     _sandhi_runtime: Any = None
     _sandhi_typed_providers: Optional[Dict[Tuple[str, ...], Any]] = None
     _gateway_model_capabilities: Optional[Dict[str, Dict[str, Any]]] = None
-    _gateway_model_capabilities_key: Optional[Tuple[str, str, Optional[str]]] = None
+    _gateway_model_capabilities_key: Optional[Tuple[str, str, Optional[str], Optional[str]]] = None
 
     @staticmethod
     def _validate_call_options(options: Dict[str, Any]) -> None:
@@ -928,12 +929,18 @@ class SandhiTypedProviderMixin:
         self._gateway_model_capabilities = capabilities
         self._gateway_model_capabilities_key = gateway
 
-    def _gateway_scope(self) -> Optional[Tuple[str, str, Optional[str]]]:
+    def _gateway_scope(
+        self,
+    ) -> Optional[Tuple[str, str, Optional[str], Optional[str]]]:
         gateway = self._gateway_overrides()
         if gateway is None:
             return None
         config = gateway_config((getattr(self, "extra_config", None) or {}).get("gateway"))
-        return (*gateway, config.get("grant") if config else None)
+        return (
+            *gateway,
+            config.get("grant") if config else None,
+            (str(config["ca_file"]).strip() or None) if config and config.get("ca_file") else None,
+        )
 
     @staticmethod
     def _gateway_discovery_headers(credential: str, grant: Optional[str]) -> Dict[str, str]:
@@ -954,7 +961,7 @@ class SandhiTypedProviderMixin:
         cached = self._cached_gateway_model_capabilities(gateway)
         if cached is not None:
             return cached
-        root, credential, grant = gateway
+        root, credential, grant, ca_file = gateway
         url = _gateway_family_base(root, "chat_completions") + "/models"
         capabilities: Dict[str, Dict[str, Any]] = {}
         try:
@@ -963,6 +970,7 @@ class SandhiTypedProviderMixin:
                 headers=self._gateway_discovery_headers(credential, grant),
                 timeout=min(self._sandhi_timeout(), 5.0),
                 follow_redirects=False,
+                verify=ca_file or True,
             )
             response.raise_for_status()
             capabilities = self._parse_gateway_model_capabilities(response.json())
@@ -987,13 +995,14 @@ class SandhiTypedProviderMixin:
         cached = self._cached_gateway_model_capabilities(gateway)
         if cached is not None:
             return
-        root, credential, grant = gateway
+        root, credential, grant, ca_file = gateway
         url = _gateway_family_base(root, "chat_completions") + "/models"
         capabilities: Dict[str, Dict[str, Any]] = {}
         try:
             async with httpx.AsyncClient(
                 timeout=min(self._sandhi_timeout(), 5.0),
                 follow_redirects=False,
+                verify=ca_file or True,
             ) as client:
                 response = await client.get(
                     url, headers=self._gateway_discovery_headers(credential, grant)
@@ -1283,6 +1292,7 @@ class SandhiTypedProviderMixin:
         )
         gateway = self._gateway_scope()
         grant = None
+        ca_file = None
         # Run cost tree (sandhi PR #149): only gateway mode stamps the run id —
         # direct-provider mode must stay byte-identical on the wire.
         run_id = _gateway_run_id() if gateway is not None else ""
@@ -1290,7 +1300,7 @@ class SandhiTypedProviderMixin:
             # Gateway mode (TD-0003 P3): the FFI handle targets the Sandhi proxy with
             # the configured credential or starter marker. The explicit client
             # dialect is independent of the provider identity and server backend.
-            proxy_url, virtual_key, grant = gateway
+            proxy_url, virtual_key, grant, ca_file = gateway
             if not virtual_key:
                 raise ProviderConnectionError(
                     "configured gateway credential is unavailable",
@@ -1340,6 +1350,7 @@ class SandhiTypedProviderMixin:
             endpoint_profile,
             "sandhi_gateway_v1" if gateway is not None else "provider",
             grant or "",
+            ca_file or "",
             run_id,
         )
         if cache_key not in self._sandhi_typed_providers:
@@ -1371,6 +1382,8 @@ class SandhiTypedProviderMixin:
                 kwargs["headers_json"] = json.dumps(wire_headers)
             if gateway is not None:
                 kwargs["peer_role"] = "sandhi_gateway_v1"
+                if ca_file:
+                    kwargs["ca_file"] = ca_file
             if auth_scheme:
                 kwargs["auth_scheme"] = auth_scheme
             if protocol:

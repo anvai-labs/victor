@@ -63,11 +63,9 @@ def test_compatibility_parser_keeps_reasoning_content() -> None:
 
 @pytest.mark.parametrize("model", ["glm-5.3", "glm-5.3:coding", "glm-5.3:china-coding"])
 @pytest.mark.parametrize("effort", ["low", "high", "max"])
-def test_direct_glm53_reasoning_effort_fails_closed_until_catalogued(
-    model: str, effort: str
-) -> None:
+def test_direct_glm53_reasoning_effort_is_catalogued_and_forwarded(model: str, effort: str) -> None:
     provider = ZAIProvider(api_key="test-key")
-    assert provider.supports_reasoning_effort(model) is False
+    assert provider.supports_reasoning_effort(model) is True
     payload = provider._build_request_payload(
         [Message(role="user", content="hi")],
         model,
@@ -77,9 +75,10 @@ def test_direct_glm53_reasoning_effort_fails_closed_until_catalogued(
         False,
         reasoning_effort=effort,
     )
-    assert "reasoning_effort" not in payload
+    assert payload["reasoning_effort"] == effort
+    assert payload["model"] == model
     request = _typed_request_from_openai_payload(payload)
-    assert "thinking" not in request
+    assert request["thinking"] == {"enabled": True, "effort": effort}
 
 
 @pytest.mark.asyncio

@@ -42,7 +42,7 @@ def test_canonical_gateway_qualification_tracks_current_pin():
         encoding="utf-8"
     )
     assert (
-        "Victor's consumer candidate pins the prepared Sandhi release\n" "`sandhi-gateway==0.23.0`."
+        "Victor's consumer candidate pins the prepared Sandhi release\n" "`sandhi-gateway==0.24.0`."
     ) in document
 
 

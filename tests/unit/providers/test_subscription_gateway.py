@@ -354,3 +354,163 @@ def test_profile_base_url_suppresses_inherited_gateway():
     assert "gateway" not in result or result.get("gateway") is None
     # The profile's base_url must be preserved
     assert result["base_url"] == "https://coding-intl.dashscope.aliyuncs.com/v1"
+
+
+def test_gateway_private_ca_requires_a_nonempty_absolute_path(tmp_path):
+    from victor.providers.gateway_contract import gateway_config
+
+    valid = {
+        "url": "https://gateway.example.test",
+        "virtual_key": "vk_fixture",
+        "ca_file": str(tmp_path / "gateway-ca.pem"),
+    }
+    assert gateway_config(valid)["ca_file"] == valid["ca_file"]
+    for invalid in ("", "  ", "relative/gateway-ca.pem", None, 7):
+        with pytest.raises(ValueError, match="ca_file must be an absolute"):
+            gateway_config({**valid, "ca_file": invalid})
+
+
+def test_gateway_private_ca_survives_profile_model_normalization(tmp_path):
+    from victor.config.settings import ProviderGatewayConfig
+
+    ca_file = str(tmp_path / "gateway-ca.pem")
+    config = ProviderGatewayConfig(
+        url="https://gateway.example.test",
+        virtual_key="vk_fixture",
+        ca_file=ca_file,
+    )
+    assert config.model_dump(mode="json")["ca_file"] == ca_file
+    with pytest.raises(ValueError, match="ca_file must be an absolute"):
+        ProviderGatewayConfig(
+            url="https://gateway.example.test", virtual_key="vk_fixture", ca_file="relative.pem"
+        )
+
+
+def test_gateway_private_ca_survives_profile_registry_resolution(tmp_path):
+    from victor.config.provider_config_registry import resolve_provider_gateway
+
+    ca_file = str(tmp_path / "gateway-ca.pem")
+    settings = {
+        "gateway": {
+            "url": "https://gateway.example.test/v1",
+            "virtual_key": "vk_fixture",
+            "grant": "subscription",
+            "ca_file": ca_file,
+        }
+    }
+    resolve_provider_gateway(settings, "openai")
+    assert settings["gateway"]["ca_file"] == ca_file
+    assert settings["gateway"]["url"] == "https://gateway.example.test"
+
+
+@pytest.mark.asyncio
+async def test_gateway_private_ca_scopes_binding_trust_and_handle_cache(monkeypatch, tmp_path):
+    runtime = install_runtime(monkeypatch)
+    ca_one = tmp_path / "gateway-one.pem"
+    ca_two = tmp_path / "gateway-two.pem"
+    provider = SandhiOpenAIProvider(
+        gateway={
+            "url": "https://gateway.example.test",
+            "virtual_key": "vk_fixture",
+            "ca_file": str(ca_one),
+        }
+    )
+    try:
+        assert provider._gateway_scope()[3] == str(ca_one)
+        assert provider._typed_provider("model") is runtime.handle
+        assert runtime.calls[-1][1]["ca_file"] == str(ca_one)
+        assert runtime.calls[-1][1]["peer_role"] == "sandhi_gateway_v1"
+
+        provider.extra_config["gateway"]["ca_file"] = f"  {ca_one}  "
+        assert provider._gateway_scope()[3] == str(ca_one)
+        assert provider._typed_provider("model") is runtime.handle
+        assert len(runtime.calls) == 1
+
+        provider.extra_config["gateway"]["ca_file"] = str(ca_two)
+        assert provider._typed_provider("model") is runtime.handle
+        assert len(runtime.calls) == 2
+        assert runtime.calls[-1][1]["ca_file"] == str(ca_two)
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_gateway_private_ca_is_used_by_discovery_without_global_trust(monkeypatch, tmp_path):
+    from unittest.mock import Mock
+
+    ca_file = str(tmp_path / "gateway-ca.pem")
+    observed = {}
+
+    def discovery(url, **kwargs):
+        observed["url"] = url
+        observed.update(kwargs)
+        response = Mock()
+        response.raise_for_status = Mock()
+        response.json.return_value = {
+            "object": "list",
+            "sandhi_contract_version": 1,
+            "data": [],
+        }
+        return response
+
+    runtime = install_runtime(monkeypatch)
+    monkeypatch.setattr(st.httpx, "get", discovery)
+    provider = SandhiOpenAIProvider(
+        gateway={
+            "url": "https://gateway.example.test",
+            "virtual_key": "vk_fixture",
+            "ca_file": ca_file,
+        }
+    )
+    try:
+        assert provider._load_gateway_model_capabilities() == {}
+        assert observed["url"] == "https://gateway.example.test/v1/models"
+        assert observed["verify"] == ca_file
+        assert "ca_file" not in runtime.calls
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_gateway_private_ca_is_used_by_async_discovery(monkeypatch, tmp_path):
+    from unittest.mock import Mock
+
+    ca_file = str(tmp_path / "gateway-ca.pem")
+    observed = {}
+
+    class Client:
+        def __init__(self, **kwargs):
+            observed.update(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, **kwargs):
+            observed["request_url"] = url
+            observed.update(kwargs)
+            response = Mock()
+            response.raise_for_status = Mock()
+            response.json.return_value = {
+                "object": "list",
+                "sandhi_contract_version": 1,
+                "data": [],
+            }
+            return response
+
+    monkeypatch.setattr(st.httpx, "AsyncClient", Client)
+    provider = SandhiOpenAIProvider(
+        gateway={
+            "url": "https://gateway.example.test",
+            "virtual_key": "vk_fixture",
+            "ca_file": ca_file,
+        }
+    )
+    try:
+        await provider._refresh_gateway_model_capabilities()
+        assert observed["request_url"] == "https://gateway.example.test/v1/models"
+        assert observed["verify"] == ca_file
+    finally:
+        await provider.close()

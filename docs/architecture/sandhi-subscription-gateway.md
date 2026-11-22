@@ -3,7 +3,7 @@
 ## Coordinated execution-contract migration
 
 Victor's consumer candidate pins the prepared Sandhi release
-`sandhi-gateway==0.23.0`. Publication of the matching wheel is required for rollout.
+`sandhi-gateway==0.24.0`. Publication of the matching wheel is required for rollout.
 The user authorized a coordinated migration because Victor is the sole client;
 there is no requirement to retain a permissive Sandhi legacy mode.
 
@@ -19,7 +19,7 @@ An explicit transient provider rejection can still use the logical-call retry
 policy and keeps the same call identity across authorized attempts.
 
 Sandhi's four admitted typed streaming source families share source validation
-and actual token observation across embedded and accounted calls. Published 0.22.1
+and actual token observation across embedded and accounted calls. Published 0.23.0
 retains the durable HTTP execution boundary, explicit gateway-peer contract,
 optional authentication profiles and model-scoped OIDC budgets, and adds
 hierarchical rolling budget windows. HTTP
@@ -30,8 +30,8 @@ delivery or be refused explicitly. Disjoint fresh/read/write/output token counts
 are evidence; cache policy and provider price schedules remain separate concerns.
 An embedded observation is not a gateway ledger receipt.
 
-The official published Sandhi 0.22.1 wheel has passed focused compatibility checks
-against this Victor source: installed version and contract constants, generated
+The published Sandhi 0.23.0 wheel passed the prior focused compatibility checks
+against Victor source: installed version and contract constants, generated
 Python-stub identity, and the Sandhi binding/provider suites. Keep Contracts and
 CodeGraph on their independent release lines. The matching
 Victor consumer remains subject to independent review, public-hosted CI and its
@@ -41,7 +41,7 @@ The root, API and CPU-embeddings deployment locks carry the same exact Sandhi
 pin. Local validation installs the wheel built from the matching Sandhi source.
 The 0.20.0 consumer qualification remains the latest comprehensive public record;
 0.21.0 retained its generated Python contract and wire/chat contract versions;
-the 0.32.0 candidate repeats the binding, semantic-thinking and provider checks
+the 0.33.0 candidate repeats the binding, semantic-thinking, private-CA and provider checks
 before promotion. The 0.17.x–0.20.x records remain historical and do not substitute for
 this acceptance.
 
@@ -71,7 +71,7 @@ account headers and cache capabilities remain server owned.
 
 ### Independent gateway client dialect
 
-The Victor 0.32.0 candidate and published Sandhi 0.22.1 support a local
+The Victor 0.33.0 candidate and Sandhi 0.24.0 support a local
 starter with no client credential. A gateway URL deliberately selects that
 gateway before upstream account or API-key discovery:
 
@@ -91,6 +91,19 @@ providers:
   openai:
     gateway:
       url: ${SANDHI_GATEWAY_URL}
+```
+
+For a gateway certificate issued by a private CA, add the absolute certificate
+bundle path to the selected profile. This is replacement trust for that gateway
+only; Victor does not export ambient TLS variables or trust unrelated
+connections.
+
+```yaml
+providers:
+  openai:
+    gateway:
+      url: ${SANDHI_GATEWAY_URL}
+      ca_file: /etc/victor/sandhi-gateway-ca.pem
 ```
 
 Configure the backend and route on Sandhi first; its upstream credentials remain
@@ -652,7 +665,7 @@ model discovery can expose the sanitized effective limits without revealing
 backend URLs, credentials or provider references.
 
 Sandhi 0.21 introduced exact-policy comparison and sanitized discovery. Victor's
-embedded `sandhi-gateway==0.23.0` binding retains wire compatibility.
+embedded `sandhi-gateway==0.24.0` binding retains wire compatibility.
 Enable the declared 600-second planning budget only after the target gateway
 reports an effective policy that admits it.
 
