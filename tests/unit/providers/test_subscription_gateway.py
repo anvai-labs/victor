@@ -1,6 +1,7 @@
 """Gateway ownership: no OpenAI credential discovery/refresh in Victor clients."""
 
 import base64
+import hashlib
 import ssl
 from unittest.mock import AsyncMock, patch
 
@@ -440,22 +441,114 @@ async def test_gateway_private_ca_scopes_binding_trust_and_handle_cache(monkeypa
         }
     )
     try:
-        assert provider._gateway_scope()[3] == str(ca_one)
+        first_scope = provider._gateway_scope()
+        first_snapshot = provider._gateway_ca_snapshot
+        assert first_snapshot.source == str(ca_one)
+        assert first_snapshot.path != str(ca_one)
+        assert Path(first_snapshot.path).stat().st_mode & 0o777 == 0o600
+        assert first_scope[3] == first_snapshot.path
+        assert first_scope[4] == hashlib.sha256(_GATEWAY_TEST_CA_DER).hexdigest()
         assert provider._typed_provider("model") is runtime.handle
-        assert runtime.calls[-1][1]["ca_file"] == str(ca_one)
+        assert runtime.calls[-1][1]["ca_file"] == first_snapshot.path
         assert runtime.calls[-1][1]["peer_role"] == "sandhi_gateway_v1"
 
         provider.extra_config["gateway"]["ca_file"] = f"  {ca_one}  "
-        assert provider._gateway_scope()[3] == str(ca_one)
+        assert provider._gateway_scope() == first_scope
+        assert provider._gateway_ca_snapshot is first_snapshot
         assert provider._typed_provider("model") is runtime.handle
         assert len(runtime.calls) == 1
 
         provider.extra_config["gateway"]["ca_file"] = str(ca_two)
         assert provider._typed_provider("model") is runtime.handle
+        second_snapshot = provider._gateway_ca_snapshot
+        assert second_snapshot is not first_snapshot
+        assert second_snapshot.source == str(ca_two)
+        assert second_snapshot.path != first_snapshot.path
+        assert not Path(first_snapshot.path).exists()
         assert len(runtime.calls) == 2
-        assert runtime.calls[-1][1]["ca_file"] == str(ca_two)
+        assert runtime.calls[-1][1]["ca_file"] == second_snapshot.path
     finally:
         await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_gateway_same_path_rotation_pins_one_snapshot(monkeypatch, tmp_path):
+    runtime = install_runtime(monkeypatch)
+    ca_file = tmp_path / "gateway-ca.der"
+    ca_file.write_bytes(_GATEWAY_TEST_CA_DER)
+    provider = SandhiOpenAIProvider(
+        gateway={
+            "url": "https://gateway.example.test",
+            "virtual_key": "vk_fixture",
+            "ca_file": str(ca_file),
+        }
+    )
+    try:
+        before = provider._gateway_scope()
+        snapshot = provider._gateway_ca_snapshot
+        assert provider._typed_provider("model") is runtime.handle
+
+        ca_file.write_bytes(b"source rotated after the handle was pinned")
+        ca_file.unlink()
+        after = provider._gateway_scope()
+        assert after == before
+        assert provider._gateway_ca_snapshot is snapshot
+        assert Path(snapshot.path).read_bytes() == _GATEWAY_TEST_CA_DER
+        assert provider._typed_provider("model") is runtime.handle
+        assert len(runtime.calls) == 1
+        assert runtime.calls[0][1]["ca_file"] == snapshot.path
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_gateway_error_mapping_survives_source_ca_removal(monkeypatch, tmp_path):
+    import json
+
+    from victor.core.errors import ProviderConnectionError
+
+    runtime = install_runtime(monkeypatch)
+    ca_file = tmp_path / "gateway-ca.der"
+    ca_file.write_bytes(_GATEWAY_TEST_CA_DER)
+    provider = SandhiOpenAIProvider(
+        gateway={
+            "url": "https://gateway.example.test",
+            "virtual_key": "vk_fixture",
+            "ca_file": str(ca_file),
+        }
+    )
+    observed = {}
+
+    def diagnose(url, *, ca_file=None):
+        observed["url"] = url
+        observed["ca_file"] = ca_file
+        return "synthetic TLS diagnosis"
+
+    monkeypatch.setattr(st, "_diagnose_endpoint_tls", diagnose)
+    original = RuntimeError(
+        json.dumps(
+            {
+                "code": "transport_error",
+                "message": "synthetic transport failure",
+                "details": {"url": "https://gateway.example.test/v1"},
+            }
+        )
+    )
+    runtime.handle = SimpleNamespace(complete_json=AsyncMock(side_effect=original))
+    try:
+        assert provider._typed_provider("model") is runtime.handle
+        ca_file.unlink()
+        await provider._sandhi_complete({"model": "model"})
+        raise AssertionError("expected the original transport error")
+    except ProviderConnectionError as error:
+        assert error.raw_error is original
+        assert "synthetic transport failure" in str(error)
+        assert "synthetic TLS diagnosis" in str(error)
+    finally:
+        await provider.close()
+    assert observed["url"].startswith("https://gateway.example.test/v1")
+    assert observed["ca_file"] != str(ca_file)
+    assert Path(observed["ca_file"]).exists() is False
 
 
 def test_gateway_ssl_context_accepts_der_certificate(tmp_path):
@@ -491,34 +584,6 @@ def test_gateway_ssl_context_accepts_symlinked_pem_bundle(tmp_path):
         pytest.skip(f"temporary symlink support unavailable: {error}")
     context = st._gateway_ssl_context(str(ca_file))
     assert len(context.get_ca_certs()) == 1
-
-
-@pytest.mark.asyncio
-async def test_gateway_ca_rotation_invalidates_scope_and_handle_cache(monkeypatch, tmp_path):
-    runtime = install_runtime(monkeypatch)
-    ca_file = tmp_path / "gateway-ca.der"
-    ca_file.write_bytes(_GATEWAY_TEST_CA_DER)
-    provider = SandhiOpenAIProvider(
-        gateway={
-            "url": "https://gateway.example.test",
-            "virtual_key": "vk_fixture",
-            "ca_file": str(ca_file),
-        }
-    )
-    try:
-        before = provider._gateway_scope()
-        assert provider._typed_provider("model") is runtime.handle
-
-        ca_file.write_bytes(ssl.DER_cert_to_PEM_cert(_GATEWAY_TEST_CA_DER).encode("ascii"))
-        after = provider._gateway_scope()
-        assert after[3] == str(ca_file)
-        assert after[4] != before[4]
-        assert provider._typed_provider("model") is runtime.handle
-        assert len(runtime.calls) == 2
-        assert runtime.calls[0][1]["ca_file"] == str(ca_file)
-        assert runtime.calls[1][1]["ca_file"] == str(ca_file)
-    finally:
-        await provider.close()
 
 
 def test_gateway_ssl_context_rejects_non_certificate(tmp_path):
@@ -559,7 +624,6 @@ async def test_gateway_private_ca_is_used_by_discovery_without_global_trust(monk
 
     ca_file = str(tmp_path / "gateway-ca.der")
     Path(ca_file).write_bytes(_GATEWAY_TEST_CA_DER)
-    expected_context = st._gateway_ssl_context(ca_file)
     observed = {}
 
     def discovery(url, **kwargs):
@@ -586,7 +650,7 @@ async def test_gateway_private_ca_is_used_by_discovery_without_global_trust(monk
     try:
         assert provider._load_gateway_model_capabilities() == {}
         assert observed["url"] == "https://gateway.example.test/v1/models"
-        assert observed["verify"].get_ca_certs() == expected_context.get_ca_certs()
+        assert observed["verify"] is provider._gateway_ca_snapshot.context
         assert observed["verify"].verify_mode == ssl.CERT_REQUIRED
         assert observed["verify"].check_hostname is True
         assert "ca_file" not in runtime.calls
@@ -600,7 +664,6 @@ async def test_gateway_private_ca_is_used_by_async_discovery(monkeypatch, tmp_pa
 
     ca_file = str(tmp_path / "gateway-ca.der")
     Path(ca_file).write_bytes(_GATEWAY_TEST_CA_DER)
-    expected_context = st._gateway_ssl_context(ca_file)
     observed = {}
 
     class Client:
@@ -636,7 +699,7 @@ async def test_gateway_private_ca_is_used_by_async_discovery(monkeypatch, tmp_pa
     try:
         await provider._refresh_gateway_model_capabilities()
         assert observed["request_url"] == "https://gateway.example.test/v1/models"
-        assert observed["verify"].get_ca_certs() == expected_context.get_ca_certs()
+        assert observed["verify"] is provider._gateway_ca_snapshot.context
         assert observed["verify"].verify_mode == ssl.CERT_REQUIRED
         assert observed["verify"].check_hostname is True
     finally:

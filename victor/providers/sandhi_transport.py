@@ -19,7 +19,9 @@ import re
 import socket
 import ssl
 import stat
+import tempfile
 from pathlib import Path
+import weakref
 
 import httpx
 from contextlib import aclosing
@@ -358,24 +360,13 @@ def _read_gateway_ca_file(ca_file: str) -> bytes:
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+    if len(content) > _MAX_GATEWAY_CA_FILE_BYTES:
+        raise ValueError("gateway ca_file is empty or exceeds the 4 MiB bound")
     return content
 
 
-def _gateway_ca_identity(ca_file: str) -> str:
-    """Return a content identity so mutable paths cannot reuse stale CA handles."""
-    return hashlib.sha256(_read_gateway_ca_file(ca_file)).hexdigest()
-
-
-def _gateway_ssl_context(ca_file: str) -> ssl.SSLContext:
-    """Load a profile-scoped PEM bundle or exact DER certificate for discovery.
-
-    Unlike the process trust store, this context contains only the bytes read
-    from the current descriptor. CA rotation therefore produces a new context;
-    textual-path caching cannot preserve a superseded trust anchor.
-    """
-    content = _read_gateway_ca_file(ca_file)
-    if len(content) > _MAX_GATEWAY_CA_FILE_BYTES:
-        raise ValueError("gateway ca_file is empty or exceeds the 4 MiB bound")
+def _gateway_ssl_context_from_bytes(content: bytes) -> ssl.SSLContext:
+    """Build a replacement-root context from already validated CA bytes."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.verify_mode = ssl.CERT_REQUIRED
     context.check_hostname = True
@@ -390,6 +381,47 @@ def _gateway_ssl_context(ca_file: str) -> ssl.SSLContext:
         raise ValueError("gateway ca_file is not a PEM or DER certificate")
     context.load_verify_locations(cadata=certificate_data)
     return context
+
+
+def _gateway_ssl_context(ca_file: str) -> ssl.SSLContext:
+    """Load a profile-scoped PEM bundle or exact DER certificate for discovery."""
+    return _gateway_ssl_context_from_bytes(_read_gateway_ca_file(ca_file))
+
+
+class _GatewayCaSnapshot:
+    """One immutable trust snapshot shared by discovery, diagnostics, and FFI.
+
+    Sandhi accepts a CA path and validates it when a handle is constructed. A
+    mutable source path would otherwise let Python discovery and the native
+    runtime observe different rotations. Victor copies the validated bytes once
+    to a private regular file, derives both TLS consumers from that snapshot,
+    and pins handle-cache identity to its content digest. Changing the profile
+    path creates a new snapshot; changing the same source path deliberately
+    keeps the provider pinned until the provider is recreated or closed.
+    """
+
+    def __init__(self, source: str):
+        content = _read_gateway_ca_file(source)
+        self.source = source
+        self.content_sha256 = hashlib.sha256(content).hexdigest()
+        self.context = _gateway_ssl_context_from_bytes(content)
+        descriptor, self.path = tempfile.mkstemp(prefix="victor-gateway-ca-")
+        closed = False
+        try:
+            with os.fdopen(descriptor, "wb") as target:
+                closed = True
+                target.write(content)
+                target.flush()
+                os.fsync(target.fileno())
+        except BaseException:
+            if not closed:
+                os.close(descriptor)
+            Path(self.path).unlink(missing_ok=True)
+            raise
+        self._finalizer = weakref.finalize(self, Path(self.path).unlink, missing_ok=True)
+
+    def release(self) -> None:
+        self._finalizer()
 
 
 def _diagnose_endpoint_tls(
@@ -950,6 +982,7 @@ class SandhiTypedProviderMixin:
     _sandhi_typed_providers: Optional[Dict[Tuple[str, ...], Any]] = None
     _gateway_model_capabilities: Optional[Dict[str, Dict[str, Any]]] = None
     _gateway_model_capabilities_key: Optional[GatewayScope] = None
+    _gateway_ca_snapshot: Optional[_GatewayCaSnapshot] = None
 
     @staticmethod
     def _validate_call_options(options: Dict[str, Any]) -> None:
@@ -971,6 +1004,10 @@ class SandhiTypedProviderMixin:
         finally:
             self._sandhi_typed_providers = None
             self._sandhi_runtime = None
+            snapshot = self._gateway_ca_snapshot
+            self._gateway_ca_snapshot = None
+            if snapshot is not None:
+                snapshot.release()
 
     def _static_sandhi_model_descriptor(self, model: str) -> Optional[Dict[str, Any]]:
         """Return an exact model descriptor from the pinned binding catalog."""
@@ -1049,18 +1086,36 @@ class SandhiTypedProviderMixin:
         if gateway is None:
             return None
         config = gateway_config((getattr(self, "extra_config", None) or {}).get("gateway"))
-        scope = (
-            *gateway,
-            config.get("grant") if config else None,
-            (str(config["ca_file"]).strip() or None) if config and config.get("ca_file") else None,
+        source = (
+            (str(config["ca_file"]).strip() or None) if config and config.get("ca_file") else None
         )
-        if scope[3] is None:
+        scope = (*gateway, config.get("grant") if config else None, source)
+        if source is None:
             return scope
-        return (*scope, _gateway_ca_identity(scope[3]))
+        snapshot = self._gateway_ca_snapshot
+        if snapshot is None or snapshot.source != source:
+            replacement = _GatewayCaSnapshot(source)
+            if snapshot is not None:
+                snapshot.release()
+            self._gateway_ca_snapshot = replacement
+            snapshot = replacement
+        return (*scope[:3], snapshot.path, snapshot.content_sha256)
 
     def _gateway_ca_file(self) -> Optional[str]:
-        gateway = self._gateway_scope()
-        return gateway[3] if gateway is not None else None
+        if self._gateway_ca_snapshot is not None:
+            return self._gateway_ca_snapshot.path
+        config = gateway_config((getattr(self, "extra_config", None) or {}).get("gateway"))
+        return (
+            (str(config["ca_file"]).strip() or None) if config and config.get("ca_file") else None
+        )
+
+    def _gateway_ssl_verify(self, gateway: GatewayScope) -> ssl.SSLContext | bool:
+        if len(gateway) != 5:
+            return True
+        snapshot = self._gateway_ca_snapshot
+        if snapshot is not None and snapshot.path == gateway[3]:
+            return snapshot.context
+        return _gateway_ssl_context(gateway[3])
 
     @staticmethod
     def _gateway_discovery_headers(credential: str, grant: Optional[str]) -> Dict[str, str]:
@@ -1082,7 +1137,6 @@ class SandhiTypedProviderMixin:
         if cached is not None:
             return cached
         root, credential, grant = gateway[:3]
-        ca_file = gateway[3]
         url = _gateway_family_base(root, "chat_completions") + "/models"
         capabilities: Dict[str, Dict[str, Any]] = {}
         try:
@@ -1091,7 +1145,7 @@ class SandhiTypedProviderMixin:
                 headers=self._gateway_discovery_headers(credential, grant),
                 timeout=min(self._sandhi_timeout(), 5.0),
                 follow_redirects=False,
-                verify=_gateway_ssl_context(ca_file) if ca_file else True,
+                verify=self._gateway_ssl_verify(gateway),
             )
             response.raise_for_status()
             capabilities = self._parse_gateway_model_capabilities(response.json())
@@ -1117,14 +1171,13 @@ class SandhiTypedProviderMixin:
         if cached is not None:
             return
         root, credential, grant = gateway[:3]
-        ca_file = gateway[3]
         url = _gateway_family_base(root, "chat_completions") + "/models"
         capabilities: Dict[str, Dict[str, Any]] = {}
         try:
             async with httpx.AsyncClient(
                 timeout=min(self._sandhi_timeout(), 5.0),
                 follow_redirects=False,
-                verify=_gateway_ssl_context(ca_file) if ca_file else True,
+                verify=self._gateway_ssl_verify(gateway),
             ) as client:
                 response = await client.get(
                     url, headers=self._gateway_discovery_headers(credential, grant)
