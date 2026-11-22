@@ -37,11 +37,11 @@ instructions. It follows the VAS tracker conventions (`victor-agent-service-plan
 | FOU-S1b | Sandbox posture flip to fail-closed + escape hatch | S | ADR-035 | FOU-S1a | MERGED | #1912 (8 adversarial findings fixed pre-merge; suite opt-out via tests/conftest.py). macOS Seatbelt live qualification COMPLETE 2026-11-18: 13/13 probe checks on macOS 26.2/arm64 — one real profile gap found+fixed (`/dev/null` write allow, #1944); probe pattern in tests/unit/tools/sandbox/test_seatbelt_qualification.py |
 | FOU-S2 | Container `CodeSandbox` quality bar promoted to core | S | ADR-035 | FOU-S1b | IN REVIEW | #1976: core owns the bar at `victor/tools/sandbox/container_sandbox.py` — `ContainerSandbox` (lazy acquire / owned finalizer / idle-TTL self-expiry with `auto_remove` / network-disabled default / `mem_limit`+`cpu_shares` caps on the docker-run invocation / owner labels + reapable) + capability gating `resolve_container_sandbox(settings, required=)` mirroring `resolve_sandbox_backend` (None when Docker unavailable — backend simply not offered; typed refusal reason `binary_missing`/`daemon_unreachable` under required) + `daemon_available()` bounded probe + `sandbox_kwargs_from_settings` (reads `code_executor_*` knobs incl. `subprocess` group) + shared `execute_code`/`upload_files` async helpers + the owner-aware reaper. Capability seam: `service_provider._create_code_execution_manager` now constructs the CORE class directly — Docker-available installs get container isolation without the vertical; loader-based consumers (`cleanup-containers`, `container_eval`) unchanged. Vertical delegation: victor-coding `code_executor_tool.py` is a shim — `CodeSandbox`/`ResourceError` are identity aliases of the core types (not subclasses), historical names re-exported, `@tool` surface intact. Boundary resolution: `victor.tools.*` is not in `FORBIDDEN_RUNTIME_IMPORT_PREFIXES` and the vertical already imported `victor.tools.base/sandbox_ownership`, so `victor.tools.sandbox.container_sandbox` is the sanctioned import path (check_extracted_vertical_boundaries PASSED, errors=0). Tests RED-first: 45-test core suite (`tests/unit/tools/sandbox/test_container_sandbox.py` — lifecycle, network-default, caps-at-argv, 0-leak finalizer, gating, reaper), 14-test vertical delegation battery (identity + compat + tool contract; full vertical suite 1371 passed), bootstrap tests re-pinned to the core seam (unresponsive-daemon <1s, no-vertical construction, inert no-docker, loud construction failure), docker-gated integration egress-denied + caps tests appended to `test_code_sandbox_lifecycle.py` (skip without daemon). Gates: sandbox+security 1028 passed; architecture/contracts guards 210 passed; collect-only 41,889 clean; black/ruff clean; RELATED_TESTS entry added |
 | FOU-S3a–d | Untrusted-content containment (envelope/canary → blocking → classifier → graduation) | S | ADR-037 | FOU-D2 | S3a+S3b GREEN (4af31f541); S3c GREEN (injection screen: annotation-only, in-envelope highlighting, corpus-pinned false-positive discipline); S3d MERGED (#1959) + S3d FOLLOW-UP MERGED (fix/injection-homoglyph-normalize): homoglyph pre-pass + quote-guard abuse carve-out closed both designed FN classes → battery re-run verdict = GRADUATE_HARD_FAIL_CANDIDATE (0 FP / 155 benign, 35 TP / 0 FN / 35 adversarial); **hard-fail WIRING SHIPPED flag-gated default-OFF (`ToolSettings.untrusted_content_hard_fail`, False): a tool call whose arguments echo content from a family flagged earlier in the session hard-fails through the same containment gate as canary blocking — flip = field data per ADR-036**; **S3b canary binding RESTORED (Codex fix wave 1, #1983): session-owned canary bound around every turn — the dispatch floor now fires on real sessions, not only tests** | #1908, #1911, #1983 |
-| FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | PART-BLOCKED | `effect_gated_completion` graduation LOCKED OUT by the 2026-08-03 negative A/B (on 0.847 vs off 0.864, overlapping CIs — do NOT graduate, codified #884). `per_turn_auditor` deterministic battery SHIPPED (`victor/evaluation/auditor_ab.py` + 13-test suite): verdict **ESCALATE_LIVE_AB_REQUIRED** — wiring verified (flag resolves + edge-model judge injected on BOTH execution paths; a buffered-path wiring gap — `turn_execution_runtime` resolved the effect gate but never the auditor — found and fixed in the same change; OFF arm strict no-op pinned by negative test; placement audit guards the dormant-flag class) and cost known (max 1 edge-model call per COMPLETE turn, ≤1780-char bounded prompt, 128-token output cap, 0 main-loop token overhead; the deterministic heuristic alarm skips the judge; `max_alarms` bounds downgrades then annotate-and-allow). Judge QUALITY (premature-completion catch vs false-downgrade) is undecidable offline → default stays OFF; graduation requires the documented live A/B: `python -m victor.evaluation.flag_ab --flag per_turn_auditor --base-url <ollama> --model qwen3-coder-tools:30b --corpus effect-gate --variants 2` then `assess_graduation()` (EVR-5 oracle) + catch/false-downgrade rates. No default flipped |
+| FOU-S4 | Graduation batteries + default flips: `effect_gated_completion`, `per_turn_auditor` | S | ADR-036 | FOU-D2 (stable runs) | PART-BLOCKED | `effect_gated_completion` graduation LOCKED OUT by the 2026-08-03 negative A/B (on 0.847 vs off 0.864, overlapping CIs — do NOT graduate, codified #884). `per_turn_auditor` deterministic battery SHIPPED (`victor/evaluation/auditor_ab.py` + 13-test suite): verdict **ESCALATE_LIVE_AB_REQUIRED** — wiring verified (flag resolves + edge-model judge injected on BOTH execution paths; a buffered-path wiring gap — `turn_execution_runtime` resolved the effect gate but never the auditor — found and fixed in the same change; OFF arm strict no-op pinned by negative test; placement audit guards the dormant-flag class) and cost known (max 1 edge-model call per COMPLETE turn, ≤1780-char bounded prompt, 128-token output cap, 0 main-loop token overhead; the deterministic heuristic alarm skips the judge; `max_alarms` bounds downgrades then annotate-and-allow). Judge QUALITY (premature-completion catch vs false-downgrade) is undecidable offline → default stays OFF; graduation requires the documented live A/B: `python -m victor.evaluation.flag_ab --flag per_turn_auditor --base-url <ollama> --model qwen3-coder-tools:30b --corpus effect-gate --variants 2` then `assess_graduation()` (EVR-5 oracle) + catch/false-downgrade rates. No default flipped. **Field-data harness SHIPPED (#2002)**: `victor/evaluation/field_data.py` + `victor evaluation field-data summary` — opt-in per-session recorder (`evaluation.field_data_enabled`, DEFAULT OFF, env `VICTOR_FIELD_DATA_ENABLED`) wired on the REAL streaming session path (`run_unified`; guarded import keeps `victor.evaluation` off the default chat cold path; placement + never-imports tripwire tests per the dormancy lesson). Records per-session: `per_turn_auditor` + `codebase_intent_indexing_enabled` exposure (production resolvers) + outcome markers (status/turns/duration/tool-calls, error CLASS only) — NO conversation content/code/identifiers (session id → truncated sha256, grep-pinned); `effect_gated_completion` deliberately not tracked (LOCKED OUT). Append-only JSONL under `~/.victor/evaluation/` (daily segments, 5 MiB rotation). **Collection starts with 0.32 sessions once operators enable the flag (documented default-off)**; aggregate via `victor evaluation field-data summary` |
 | FOU-A1 | Subagent-spawn tool (Task-tool pattern) | A | ledger §A1 design | FOU-D2 | A1 phase-1 (foreground) IN REVIEW — see §FOU-A1 evidence | #1977 |
 | FOU-A2a–d | Core long-term memory (store → write paths → PERCEIVE injection → surfaces) | A | FEP-0048 | FOU-D2 | A2a MERGED (`PreferenceEpisodicStore` + `MemoryType.PREFERENCE/EPISODE` + two-database schema (memory_preference/memory_episode) + adapter lanes; 33-test suite: round-trip, scope isolation (negative), secret/oversize refusal, forget-by-id/content, thread queries, coordinator interop, db placement). A2b MERGED (#1952: `memory_set`/`memory_forget` tools, workspace-write gated + `DEFAULT_TOOL_PERMISSIONS`; `MemoryConsolidator` propose/commit/discard hook in Session service, confirm-by-default with `memory_auto_capture` default off; secret-scanner word-boundary fix — generic keyword patterns now require a `[=:]` value-bearing delimiter, benign prose no longer refused, dual-path (native+Python) parity tests). A2c MERGED (#1954: `MemoryBlockBuilder` PERCEIVE injection via PerceptionIntegration `memory_injector` collaborator — scoped coordinator queries, 500-token hard cap by rank exclusion, off-when-empty byte-identical negative, flag + `VICTOR_MEMORY_ENABLED` env re-resolved at every read; BudgetManager additive context-block registration so memory competes by priority (evict weaker-only, refit, starve); `victor/evaluation/memory_ab.py` deterministic A/B battery (flag_ab.py documented as too LLM-heavy for the wiring gate) over seeded fixtures → snapshots + ADR-036 verdict `KEEP_DEFAULT_ON` (usefulness 1.0, max 20 tokens, 0 false surfaces, baseline 0 injections); 48-test suite; production container wiring deferred per the FEP's additive-optional hook parameter). A2d MERGED (#1956: `/memory` slash command — list preferences with scope/source/confidence + recent episodes + staged proposals, set with user-scope default/`--project`, forget by id/content, confirm/discard; API routes GET/POST/DELETE `/memory` + `/memory/proposals` list/confirm/discard with sibling management-route auth posture and structured 4xx refusals that never echo the matched secret; shared consolidator handle on `MemoryConsolidator` reached from the client layer via the new `victor.framework.memory` seam, bootstrap SessionService now binds it (confirm-by-default, auto-capture only from `settings.memory.memory_auto_capture`) so end_session stages onto the handle the surfaces confirm; `PreferenceEpisodicStore.recent_episodes` public listing read; 45-test suite; docs in quickstart + http-api). **Codex review wave 1 (2026-11-20): enforced single-trusted-operator posture over /memory (typed 409 on a second credential) + store-level cross-principal guard (`principal_id`/`on_behalf_of` → `CrossPrincipalAccessRefused`) + `EmptyContentMatchRefused` for empty/whitespace `content_match` forgets (pinned from store, API and tool); full ownership remains A4a+ paused pending D4 — see §Codex review fix wave 1). **Codex review wave 2 (2026-11-20): findings 6/19 FIXED — the PERCEIVE block now REACHES provider messages (enveloped `wrap_untrusted` MEMORY source class, exactly once, both buffered `_execute_model_turn` and streamed `assembled_messages_for_call` seams, turn-scoped candidate, session-canary envelope); binding supplies the actual project path + the active context-block `BudgetManager` (lazy factory — registration observed, exhausted allowance → byte-identical prompt); adapter reads are off-loop (`asyncio.to_thread`) and lane-selected before reading — see §Codex review fix wave 1 — memory delivery + off-loop reads** | #1951; A2b MERGED #1952; A2c MERGED #1954; A2d MERGED #1956 |
 | FOU-A3 | SCIP precise tier auto-on + impact-analysis benchmark publication | A | ADR-032 | — | FUNCTIONAL + OPT-IN (ADR-032 rev 1.8/1.9) | Tier-3 SCIP harvesting works end-to-end and stays opt-in by the ADR-032 decision (`--precise`/`--no-precise`/`--precise-timeout` on `victor index graph index`; polyglot providers shipped — scip-python + scip-typescript + rust-analyzer, rev 1.6 corpus: 146,211 compiler refs @ 76.9%/67.4%/89.2% join rates; CLI drivability fixed rev 1.8 — settings resolve through `Settings.from_sources()` so config files can enable tier 3, per-provider harvest outcomes visible in index summary/`graph stats`/watch manifest; rev 1.9 hardening). REMAINING = two owner decisions, not code: auto-on flip of `enable_precise_index` and impact-analysis benchmark publication | — |
-| FOU-A4 | RBAC/SSO wired into FastAPI middleware; per-user attribution | A | FEP-0020 (unblocks) + [A4 design doc](fou-a4-rbac-sso-design.md) | — | A4a+A4b IN REVIEW (PR #1993, branch `feat/fou-a4ab-principal-attribution`); D4 OWNER-BLESSED (2026-11-20, modified recommendation — see design doc D4 row); A4c pending D1/D2/D6; A4d pending D3 | Design doc: inventory (live auth seam `_include_with_auth`/`_make_auth_dependency` at `fastapi_server.py:582-686`; VAS-05j/k owner scoping; FEP-0020 attribution join subject-only today, `group_id` never bound; VAS-05a contracts design-only — no `VerifiedPrincipal`/OIDC/policy code exists) + gap analysis + two dormancy findings (`api/middleware.py` aiohttp stack zero callers; `ServerSettings` session-token knobs never wired). Phases: A4a principal resolution at the auth seam (behavior-neutral), A4b verified subject+group into FEP-0020 events, A4c Kanidm OIDC entry (`server.auth.mode` default `api_key`), A4d strict policy/role enforcement (`server.auth.policy_path` default off). Decision register D1–D10 with recommended defaults; D1/D2/D6 block A4c only; A4d needs D3/D4. **A4a implemented**: `victor/integrations/api/auth/principal.py` — `VerifiedPrincipal` (principal_id/kind/auth_method/credential_id=sha256 key digest/issuer/subject/groups/expires_at/scopes, `client_id` compatibility property) + `legacy_api_key_principal` synthesis (principal_id = key label, zero migration); resolved inside `_make_auth_dependency` (yield-dependency) / `_make_ws_auth_dependency` / the `/ws` auth frame → `state.verified_principal` + `state.client_id` shim; keyless/exempt byte-identical negatives. **A4b implemented**: centralized `bind_principal_attribution` (best-effort, FEP-0020) inside the HTTP dependency + `/ws` turn binding upgraded to principal subject+group; per-route `_verify_api_key` re-verification and binds removed from chat/classify routes (the #1981 posture claim now consumes the dependency-set shim; posture semantics unchanged); group producer = principal groups (legacy keys bind None); dormancy-guarded by orchestrator/provider-observed identity tests incl. the streaming-generator span. **D4 registry implemented**: `auth/principals_registry.py` strict YAML parser (revision; per-entry key/principal_id/kind/subject_label/groups/expiry; uniqueness + group dedup + unknown-field rejection), default `/etc/victor/api_principals.yaml`, override `server.auth_principals_path`, startup invariant refuses (typed `PrincipalsRegistryPathError`) any path inside the REAL sandbox writable-surface list (`writable_surface_roots`); expired entries fail closed 401; activation = restart or explicit `reload_principals_registry()` (operators publish via atomic rename). Tests: 27-test registry suite + 20-test principal/attribution suite (RED evidence retained vs origin/develop extract); gates: api/security/core/architecture/config suites green delta vs develop (11 config env-noise failures verified pre-existing); collect-only clean; black/ruff/mypy clean on changed files; RELATED_TESTS entries added | — |
+| FOU-A4 | RBAC/SSO wired into FastAPI middleware; per-user attribution | A | FEP-0020 (unblocks) + [A4 design doc](fou-a4-rbac-sso-design.md) | — | A4a+A4b MERGED (#1993, commit f0d85b2f6 on develop); D4 REVISED 2026-11-21 (owner-directed: Sentinelpass-primary credentials + TLS 1.2/1.3 + passkey — design doc §5, decisions D4-revised/D11/D12); A4c-1/-2/-3 DESIGNED (default-off phases, docs-only evolution PR); A4c OIDC pending D1/D2/D6; A4d pending D3 | Design doc: inventory (live auth seam `_include_with_auth`/`_make_auth_dependency` at `fastapi_server.py:582-686`; VAS-05j/k owner scoping; FEP-0020 attribution join subject-only today, `group_id` never bound; VAS-05a contracts design-only — no `VerifiedPrincipal`/OIDC/policy code exists) + gap analysis + two dormancy findings (`api/middleware.py` aiohttp stack zero callers; `ServerSettings` session-token knobs never wired). Phases: A4a principal resolution at the auth seam (behavior-neutral), A4b verified subject+group into FEP-0020 events, A4c Kanidm OIDC entry (`server.auth.mode` default `api_key`), A4d strict policy/role enforcement (`server.auth.policy_path` default off). Decision register D1–D10 with recommended defaults; D1/D2/D6 block A4c only; A4d needs D3/D4. **A4a implemented**: `victor/integrations/api/auth/principal.py` — `VerifiedPrincipal` (principal_id/kind/auth_method/credential_id=sha256 key digest/issuer/subject/groups/expires_at/scopes, `client_id` compatibility property) + `legacy_api_key_principal` synthesis (principal_id = key label, zero migration); resolved inside `_make_auth_dependency` (yield-dependency) / `_make_ws_auth_dependency` / the `/ws` auth frame → `state.verified_principal` + `state.client_id` shim; keyless/exempt byte-identical negatives. **A4b implemented**: centralized `bind_principal_attribution` (best-effort, FEP-0020) inside the HTTP dependency + `/ws` turn binding upgraded to principal subject+group; per-route `_verify_api_key` re-verification and binds removed from chat/classify routes (the #1981 posture claim now consumes the dependency-set shim; posture semantics unchanged); group producer = principal groups (legacy keys bind None); dormancy-guarded by orchestrator/provider-observed identity tests incl. the streaming-generator span. **D4 registry implemented**: `auth/principals_registry.py` strict YAML parser (revision; per-entry key/principal_id/kind/subject_label/groups/expiry; uniqueness + group dedup + unknown-field rejection), default `/etc/victor/api_principals.yaml`, override `server.auth_principals_path`, startup invariant refuses (typed `PrincipalsRegistryPathError`) any path inside the REAL sandbox writable-surface list (`writable_surface_roots`); expired entries fail closed 401; activation = restart or explicit `reload_principals_registry()` (operators publish via atomic rename). Tests: 27-test registry suite + 20-test principal/attribution suite (RED evidence retained vs origin/develop extract); gates: api/security/core/architecture/config suites green delta vs develop (11 config env-noise failures verified pre-existing); collect-only clean; black/ruff/mypy clean on changed files; RELATED_TESTS entries added. + **2026-11-21 design evolution (docs-only PR)**: design doc §5 added — A4c-1 Sentinelpass vault as PRIMARY credential store (exact-entry service grants, digest index, typed degradation matrix: infra-unavailable degrades to YAML snapshot, grant/token deny fails closed), A4c-2 TLS 1.2/1.3 with vault-held certs (uvicorn/OpenSSL SSLContext, pinned AEAD TLS1.2 suites, HSTS, restart-bounded rotation; rustls rejected), A4c-3 passkey WebAuthn RP (python-fido2 selected over py_webauthn on maintenance evidence; no resident-key discovery v1; server-side credential-id registration; Sentinelpass passkey custody = upstream ROADMAP item, seam reserved via PasskeyCredentialStore); all claims verified against ~/code/sentinelpass@52079eb; startup-invariant-now-moot security upgrade recorded; D4 revised, D11/D12 added | — |
 | FOU-A5 | Research stack: search API adapters + page-read + browser tool; example cleanup | A | — | — | phase-1 IN REVIEW — search adapters + page-read (see §FOU-A5 evidence below) | #1979 |
 | FOU-A5 evidence | Phase 1 extends the EXISTING web surface instead of duplicating it: (1) `victor/tools/search_providers/` — Tavily/Brave/Serper thin httpx adapters behind one `SearchProvider` protocol (`search(query, max_results) → SearchResult(title,url,snippet)`), key-gated via env var → `victor keys --set-service` service chain (tavily/brave/serper added to `api_keys_registry.yaml` + `SERVICE_ENV_VARS` fallback); absent key = provider not offered. (2) `web_search(provider=...)`: `auto` = first configured API provider else keyless DuckDuckGo (pre-existing DDG scraping reused — NO new scraping); explicit provider + missing key → structured `provider_configured: False` result (negative test proves no unauthenticated request fires); API errors → structured error, never raise. (3) Page-read = `web_fetch` upgraded: bounded `_fetch_page` httpx streaming download cap (2 MB, oversized → structured error), content-type guard (PDF/binary rejected), title extraction (<title>/og:title) in the payload. Browser tool + example cleanup = phase-2 follow-ups. Tests RED-first, respx-only (no real network): 21 adapter tests (`test_search_providers.py`), 13 dispatch tests (`test_web_search_provider_dispatch.py` incl. registration/discovery), 12 page-read tests (`test_web_fetch_page_read.py` incl. cap/timeout/content-type); existing `test_web_search_tool_unit.py` re-pinned to the `_fetch_page` seam; full `tests/unit/tools/` 3866 passed. Docs: tool-reference, user-guide/tools, api-keys.md. | #1979 |
 | FOU-C1 | Single circuit breaker (merge `circuit_breaker.py` + `resilience.py` breaker) | C | — | — | IN REVIEW | canonical `CircuitBreaker`+`CircuitBreakerRegistry` moved to `victor.core.circuit_breaker` (importable by all layers); `providers/circuit_breaker.py` = re-export shim; `MultiCircuitBreaker` (agent) rewritten as delegation facade over the core breaker (+ `try_acquire` slot reservation); agent `CircuitOpenError` subclassed onto canonical `CircuitBreakerError`; distinct-semantics `ModelCircuitBreaker` (per-model, decrement-on-success) and stateless `RecoveryService.get_circuit_state` left as classified; shim identity + delegation + half-open-slot tests; layering ratchet green; 178 breaker tests + 204 architecture + 550 agent-selective pass | #1947 |
@@ -325,7 +325,9 @@ capability.
   graph_query_tool mode="intent" + IntentIndexStore.search.
 - **FEP-0049 COMPLETE on develop (2026-11-18)**: `victor graph index
   --intent` populates; `graph_semantic_search(mode="intent")` + the hybrid
-  intent leg query. Remaining: ADR-036 graduation battery (field data).
+  intent leg query. Remaining: ADR-036 graduation battery (field data) — the
+  collection harness landed (#2002, FOU-S4 row); enable
+  `evaluation.field_data_enabled` to record sessions.
 - **SQLite-only intent tier (#1943, MERGED 2026-11-18)**: chunk vectors
   co-located in project.db (`intent_chunks` table, float32-LE BLOB) via
   `SqliteIntentChunkStore` — lancedb/pyarrow off the intent tier's
@@ -687,16 +689,76 @@ candidate Codex review (`~/code/victor-review-findings.md`), branch
   proving the filter is attached; argv-only negative control fails
   loudly), skip-with-reason on unqualified hosts
   (`tests/unit/tools/sandbox/test_launch_helper.py`).
-- **Residual (wave-2 candidates, unchanged here)**: same defect class in
-  launchers outside the named finding scope — bash tool, workflow sandbox
-  executor, MCP stdio client, filesystem write enhancer, merge manager,
-  temporal analyzer, auto-commit, snapshot store, navigation slash
-  command. They wrap-then-spawn without `take_pass_fds` and can adopt the
-  shared helper.
+- **Residual (wave-2 candidates)**: FIXED in wave 2 — see the next section.
 - **Gates**: unit tools/graph_rag/security 6128 passed; api/storage/
   config/ui-command suites green; collect-only clean (42029); black
   26.10.1 + ruff clean on changed files. The seccomp/bwrap live tests run
   on qualified Linux only.
+## Codex review fix wave 2 — seccomp residual at every wrap-then-spawn site (FIXED, 2026-11-20)
+
+Closes the finding-8 residual left by #1984: all nine wrap-then-spawn
+launchers now go through the shared `victor/tools/sandbox/launch.py` seam
+(`prepare_launch` + `run_launch`/`run_launch_async`), so under the fail-closed
+required posture each carries its seccomp filter descriptor and no parent
+descriptor leaks. Branch `fix/w2-seccomp-residual` off `origin/develop` @
+`fcb1f8f3a`. PR: #1988.
+
+Converted sites (behavioral parity where the site was correct: `None`/none
+backend → raw argv, zero descriptors; refusal paths unchanged, pre-wrap):
+
+1. **bash tool** (`victor/tools/bash.py`) — wraps `["/bin/sh", "-c", cmd]`
+   via `prepare_launch`; `run_managed_process` receives `argv` AND
+   `pass_fds`; owned fds closed in a `finally` around the runner.
+2. **workflow sandbox executor** (`victor/workflows/sandbox_executor.py`)
+   — `_execute_process` wraps via `prepare_launch`;
+   `SandboxedProcess.start` gained a `pass_fds` parameter forwarded to its
+   `Popen`; fds closed in the existing `finally`.
+3. **MCP stdio client** (`victor/integrations/mcp/client.py`) —
+   `_start_process` wraps via `prepare_launch`; both owners (the
+   rlmit `SandboxedProcess` and the plain `Popen`) receive `pass_fds`; fds
+   closed in a `finally` covering the cancelled-startup path.
+4. **filesystem write enhancer** (`victor/tools/lsp_write_enhancer.py`) —
+   formatter subprocess now spawns through `run_launch_async` (was inline
+   `asyncio.create_subprocess_exec`); error handling and temp-file cleanup
+   preserved.
+5. **merge manager** (`victor/processing/merge/manager.py`) — `_run_git`
+   spawns via `run_launch` (raised `CalledProcessError` contract kept).
+6. **temporal analyzer** (`victor/tools/verification/temporal_analyzer.py`)
+   — `_run_git` spawns via `run_launch`; degrade-to-empty-string paths
+   unchanged.
+7. **auto-commit** (`victor/agent/auto_commit.py`) — `_run_git` spawns via
+   `run_launch` with `check` forwarded (typed refusals unchanged).
+8. **snapshot store** (`victor/agent/snapshot_store.py`) — `_run_git`
+   spawns via `run_launch`.
+9. **navigation slash command** (`victor/ui/slash/commands/navigation.py`)
+   — `_run_git` spawns via `run_launch`.
+10. **(sweep find, same defect class)** filesystem read-root discovery
+    (`victor/tools/filesystem.py:_discover_read_roots`) — was wrapping
+    `git worktree list` without descriptors; now through the seam.
+
+**Structural guard**: `test_no_call_site_wraps_argv_outside_the_shared_seam`
+(`tests/unit/tools/sandbox/test_launch_call_sites.py`) asserts no module
+outside `victor/tools/sandbox/` contains a `.wrap_argv(`/`take_pass_fds(`
+call — a wrap anywhere else is by construction a leak. The only sanctioned
+consumer is `prepare_launch` itself.
+
+**Tests** (`tests/unit/tools/sandbox/test_launch_call_sites.py`, mirrors of
+`test_launch_helper.py`): per-site pass_fds forwarding under an enforcing
+fake backend, raw-argv + zero-descriptor parity without one, descriptor
+drain + close on every exit (including failing spawns), parent fd-table
+stability across repeated failing launches, a live bwrap qualification
+through the snapshot-store site (skip-with-reason on unqualified hosts).
+Updated call-shape assertions in `test_mcp_factory_lifecycle.py`,
+`test_failure_boundaries.py` (`start(..., pass_fds=())`) and the workflow
+`_RecordingBackend` stub (now honors the `take_pass_fds` contract).
+
+**RELATED_TESTS** entries added for all ten touched production modules.
+
+**Gates**: `tests/unit/tools/ tests/unit/security/ tests/unit/integrations/`
+green (5179+ passed; the 8 pre-existing `MCP factory lifecycle` call-shape
+failures fixed in-PR); sandbox/workflows/agent/processing/commands suites
+green; black 26.10.1 + ruff clean.
+
 ## Codex review fix wave 1 — owner isolation (2026-11-20)
 
 Near-term fixes for Codex v0.32-candidate review findings 3, 4 and 13
@@ -1049,3 +1111,49 @@ integration file. Gates: sandbox unit suite 180 passed / 9 skipped;
 selector-mapped suites green; collect-only 42,119 clean; docker-
 availability degraded battery 10 passed with the vertical on
 PYTHONPATH; black 26.10.1 + ruff clean on changed files.
+
+## Codex review fix wave 2 — attribution-group rule, finding 23 (#2001, 2026-11-21)
+
+Fixes Codex v0.32.0-candidate review finding 23 (MEDIUM, attribution-group
+rule; branch `fix/m23-attribution-group-rule` off `origin/develop` @
+`1bd409eeb`): the FOU-A4a/A4b join forwarded the principal's group per
+event, but `SandhiMeter._ensure_key` registered the gateway virtual key
+ONCE PER SUBJECT capturing its FIRST group — a verified group change
+never reached any later usage event, and the frozen binding was racy
+under overlapping HTTP/SSE/WS calls.
+
+**Chosen rule** (D5 + Codex acceptance): the stable metering identity is
+the principal SUBJECT (legacy key label today, issuer-qualified principal
+ID once A4c lands); the billing GROUP is recorded PER EVENT, realized as
+the **versioned metering key** — `victor:{subject}` (no verified group)
+or `victor:{subject}:{group}`. API evaluation: the gateway's Python
+binding admits NO per-event group (`meter_tokens` is key-authoritative —
+sandhi ADR-0004 D4 resolves subject/group from the virtual key; only
+session/route are caller-supplied), and same-id re-registration
+(`add_virtual_key` → store overwrite) would mutate a shared binding —
+racy exactly in the overlap scenario the finding asks to verify. The
+versioned key is the sanctioned alternative and is race-free: each
+event's key encodes its own event-time group, so a group change meters
+through a NEW key — subsequent events carry the new group, historical
+events keep their original group, and the per-subject key registry stays
+bounded (returning to a prior group reuses its key). Key-only principals
+bind `group=None` → the unversioned key-only shape, pinned
+behavior-neutral. Tracker-side wiring was already per-event (A4a #1993);
+no tracker change. The legacy per-route `bind_attribution` cited at
+`routes/chat_routes.py:155` no longer exists (removed by A4a/A4b) —
+reconciliation recorded in the A4 design doc (§A4b + §4.1), which now
+documents the rule.
+
+Tests RED-first (stale-first-group failure evidence retained vs
+develop): group change between calls → subsequent real gateway events
+carry the new group; overlapping HTTP/SSE/WS attribution bindings on one
+shared session tracker → all 9 recorded events carry their own channel's
+group; return-to-prior-group key reuse; legacy key-only principal binds
+no group; `VerifiedPrincipal` via `bind_principal_attribution` end to
+end. One stale key-id pin updated (`test_end_to_end_neutral_event` →
+`victor:{subject}:{group}`). RELATED_TESTS entries added
+(`victor/observability/sandhi_meter.py` — new;
+`victor/agent/session_cost_tracker.py` — new). Gates: agent + api +
+observability suites 10,713 passed / 5 skipped; collect-only 42,345
+clean; selector suite 117 passed; black 26.10.1 + ruff + mypy clean on
+changed files.

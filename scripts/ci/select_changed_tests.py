@@ -104,10 +104,37 @@ RELATED_TESTS = {
     ),
     "victor/tools/sandbox/launch.py": (
         "tests/unit/tools/sandbox/test_launch_helper.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
         "tests/unit/tools/sandbox/test_backends_qualification.py",
         "tests/unit/integrations/api/test_git_routes.py",
         "tests/unit/integrations/api/test_search_routes.py",
         "tests/unit/integrations/api/test_terminal_routes.py",
+    ),
+    # Finding-8 residual wave: every converted wrap-then-spawn site is
+    # pinned by the per-site launch seam regressions.
+    "victor/tools/bash.py": (
+        "tests/unit/tools/test_bash_tool.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/tools/filesystem.py": (
+        "tests/unit/tools/test_filesystem_tool.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/tools/lsp_write_enhancer.py": (
+        "tests/unit/tools/test_lsp_write_enhancer.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/tools/verification/temporal_analyzer.py": (
+        "tests/unit/tools/verification/test_temporal_analyzer.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/workflows/sandbox_executor.py": (
+        "tests/unit/workflows/test_sandbox_executor.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
+    ),
+    "victor/processing/merge/manager.py": (
+        "tests/unit/processing/merge/test_manager_policy.py",
+        "tests/unit/tools/sandbox/test_launch_call_sites.py",
     ),
     "victor/tools/graph_query_tool.py": (
         "tests/unit/tools/test_graph_query_tool.py",
@@ -404,6 +431,13 @@ RELATED_TESTS = {
     "victor/agent/factory/tool_builders.py": (
         "tests/unit/agent/test_spawn_subagent_wiring.py",
         "tests/unit/agent/runtime/test_component_assembler.py",
+    ),
+    # Session cost tracker: the attribution join (auth-bound subject/group
+    # wins over config defaults) and the sandhi usage mirror are pinned by
+    # the attribution suite; the tracker core by its cost-suite pin.
+    "victor/agent/session_cost_tracker.py": (
+        "tests/unit/agent/test_session_cost_tracker_attribution.py",
+        "tests/unit/agent/test_session_cost_tracker.py",
     ),
     "victor/agent/runtime/component_assembler.py": (
         "tests/unit/agent/runtime/test_component_assembler.py",
@@ -1238,6 +1272,21 @@ RELATED_TESTS = {
         "tests/unit/integrations/api/test_ws_delivery_bounds.py",
         "tests/unit/integrations/api/test_server_effective_posture.py",
     ),
+    # ADR-036 field-data harness: recorder + real-path wiring (placement tests
+    # drive run_unified; the CLI renders the evidence table).
+    "victor/evaluation/field_data.py": (
+        "tests/unit/evaluation/test_field_data.py",
+        "tests/unit/agent/services/test_field_data_wiring.py",
+        "tests/unit/ui/commands/test_field_data.py",
+    ),
+    "victor/ui/commands/field_data.py": (
+        "tests/unit/ui/commands/test_field_data.py",
+        "tests/unit/evaluation/test_field_data.py",
+    ),
+    "victor/ui/cli.py": (
+        "tests/unit/ui/commands/test_field_data.py",
+        "tests/unit/ui/test_cli_verb_consolidation.py",
+    ),
     # EventBridge: bounded queues (VAS-06/10) and owner-bound subscription
     # records / protected-event admission (Codex finding 9).
     "victor/integrations/api/event_bridge.py": (
@@ -1319,6 +1368,8 @@ RELATED_TESTS = {
         "tests/unit/agent/services/test_streaming_act_port.py",
         "tests/unit/agent/services/test_streaming_act_adapter.py",
         "tests/unit/agent/test_memory_delivery_provider_messages.py",
+        "tests/unit/agent/services/test_field_data_wiring.py",
+        "tests/unit/agent/services/test_chat_stream_executor_lifetime.py",
     ),
     **dict.fromkeys(
         (
@@ -1374,6 +1425,8 @@ RELATED_TESTS = {
         "tests/unit/config/test_intent_flag_migration.py",
         "tests/unit/config/groups/test_subprocess_config.py",
         "tests/unit/config/test_security_settings.py",
+        "tests/unit/config/groups/test_evaluation_config.py",
+        "tests/unit/evaluation/test_field_data.py",
     ),
     "victor/config/groups/subprocess_config.py": (
         "tests/unit/config/groups/test_subprocess_config.py",
@@ -1395,6 +1448,13 @@ RELATED_TESTS = {
     "victor/providers/gateway_boundary.py": (
         "tests/unit/providers/test_gateway_policy_resilience.py",
         "tests/unit/agent/services/test_stream_connection_retry.py",
+    ),
+    # Sandhi meter bridge (FEP-0020 Phase 2): the versioned metering-key
+    # billing-group rule (finding 23) and attribution are pinned by the
+    # meter suite plus the tracker attribution join.
+    "victor/observability/sandhi_meter.py": (
+        "tests/unit/observability/test_sandhi_meter.py",
+        "tests/unit/agent/test_session_cost_tracker_attribution.py",
     ),
     # Descriptive suites own these modules; provider_settings is the retired
     # path whose replacement is the grouped ProviderSettings contract.

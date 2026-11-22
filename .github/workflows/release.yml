@@ -9,7 +9,7 @@
 #
 # Outputs:
 #   - PyPI package (and TestPyPI for pre-releases)
-#   - Standalone binaries (macOS ARM64, Linux x64/ARM64, Windows x64)
+#   - Standalone binaries (macOS ARM64, Linux x64, Windows x64)
 #   - Docker image (multi-arch)
 #   - GitHub Release with checksums
 #
@@ -190,11 +190,8 @@ jobs:
           - os: macos-latest
             platform: macos
             arch: arm64
-          # Linux x64 (native runner; core is ML-free since the lean-default
-          # move, so PyInstaller no longer drags torch). ARM64 is pending
-          # sandhi-gateway publishing a manylinux-aarch64 wheel — until then
-          # the pinned sandhi-gateway cannot install on that platform (which
-          # also affects pip installs there, independent of binaries).
+          # Linux x64 standalone build on a native runner. Core is ML-free,
+          # so PyInstaller does not bundle torch.
           - os: ubuntu-24.04
             platform: linux
             arch: x64
@@ -781,7 +778,7 @@ jobs:
           |----------|--------------|----------|
           | macOS | ARM64 (M1/M2/M3/M4) | \`victor-macos-arm64.tar.gz\` |
           | Windows | x64 | \`victor-windows-x64.zip\` |
-          | Linux | x64 (ARM64: pip, pending a sandhi aarch64 wheel) | \`victor-linux-x64.tar.gz\`, or \`pip install victor-ai\` |
+          | Linux | x64 standalone | \`victor-linux-x64.tar.gz\`, or \`pip install victor-ai\` |
 
           ## Verification
 

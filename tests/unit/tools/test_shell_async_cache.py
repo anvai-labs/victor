@@ -112,8 +112,12 @@ async def test_sandboxed_read_cannot_reuse_another_execution_contexts_host_cache
 
     command = "echo context-read"
     cache.set(command, (0, "host-private-result", ""), ".")
+    # take_pass_fds is part of the launch-seam contract: prepare_launch
+    # drains it right after wrap_argv. Empty so the post-spawn close is a no-op.
     sandbox = SimpleNamespace(
-        type_name="isolated", wrap_argv=Mock(return_value=["sandboxed-command"])
+        type_name="isolated",
+        wrap_argv=Mock(return_value=["sandboxed-command"]),
+        take_pass_fds=Mock(return_value=[]),
     )
     with (
         patch("victor.tools.subprocess_executor._resolve_default_sandbox", return_value=sandbox),

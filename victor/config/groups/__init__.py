@@ -43,6 +43,7 @@ from victor.config.groups.embedding_config import EmbeddingSettings
 from victor.config.groups.tool_selection_config import ToolSelectionSettings
 from victor.config.groups.fuzzy_matching_config import FuzzyMatchingSettings
 from victor.config.groups.governance_settings import GovernanceSettings
+from victor.config.groups.evaluation_config import EvaluationSettings
 
 __all__ = [
     # Provider configuration
@@ -84,4 +85,6 @@ __all__ = [
     "FuzzyMatchingSettings",
     # Governance / policy configuration
     "GovernanceSettings",
+    # Evaluation / ADR-036 field-data configuration
+    "EvaluationSettings",
 ]

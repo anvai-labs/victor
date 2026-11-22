@@ -1531,12 +1531,19 @@ async def shell(
             # process group and kills the WHOLE group on timeout — a child the
             # shell command backgrounded (e.g. ``sleep 100 &``) is no longer
             # orphaned past the timeout the way a plain process.kill() left it.
-            # (apply OS sandbox if active; default off = no change).
-            _wrapped = (
-                _sandbox.wrap_argv(["/bin/sh", "-c", cmd], Path(cwd) if cwd else None)
-                if _sandbox.type_name != "none"
-                else None
-            )
+            # (apply OS sandbox if active; default off = no change). The wrap
+            # and the launch travel together through the shared seam: the
+            # backend's owned descriptors (bwrap's seccomp filter fd) come
+            # back with the wrapped argv and are forwarded to the spawn and
+            # closed afterwards.
+            if _sandbox.type_name != "none":
+                from victor.tools.sandbox import prepare_launch
+
+                _launch = prepare_launch(
+                    _sandbox, ["/bin/sh", "-c", cmd], Path(cwd) if cwd else None
+                )
+            else:
+                _launch = None
 
             # When a live progress sink is active, stream stdout/stderr chunks to
             # it as they arrive so the UI shows output as it is produced.
@@ -1552,13 +1559,20 @@ async def shell(
                     stderr=text if is_stderr else "",
                 )
 
-            stdout, stderr, _return_code, _timed_out, _capped = await run_managed_process(
-                command=cmd if _wrapped is None else None,
-                argv=_wrapped,
-                cwd=cwd,
-                timeout=timeout,
-                on_chunk=_emit_chunk if _streaming_progress else None,
-            )
+            try:
+                stdout, stderr, _return_code, _timed_out, _capped = await run_managed_process(
+                    command=cmd if _launch is None else None,
+                    argv=_launch.argv if _launch is not None else None,
+                    pass_fds=_launch.pass_fds if _launch is not None else (),
+                    cwd=cwd,
+                    timeout=timeout,
+                    on_chunk=_emit_chunk if _streaming_progress else None,
+                )
+            finally:
+                if _launch is not None:
+                    from victor.tools.sandbox import close_pass_fds
+
+                    close_pass_fds(_launch.pass_fds)
             # Lightweight stand-in preserving the process.returncode reads below
             # (condensation, cache write, error summary) without a real Process
             # object — run_managed_process already reaped the real one.

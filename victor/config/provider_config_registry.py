@@ -474,6 +474,7 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
             "audience",
             "protocol",
             "auth_mode",
+            "ca_file",
         }
         unsupported_fields = sorted(set(gateway) - supported_fields)
         if unsupported_fields:
@@ -504,7 +505,7 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
     if virtual_key is not None and not isinstance(virtual_key, str):
         raise ValueError("gateway virtual key must be a string")
     extra = {}
-    for name in ("oidc", "grant", "credential", "audience", "protocol", "auth_mode"):
+    for name in ("oidc", "grant", "credential", "audience", "protocol", "auth_mode", "ca_file"):
         if name in gateway:
             value = gateway[name]
             extra[name] = value.model_dump() if hasattr(value, "model_dump") else value

@@ -43,6 +43,11 @@ def temp_config_dir():
         yield Path(tmpdir)
 
 
+@pytest.fixture(autouse=True)
+def isolated_profile_config(temp_config_dir, monkeypatch):
+    monkeypatch.setattr(Settings, "get_config_dir", classmethod(lambda cls: temp_config_dir))
+
+
 @pytest.fixture
 def manager(temp_config_dir):
     return AccountManager(config_path=temp_config_dir / "config.yaml")

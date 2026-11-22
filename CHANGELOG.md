@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.33.0] - Source candidate, 2026-11-22
+
+Prepared package version: **0.33.0**.
+
+### Added
+
+- Add profile-scoped `gateway.ca_file` trust for Sandhi gateway providers. Victor
+  validates an absolute path, includes it in capability and typed-handle cache
+  identity, forwards it to Sandhi FFI, and uses it for model discovery without
+  changing process-global TLS trust. Sandhi enforces hostname and certificate
+  verification, redirect refusal, a bounded regular certificate file, and the
+  TLS 1.2 minimum.
+- Add the opt-in ADR-036 field-data recorder and evidence-table CLI.
+
+### Changed
+
+- Pin `sandhi-gateway==0.24.0` for exact Qwen3.7 Plus and GLM-5.3 thinking
+  capability admission and provider-scoped private CA trust, and advance Victor
+  AI/Native release metadata to 0.33.0.
+
+### Fixed
+
+- Route every wrap-then-spawn launch through the shared sandbox seam.
+- Version the Sandhi metering key with the billing group so independent events
+  cannot overwrite one another.
+
 ## [0.32.0] - Source candidate, 2026-11-20
 
 Prepared package version: **0.32.0**.

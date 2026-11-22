@@ -102,13 +102,18 @@ class MergeManager:
 
     def _run_git(self, args: list[str], *, decision=None, **kwargs):
         """Run one git argv through an already resolved launch decision."""
-        from pathlib import Path
+        from victor.tools.sandbox import prepare_launch, run_launch
 
         launch_decision = decision if decision is not None else self._resolve_git_launch()
-        argv = ["git", *args]
-        if launch_decision.required_active and launch_decision.backend is not None:
-            argv = launch_decision.backend.wrap_argv(argv, Path(self.root_path))
-        return subprocess.run(argv, cwd=self.root_path, **kwargs)
+        # The wrap and the launch travel together through the shared seam:
+        # the backend's owned descriptors (bwrap's seccomp filter fd) are
+        # forwarded to the spawn and closed on every exit.
+        launch = prepare_launch(
+            launch_decision.backend if launch_decision.required_active else None,
+            ["git", *args],
+            self.root_path,
+        )
+        return run_launch(launch, cwd=self.root_path, **kwargs)
 
     async def detect_conflicts(self) -> list[FileConflict]:
         """Detect merge conflicts in the current repository.

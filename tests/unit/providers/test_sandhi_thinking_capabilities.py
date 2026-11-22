@@ -237,6 +237,7 @@ async def test_async_discovery_refreshes_renewable_gateway_token(monkeypatch):
         "http://127.0.0.1:8080",
         "vk-refreshed",
         "coding",
+        None,
     )
 
 
@@ -264,6 +265,7 @@ async def test_failed_placeholder_page_does_not_poison_refreshed_token(monkeypat
     assert model._gateway_model_capabilities_key == (
         "http://127.0.0.1:8080",
         "gateway-pending",
+        None,
         None,
     )
 
@@ -302,6 +304,7 @@ async def test_failed_placeholder_page_does_not_poison_refreshed_token(monkeypat
     assert model._gateway_model_capabilities_key == (
         "http://127.0.0.1:8080",
         "vk-refreshed",
+        None,
         None,
     )
 
@@ -374,7 +377,7 @@ def test_gateway_discovery_rejects_malformed_model_pages(body):
 async def test_gateway_chat_leaves_explicit_effort_admission_to_sandhi():
     model = gateway_provider()
     model._store_gateway_model_capabilities(
-        ("http://127.0.0.1:8080", "vk-synthetic"),
+        ("http://127.0.0.1:8080", "vk-synthetic", None, None),
         {
             "qwen3.7-plus": {
                 "id": "qwen3.7-plus",
@@ -415,7 +418,7 @@ async def test_gateway_chat_leaves_explicit_effort_admission_to_sandhi():
 def _cached_low_effort_gateway() -> SandhiOpenAIProvider:
     model = gateway_provider()
     model._store_gateway_model_capabilities(
-        ("http://127.0.0.1:8080", "vk-synthetic"),
+        ("http://127.0.0.1:8080", "vk-synthetic", None, None),
         {
             "qwen3.7-plus": {
                 "id": "qwen3.7-plus",
@@ -511,7 +514,7 @@ async def test_anthropic_gateway_buffer_and_stream_send_portable_thinking():
         }
     }
     model._store_gateway_model_capabilities(
-        ("http://127.0.0.1:8080", "vk-synthetic"),
+        ("http://127.0.0.1:8080", "vk-synthetic", None, None),
         {
             "claude-test": {
                 "id": "claude-test",
