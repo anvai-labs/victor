@@ -74,7 +74,7 @@ flowchart TB
 
 | Surface | Current 0.33.0 co-design-candidate state | Remaining work |
 | --- | --- | --- |
-| Release and artifacts | Victor AI/native 0.31.0 artifacts are published; 0.33.0 source metadata is prepared for Sandhi thinking alignment and profile-scoped gateway trust | Protected release workflow, registry verification and installed-artifact smoke remain open. |
+| Release and artifacts | Victor AI/native 0.32.0 artifacts are published; 0.33.0 source metadata is prepared for Sandhi thinking alignment and profile-scoped gateway trust | Protected release workflow, registry verification and installed-artifact smoke remain open. |
 | Execution contract | Current source pins the prepared `sandhi-gateway==0.24.0` binding | No managed-service upgrade, live provider call or unattended operation is claimed. |
 | Tool supply and teams | Unified turn pipeline, expanded formations, isolation and usage guards are included | Acceptance gaps remain tracked; this release does not certify every live formation. |
 | Runtime structure | Service-owned turn frame, lifecycle-owned retry, durable graph checkpoints and StateGraph deadline/verification/streaming parity are present | Broader runtime inversion, general client routing, broader graph continuation and retained safety gaps remain open. |

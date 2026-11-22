@@ -1,6 +1,10 @@
 """Gateway ownership: no OpenAI credential discovery/refresh in Victor clients."""
 
+import base64
+import ssl
 from unittest.mock import AsyncMock, patch
+
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +13,24 @@ from victor.providers.sandhi_transport import SandhiOpenAIProvider
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 import victor.providers.sandhi_transport as st
+
+_GATEWAY_TEST_CA_DER = base64.b64decode(
+    "MIIDHTCCAgWgAwIBAgIUFHDM95WTU/6/VtwGJIVaVZACMDUwDQYJKoZIhvcNAQELBQAwHTEbMBkG"
+    "A1UEAwwSVmljdG9yJTIwVGVzdCUyMENBMCAXDTI2MTEyMjAyMDY1OFoYDzIxMjYxMDI5MDIwNjU4"
+    "WjAdMRswGQYDVQQDDBJWaWN0b3IlMjBUZXN0JTIwQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAw"
+    "ggEKAoIBAQDZf796tmxh+k3CKCy26s0xJ+Isd1fkt8Qy9ptgO1qk1FNMGku3EGoLzElTFtgZ299e"
+    "LwF+Pa9JufGX96mQCayx4RcPN0EAPbf2d8xCJ8MBSA6CliyXmfVyXWerG+Xn+XLkh2NrucFlQsSf"
+    "ivYSod8kDqrIdSkXRN//e7LbnJUFMTqWyzG2pl1AAZhYXpMgnnp9cPOib3Fe0BnTkHKXyQy9AweJ"
+    "bvL1J8RrCCugfaJ9j0rradRe24zs8CaxM+RZ7thR5913lIfH163POKN8JnUphzRpAKiRLNz7H75S"
+    "3KniMDoDDwy+/TVbVO/G8Z+uvdXa6jNIUgS00jvsFLFl/T+jAgMBAAGjUzBRMB0GA1UdDgQWBBRL"
+    "TApjhf9RKgxzaDAW8ALWreqC+TAfBgNVHSMEGDAWgBRLTApjhf9RKgxzaDAW8ALWreqC+TAPBgNV"
+    "HRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQAki8m/12B8bFTqVgEdKgrjk9Jqzf3Ga81R"
+    "OQbOYb+V+mQ91azdyfYFT5Qrus0IrGaXUL/Dolx09UMGeFue3lVoHBd+9+8vsUsBcKD1KPnCywae"
+    "EJOYYl5TjUFYqUDha8tNkZkzLNB3HNFBNdFWalr9nVRKLrl3+rRsLtnNm5W517bdru3FdyPrQLjn"
+    "XKzWYL3TXZfxwcHKvacUAbdOu1p/fgO21OWIqFsxY3LhXF9b8GOafQxSfcCPDE8CeD8XgCucV6iJ"
+    "+3VxQiIkicLIM1j6RVu1gYIuO8D1bbcgeMu8d03FXyWn7DlkY08HdTZDFXfPOLNtuzHZ97tQ9nmF"
+    "CB88"
+)
 
 
 def install_runtime(monkeypatch):
@@ -434,11 +456,68 @@ async def test_gateway_private_ca_scopes_binding_trust_and_handle_cache(monkeypa
         await provider.close()
 
 
+def test_gateway_ssl_context_accepts_der_certificate(tmp_path):
+    ca_file = tmp_path / "gateway-ca.der"
+    ca_file.write_bytes(_GATEWAY_TEST_CA_DER)
+    context = st._gateway_ssl_context(str(ca_file))
+    assert isinstance(context, ssl.SSLContext)
+    assert context.get_ca_certs()
+
+
+def test_gateway_ssl_context_replaces_ambient_roots_for_der(tmp_path):
+    ca_file = tmp_path / "gateway-ca.der"
+    ca_file.write_bytes(_GATEWAY_TEST_CA_DER)
+    context = st._gateway_ssl_context(str(ca_file))
+    assert len(context.get_ca_certs()) == 1
+    assert len(ssl.create_default_context().get_ca_certs()) > 1
+
+
+def test_gateway_ssl_context_loads_validated_pem_bytes(tmp_path):
+    ca_file = tmp_path / "gateway-ca.pem"
+    ca_file.write_bytes(ssl.DER_cert_to_PEM_cert(_GATEWAY_TEST_CA_DER).encode("ascii"))
+    context = st._gateway_ssl_context(str(ca_file))
+    assert len(context.get_ca_certs()) == 1
+
+
+def test_gateway_ssl_context_rejects_non_certificate(tmp_path):
+    ca_file = tmp_path / "not-a-certificate.der"
+    ca_file.write_bytes(b"not a certificate")
+    with pytest.raises(ValueError, match="PEM or DER certificate"):
+        st._gateway_ssl_context(str(ca_file))
+
+
+def test_tls_diagnosis_uses_profile_scoped_ca(monkeypatch, tmp_path):
+    from contextlib import contextmanager
+    from unittest.mock import MagicMock
+
+    ca_file = str(tmp_path / "gateway-ca.der")
+    observed = {}
+    context = MagicMock()
+    context.wrap_socket.side_effect = ssl.SSLCertVerificationError()
+
+    @contextmanager
+    def fake_socket(*args, **kwargs):
+        observed["socket_args"] = args
+        observed["socket_kwargs"] = kwargs
+        yield MagicMock()
+
+    monkeypatch.setattr(st.socket, "create_connection", fake_socket)
+    monkeypatch.setattr(
+        st, "_gateway_ssl_context", lambda value: observed.setdefault("ca_file", value) and context
+    )
+    result = st._diagnose_endpoint_tls("https://gateway.example.test:18444", ca_file=ca_file)
+    assert observed["ca_file"] == ca_file
+    assert "gateway ca_file configured for this Victor profile" in result
+    context.wrap_socket.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_gateway_private_ca_is_used_by_discovery_without_global_trust(monkeypatch, tmp_path):
     from unittest.mock import Mock
 
-    ca_file = str(tmp_path / "gateway-ca.pem")
+    ca_file = str(tmp_path / "gateway-ca.der")
+    Path(ca_file).write_bytes(_GATEWAY_TEST_CA_DER)
+    expected_context = st._gateway_ssl_context(ca_file)
     observed = {}
 
     def discovery(url, **kwargs):
@@ -465,7 +544,7 @@ async def test_gateway_private_ca_is_used_by_discovery_without_global_trust(monk
     try:
         assert provider._load_gateway_model_capabilities() == {}
         assert observed["url"] == "https://gateway.example.test/v1/models"
-        assert observed["verify"] == ca_file
+        assert observed["verify"] is expected_context
         assert "ca_file" not in runtime.calls
     finally:
         await provider.close()
@@ -475,7 +554,9 @@ async def test_gateway_private_ca_is_used_by_discovery_without_global_trust(monk
 async def test_gateway_private_ca_is_used_by_async_discovery(monkeypatch, tmp_path):
     from unittest.mock import Mock
 
-    ca_file = str(tmp_path / "gateway-ca.pem")
+    ca_file = str(tmp_path / "gateway-ca.der")
+    Path(ca_file).write_bytes(_GATEWAY_TEST_CA_DER)
+    expected_context = st._gateway_ssl_context(ca_file)
     observed = {}
 
     class Client:
@@ -511,6 +592,6 @@ async def test_gateway_private_ca_is_used_by_async_discovery(monkeypatch, tmp_pa
     try:
         await provider._refresh_gateway_model_capabilities()
         assert observed["request_url"] == "https://gateway.example.test/v1/models"
-        assert observed["verify"] == ca_file
+        assert observed["verify"] is expected_context
     finally:
         await provider.close()
