@@ -345,7 +345,7 @@ def _gateway_ssl_context(ca_file: str) -> ssl.SSLContext:
     """
     if not Path(ca_file).is_absolute():
         raise ValueError("gateway ca_file must be an absolute filesystem path")
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
     descriptor = os.open(ca_file, flags)
     try:
         info = os.fstat(descriptor)

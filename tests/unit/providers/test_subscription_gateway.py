@@ -479,6 +479,18 @@ def test_gateway_ssl_context_loads_validated_pem_bytes(tmp_path):
     assert len(context.get_ca_certs()) == 1
 
 
+def test_gateway_ssl_context_accepts_symlinked_pem_bundle(tmp_path):
+    certificate = tmp_path / "gateway-ca.pem"
+    certificate.write_bytes(ssl.DER_cert_to_PEM_cert(_GATEWAY_TEST_CA_DER).encode("ascii"))
+    ca_file = tmp_path / "gateway-ca-link.pem"
+    try:
+        ca_file.symlink_to(certificate)
+    except OSError as error:
+        pytest.skip(f"temporary symlink support unavailable: {error}")
+    context = st._gateway_ssl_context(str(ca_file))
+    assert len(context.get_ca_certs()) == 1
+
+
 def test_gateway_ssl_context_rejects_non_certificate(tmp_path):
     ca_file = tmp_path / "not-a-certificate.der"
     ca_file.write_bytes(b"not a certificate")
