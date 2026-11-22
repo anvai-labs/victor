@@ -869,6 +869,9 @@ class TestCancellationProtocol:
             docker_env.created.append(container)
             return container
 
+        def _slow_remove(*_args, **_kwargs):
+            time.sleep(0.05)  # give the loop time to run during teardown
+
         docker_env.client.containers.run.side_effect = _slow_run
         container = None
         ticker = asyncio.create_task(_tick())
@@ -876,6 +879,7 @@ class TestCancellationProtocol:
             async with ContainerSandbox() as sandbox:
                 ticks_at_enter = ticks
                 container = sandbox.container
+                container.remove.side_effect = _slow_remove
             ticks_at_exit = ticks
         finally:
             ticker.cancel()
