@@ -622,7 +622,7 @@ class TestTransportErrorTlsDiagnosis:
         monkeypatch.setattr(
             st,
             "_diagnose_endpoint_tls",
-            lambda _url: "the endpoint's TLS certificate is not trusted by this machine's trust store",
+            lambda _url, ca_file=None: "the endpoint's TLS certificate is not trusted by this machine's trust store",
         )
         err = await st.map_sandhi_error(exc, "zai", 60.0)
         assert isinstance(err, ProviderConnectionError)
@@ -637,7 +637,7 @@ class TestTransportErrorTlsDiagnosis:
             "_typed_error_payload",
             lambda _s: {"code": "transport_error", "message": str(exc)},
         )
-        monkeypatch.setattr(st, "_diagnose_endpoint_tls", lambda _url: None)
+        monkeypatch.setattr(st, "_diagnose_endpoint_tls", lambda _url, ca_file=None: None)
         err = await st.map_sandhi_error(exc, "zai", 60.0)
         assert isinstance(err, ProviderConnectionError)
         assert "TLS diagnosis" not in str(err)

@@ -430,6 +430,8 @@ async def test_gateway_private_ca_scopes_binding_trust_and_handle_cache(monkeypa
     runtime = install_runtime(monkeypatch)
     ca_one = tmp_path / "gateway-one.pem"
     ca_two = tmp_path / "gateway-two.pem"
+    ca_one.write_bytes(_GATEWAY_TEST_CA_DER)
+    ca_two.write_bytes(_GATEWAY_TEST_CA_DER)
     provider = SandhiOpenAIProvider(
         gateway={
             "url": "https://gateway.example.test",
@@ -489,6 +491,34 @@ def test_gateway_ssl_context_accepts_symlinked_pem_bundle(tmp_path):
         pytest.skip(f"temporary symlink support unavailable: {error}")
     context = st._gateway_ssl_context(str(ca_file))
     assert len(context.get_ca_certs()) == 1
+
+
+@pytest.mark.asyncio
+async def test_gateway_ca_rotation_invalidates_scope_and_handle_cache(monkeypatch, tmp_path):
+    runtime = install_runtime(monkeypatch)
+    ca_file = tmp_path / "gateway-ca.der"
+    ca_file.write_bytes(_GATEWAY_TEST_CA_DER)
+    provider = SandhiOpenAIProvider(
+        gateway={
+            "url": "https://gateway.example.test",
+            "virtual_key": "vk_fixture",
+            "ca_file": str(ca_file),
+        }
+    )
+    try:
+        before = provider._gateway_scope()
+        assert provider._typed_provider("model") is runtime.handle
+
+        ca_file.write_bytes(ssl.DER_cert_to_PEM_cert(_GATEWAY_TEST_CA_DER).encode("ascii"))
+        after = provider._gateway_scope()
+        assert after[3] == str(ca_file)
+        assert after[4] != before[4]
+        assert provider._typed_provider("model") is runtime.handle
+        assert len(runtime.calls) == 2
+        assert runtime.calls[0][1]["ca_file"] == str(ca_file)
+        assert runtime.calls[1][1]["ca_file"] == str(ca_file)
+    finally:
+        await provider.close()
 
 
 def test_gateway_ssl_context_rejects_non_certificate(tmp_path):
@@ -556,7 +586,9 @@ async def test_gateway_private_ca_is_used_by_discovery_without_global_trust(monk
     try:
         assert provider._load_gateway_model_capabilities() == {}
         assert observed["url"] == "https://gateway.example.test/v1/models"
-        assert observed["verify"] is expected_context
+        assert observed["verify"].get_ca_certs() == expected_context.get_ca_certs()
+        assert observed["verify"].verify_mode == ssl.CERT_REQUIRED
+        assert observed["verify"].check_hostname is True
         assert "ca_file" not in runtime.calls
     finally:
         await provider.close()
@@ -604,6 +636,8 @@ async def test_gateway_private_ca_is_used_by_async_discovery(monkeypatch, tmp_pa
     try:
         await provider._refresh_gateway_model_capabilities()
         assert observed["request_url"] == "https://gateway.example.test/v1/models"
-        assert observed["verify"] is expected_context
+        assert observed["verify"].get_ca_certs() == expected_context.get_ca_certs()
+        assert observed["verify"].verify_mode == ssl.CERT_REQUIRED
+        assert observed["verify"].check_hostname is True
     finally:
         await provider.close()

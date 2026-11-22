@@ -9,6 +9,7 @@ demotion state, or replay on a second transport.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -18,14 +19,13 @@ import re
 import socket
 import ssl
 import stat
-from functools import lru_cache
 from pathlib import Path
 
 import httpx
 from contextlib import aclosing
 from json import JSONDecodeError
 from collections.abc import Mapping
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type, Union
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -334,14 +334,13 @@ def _is_exact_der_sequence(bytes_value: bytes) -> bool:
     return len(bytes_value) - header_length == declared_length
 
 
-@lru_cache(maxsize=128)
-def _gateway_ssl_context(ca_file: str) -> ssl.SSLContext:
-    """Load a profile-scoped PEM bundle or exact DER certificate for discovery.
+def _read_gateway_ca_file(ca_file: str) -> bytes:
+    """Read a bounded CA through a descriptor to the opened regular file.
 
-    This mirrors Sandhi 0.24's transport validation: at most 4 MiB, a regular
+    This mirrors Sandhi 0.24's transport validation: at most 4 MiB and a regular
     file, an exact DER X.509 sequence, or a PEM bundle containing certificate
-    blocks. The parsed context is retained so a later file rotation cannot
-    silently change the trust anchor used by a validated discovery scope.
+    blocks. The descriptor and fstat ensure symlink resolution and regular-file
+    validation apply to the opened target, not a separately racy path stat.
     """
     if not Path(ca_file).is_absolute():
         raise ValueError("gateway ca_file must be an absolute filesystem path")
@@ -359,6 +358,22 @@ def _gateway_ssl_context(ca_file: str) -> ssl.SSLContext:
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+    return content
+
+
+def _gateway_ca_identity(ca_file: str) -> str:
+    """Return a content identity so mutable paths cannot reuse stale CA handles."""
+    return hashlib.sha256(_read_gateway_ca_file(ca_file)).hexdigest()
+
+
+def _gateway_ssl_context(ca_file: str) -> ssl.SSLContext:
+    """Load a profile-scoped PEM bundle or exact DER certificate for discovery.
+
+    Unlike the process trust store, this context contains only the bytes read
+    from the current descriptor. CA rotation therefore produces a new context;
+    textual-path caching cannot preserve a superseded trust anchor.
+    """
+    content = _read_gateway_ca_file(ca_file)
     if len(content) > _MAX_GATEWAY_CA_FILE_BYTES:
         raise ValueError("gateway ca_file is empty or exceeds the 4 MiB bound")
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -922,13 +937,19 @@ def _usage_diagnostics(usage: Any) -> Optional[Dict[str, Any]]:
     return diagnostics
 
 
+GatewayScope = Union[
+    Tuple[str, str, Optional[str], Optional[str]],
+    Tuple[str, str, Optional[str], str, str],
+]
+
+
 class SandhiTypedProviderMixin:
     """Shared direct consumer of Sandhi's typed FFI contract."""
 
     _sandhi_runtime: Any = None
     _sandhi_typed_providers: Optional[Dict[Tuple[str, ...], Any]] = None
     _gateway_model_capabilities: Optional[Dict[str, Dict[str, Any]]] = None
-    _gateway_model_capabilities_key: Optional[Tuple[str, str, Optional[str], Optional[str]]] = None
+    _gateway_model_capabilities_key: Optional[GatewayScope] = None
 
     @staticmethod
     def _validate_call_options(options: Dict[str, Any]) -> None:
@@ -1003,7 +1024,7 @@ class SandhiTypedProviderMixin:
         return result
 
     def _cached_gateway_model_capabilities(
-        self, gateway: Tuple[str, str, Optional[str], Optional[str]]
+        self, gateway: GatewayScope
     ) -> Optional[Dict[str, Dict[str, Any]]]:
         """Return discovery data for the current gateway credential, grant, and CA."""
         if (
@@ -1015,7 +1036,7 @@ class SandhiTypedProviderMixin:
 
     def _store_gateway_model_capabilities(
         self,
-        gateway: Tuple[str, str, Optional[str], Optional[str]],
+        gateway: GatewayScope,
         capabilities: Dict[str, Dict[str, Any]],
     ) -> None:
         self._gateway_model_capabilities = capabilities
@@ -1023,16 +1044,19 @@ class SandhiTypedProviderMixin:
 
     def _gateway_scope(
         self,
-    ) -> Optional[Tuple[str, str, Optional[str], Optional[str]]]:
+    ) -> Optional[GatewayScope]:
         gateway = self._gateway_overrides()
         if gateway is None:
             return None
         config = gateway_config((getattr(self, "extra_config", None) or {}).get("gateway"))
-        return (
+        scope = (
             *gateway,
             config.get("grant") if config else None,
             (str(config["ca_file"]).strip() or None) if config and config.get("ca_file") else None,
         )
+        if scope[3] is None:
+            return scope
+        return (*scope, _gateway_ca_identity(scope[3]))
 
     def _gateway_ca_file(self) -> Optional[str]:
         gateway = self._gateway_scope()
@@ -1057,7 +1081,8 @@ class SandhiTypedProviderMixin:
         cached = self._cached_gateway_model_capabilities(gateway)
         if cached is not None:
             return cached
-        root, credential, grant, ca_file = gateway
+        root, credential, grant = gateway[:3]
+        ca_file = gateway[3]
         url = _gateway_family_base(root, "chat_completions") + "/models"
         capabilities: Dict[str, Dict[str, Any]] = {}
         try:
@@ -1091,7 +1116,8 @@ class SandhiTypedProviderMixin:
         cached = self._cached_gateway_model_capabilities(gateway)
         if cached is not None:
             return
-        root, credential, grant, ca_file = gateway
+        root, credential, grant = gateway[:3]
+        ca_file = gateway[3]
         url = _gateway_family_base(root, "chat_completions") + "/models"
         capabilities: Dict[str, Dict[str, Any]] = {}
         try:
@@ -1389,6 +1415,7 @@ class SandhiTypedProviderMixin:
         gateway = self._gateway_scope()
         grant = None
         ca_file = None
+        ca_identity = None
         # Run cost tree (sandhi PR #149): only gateway mode stamps the run id —
         # direct-provider mode must stay byte-identical on the wire.
         run_id = _gateway_run_id() if gateway is not None else ""
@@ -1396,7 +1423,9 @@ class SandhiTypedProviderMixin:
             # Gateway mode (TD-0003 P3): the FFI handle targets the Sandhi proxy with
             # the configured credential or starter marker. The explicit client
             # dialect is independent of the provider identity and server backend.
-            proxy_url, virtual_key, grant, ca_file = gateway
+            proxy_url, virtual_key, grant = gateway[:3]
+            ca_file = gateway[3]
+            ca_identity = gateway[4] if len(gateway) == 5 else None
             if not virtual_key:
                 raise ProviderConnectionError(
                     "configured gateway credential is unavailable",
@@ -1447,6 +1476,7 @@ class SandhiTypedProviderMixin:
             "sandhi_gateway_v1" if gateway is not None else "provider",
             grant or "",
             ca_file or "",
+            ca_identity or "",
             run_id,
         )
         if cache_key not in self._sandhi_typed_providers:
