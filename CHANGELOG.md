@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.33.1] - Source candidate, 2026-11-23
+
+- Pin the published Sandhi 0.24.1 Python wheel.
+- Expose a scoped planning-session API for embedded gateway callers and an
+  async exact-value check for model reasoning effort.
+
 ## [0.33.0] - Source candidate, 2026-11-22
 
 Prepared package version: **0.33.0**.

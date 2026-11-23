@@ -31,6 +31,7 @@ from victor.core.circuit_breaker import (
     CircuitBreakerRegistry,
 )
 from victor.providers.registry import ProviderRegistry
+from victor.providers.planning import planning_session
 
 __all__ = [
     # Base classes
@@ -55,4 +56,5 @@ __all__ = [
     "CircuitState",
     # Registry
     "ProviderRegistry",
+    "planning_session",
 ]

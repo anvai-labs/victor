@@ -263,7 +263,7 @@ The provider diagram distinguishes admitted Sandhi-backed families, explicit
 native-only protocol or execution models, and optional routing. The provider registry resolves
 each admitted family through `victor/providers/sandhi_transport.py`; an unclassified
 Victor provider fails construction instead of silently bypassing the boundary. The
-required `sandhi-gateway==0.24.0` dependency supplies the versioned neutral chat
+required `sandhi-gateway==0.24.1` dependency supplies the versioned neutral chat
 contract and Rust `ProviderRuntime` used by both front doors.
 
 **Direct FFI mode** uses the in-process Rust binding with a Victor-resolved endpoint
