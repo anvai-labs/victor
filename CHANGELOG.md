@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.33.2] - Source candidate, 2026-11-23
+
+### Fixed
+
+- Preserve explicit profile and account API keys in direct OpenAI and Z.AI mode.
+- Warn when a local gateway or endpoint override takes precedence over a pulled Sandhi profile.
+
 ## [0.33.1] - Source candidate, 2026-11-23
 
 - Pin the published Sandhi 0.24.1 Python wheel.

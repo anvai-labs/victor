@@ -584,3 +584,32 @@ def test_intentionally_empty_gateway_block_keeps_direct_mode():
     with patch.dict("os.environ", {}, clear=True):
         resolve_provider_gateway(settings, "openai")
     assert settings == {}
+
+
+@pytest.mark.parametrize("provider", ["openai", "zai"])
+@pytest.mark.parametrize("source", ["profile", "account", "shared"])
+def test_direct_api_key_keeps_its_explicit_source(provider, source):
+    endpoint = "https://upstream.example.test/v1"
+    overrides = {"gateway": None, "base_url": endpoint}
+    account_data = {}
+    if source == "profile":
+        account_data["api_key"] = "account-key"
+        overrides["api_key"] = "profile-key"
+    elif source == "account":
+        account_data["api_key"] = "account-key"
+
+    with patch("victor.config.api_keys.get_api_key", return_value="shared-key") as shared:
+        result = registry().get_settings(
+            provider,
+            fixture_settings({"gateway": GATEWAY}),
+            profile_overrides=overrides,
+            account_data=account_data,
+        )
+
+    assert result.get("gateway") is None
+    assert result["base_url"] == endpoint
+    assert result["api_key"] == f"{source}-key"
+    if source == "shared":
+        shared.assert_called_once_with(provider)
+    else:
+        shared.assert_not_called()
