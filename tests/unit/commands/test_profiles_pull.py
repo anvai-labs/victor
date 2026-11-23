@@ -117,6 +117,42 @@ class TestPullSuccess:
         # Nothing secret on stderr either.
         assert "vk_secret0123456789" not in capfd.readouterr().err
 
+    @pytest.mark.parametrize(
+        "local_config, expected_path",
+        [
+            (
+                {"providers": {"anthropic": {"gateway": {"virtual_key": "stale-local-key"}}}},
+                "providers.anthropic.gateway",
+            ),
+            ({"profiles": {"sandhi": {"gateway": None}}}, "profiles.sandhi"),
+            ({"profiles": {"sandhi": {"base_url": "https://upstream.example"}}}, "profiles.sandhi"),
+            ({"providers": {"openai": {"gateway": None}}}, None),
+            ({"profiles": {"other-direct": {"gateway": None}}}, None),
+        ],
+    )
+    def test_pull_warns_only_about_overrides_of_the_pulled_profile(
+        self, tmp_path, fetched, local_config, expected_path
+    ):
+        (tmp_path / "profiles.yaml").write_text(yaml.safe_dump(local_config))
+        result = _invoke(tmp_path, BASE_FLAGS)
+        assert result.exit_code == 0, result.output
+        assert "stale-local-key" not in result.output
+        if expected_path is None:
+            assert "overrides the pulled gateway" not in result.output
+        else:
+            assert "overrides the pulled gateway" in result.output
+            assert expected_path in result.output
+
+    def test_pull_succeeds_when_local_profiles_are_not_utf8(self, tmp_path, fetched):
+        local = tmp_path / "profiles.yaml"
+        invalid_bytes = b"profiles: \xff"
+        local.write_bytes(invalid_bytes)
+        result = _invoke(tmp_path, BASE_FLAGS)
+        assert result.exit_code == 0, result.output
+        assert local.read_bytes() == invalid_bytes
+        assert (tmp_path / "profiles.d" / "sandhi.yaml").exists()
+        assert "vk_secret0123456789" not in result.output
+
     def test_repull_overwrites_previous_file(self, tmp_path, fetched):
         central_dir = tmp_path / "profiles.d"
         central_dir.mkdir()
