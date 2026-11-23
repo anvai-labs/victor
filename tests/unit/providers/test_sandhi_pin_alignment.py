@@ -41,9 +41,7 @@ def test_canonical_gateway_qualification_tracks_current_pin():
     document = (ROOT / "docs/architecture/sandhi-subscription-gateway.md").read_text(
         encoding="utf-8"
     )
-    assert (
-        "Victor's consumer candidate pins the prepared Sandhi release\n" "`sandhi-gateway==0.24.0`."
-    ) in document
+    assert ("Victor 0.33.1 source pins the published `sandhi-gateway==0.24.1` wheel.") in document
 
 
 def test_installed_binding_matches_source_pin():
