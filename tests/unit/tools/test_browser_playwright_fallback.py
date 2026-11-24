@@ -46,6 +46,17 @@ from victor.tools.web_search_tool import DestinationPolicyDenied
 _ALLOWLIST_CTX = {"tool_config": ToolConfig(web_fetch_allowed_hosts=["allowed.test"])}
 
 
+# Stand-ins for playwright.async_api.{Error, TimeoutError}: the fake-launch
+# tests only need exception CLASSES the session can catch, so the fallback
+# battery runs on runners without the playwright package installed.
+class _FakePWError(Exception):
+    pass
+
+
+class _FakePWTimeout(_FakePWError):
+    pass
+
+
 @pytest.fixture(autouse=True)
 def _reset_browser_tool_state():
     """Isolate the module-level session-factory seam between tests."""
@@ -230,11 +241,10 @@ class TestOptionalDependency:
 
         assert result["success"] is False
         assert result["playwright_missing"] is True
-        assert "victor-ai[web]" in result["error"]
+        assert "victor-ai[browser-playwright]" in result["error"]
 
     async def test_browser_binary_missing_returns_structured_error(self, monkeypatch):
-        from playwright.async_api import Error as PWError
-        from playwright.async_api import TimeoutError as PWTimeout
+        PWError, PWTimeout = _FakePWError, _FakePWTimeout
 
         class _FakeChromium:
             async def launch(self, **kwargs):
@@ -349,24 +359,19 @@ class _FakePlaywrightCM:
 
 
 def _install_fake_playwright(monkeypatch, page):
-    from playwright.async_api import Error as PWError
-    from playwright.async_api import TimeoutError as PWTimeout
-
     browser = _FakeBrowser(page)
     cm = _FakePlaywrightCM(browser)
     monkeypatch.setattr(
         fallback,
         "_import_playwright",
-        lambda: (lambda: cm, PWError, PWTimeout),
+        lambda: (lambda: cm, _FakePWError, _FakePWTimeout),
     )
     return browser, cm
 
 
 class TestNavigationFailures:
     async def test_timeout_maps_to_structured_result_and_still_cleans_up(self, monkeypatch):
-        from playwright.async_api import TimeoutError as PWTimeout
-
-        page = _FakePage(goto_exc=PWTimeout("Timeout 30000ms exceeded"))
+        page = _FakePage(goto_exc=_FakePWTimeout("Timeout 30000ms exceeded"))
         browser, cm = _install_fake_playwright(monkeypatch, page)
 
         result = await browser_tool.browser_tool(

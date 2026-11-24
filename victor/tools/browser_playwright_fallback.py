@@ -110,7 +110,7 @@ def _import_playwright() -> Tuple[Any, Any, Any]:
                 "success": False,
                 "error": (
                     "Playwright is not installed. Install it with "
-                    "`pip install 'victor-ai[web]'` and then run "
+                    "`pip install 'victor-ai[browser-playwright]'` and then run "
                     "`playwright install chromium` "
                     f"(import failed: {exc})."
                 ),
