@@ -52,6 +52,17 @@ def test_support_comes_from_exact_static_descriptor(monkeypatch):
     assert model.supports_reasoning_effort(None) is False
 
 
+@pytest.mark.asyncio
+async def test_exact_effort_is_admitted_only_when_the_model_advertises_it(monkeypatch):
+    monkeypatch.setattr(st, "_sg", FakeGateway(static_descriptor(True)))
+    model = provider()
+    assert await model.supports_reasoning_effort_async("gpt-5") is True
+    assert await model.supports_reasoning_effort_async("gpt-5", effort="low") is True
+    assert await model.supports_reasoning_effort_async("gpt-5", effort="high") is False
+    assert await model.supports_reasoning_effort_async("gpt-5", effort="LOW") is False
+    assert await model.supports_reasoning_effort_async("gpt-5-chat-latest", effort="low") is False
+
+
 def test_missing_or_unsupported_static_metadata_fails_closed(monkeypatch):
     monkeypatch.setattr(st, "_sg", FakeGateway(static_descriptor(False)))
     assert provider().supports_reasoning_effort("gpt-5") is False
@@ -237,6 +248,7 @@ async def test_async_discovery_refreshes_renewable_gateway_token(monkeypatch):
         "http://127.0.0.1:8080",
         "vk-refreshed",
         "coding",
+        None,
     )
 
 
@@ -264,6 +276,7 @@ async def test_failed_placeholder_page_does_not_poison_refreshed_token(monkeypat
     assert model._gateway_model_capabilities_key == (
         "http://127.0.0.1:8080",
         "gateway-pending",
+        None,
         None,
     )
 
@@ -302,6 +315,7 @@ async def test_failed_placeholder_page_does_not_poison_refreshed_token(monkeypat
     assert model._gateway_model_capabilities_key == (
         "http://127.0.0.1:8080",
         "vk-refreshed",
+        None,
         None,
     )
 
@@ -374,7 +388,7 @@ def test_gateway_discovery_rejects_malformed_model_pages(body):
 async def test_gateway_chat_leaves_explicit_effort_admission_to_sandhi():
     model = gateway_provider()
     model._store_gateway_model_capabilities(
-        ("http://127.0.0.1:8080", "vk-synthetic"),
+        ("http://127.0.0.1:8080", "vk-synthetic", None, None),
         {
             "qwen3.7-plus": {
                 "id": "qwen3.7-plus",
@@ -415,7 +429,7 @@ async def test_gateway_chat_leaves_explicit_effort_admission_to_sandhi():
 def _cached_low_effort_gateway() -> SandhiOpenAIProvider:
     model = gateway_provider()
     model._store_gateway_model_capabilities(
-        ("http://127.0.0.1:8080", "vk-synthetic"),
+        ("http://127.0.0.1:8080", "vk-synthetic", None, None),
         {
             "qwen3.7-plus": {
                 "id": "qwen3.7-plus",
@@ -511,7 +525,7 @@ async def test_anthropic_gateway_buffer_and_stream_send_portable_thinking():
         }
     }
     model._store_gateway_model_capabilities(
-        ("http://127.0.0.1:8080", "vk-synthetic"),
+        ("http://127.0.0.1:8080", "vk-synthetic", None, None),
         {
             "claude-test": {
                 "id": "claude-test",

@@ -503,6 +503,21 @@ class ProviderGatewayConfig(BaseModel):
     ] = None
     oidc: Optional[GatewayOidcConfig] = None
     grant: Optional[str] = None
+    ca_file: Optional[str] = Field(
+        default=None,
+        description=(
+            "Absolute path to a PEM/DER CA bundle used only by this gateway profile. "
+            "Sandhi applies it as a replacement trust root without changing "
+            "process-global SSL_CERT_FILE or SSL_CERT_DIR."
+        ),
+    )
+
+    @field_validator("ca_file")
+    @classmethod
+    def validate_gateway_ca_file(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and (not value.strip() or not Path(value).is_absolute()):
+            raise ValueError("gateway ca_file must be an absolute filesystem path")
+        return value
 
     @property
     def virtual_key_value(self) -> Optional[str]:
@@ -621,6 +636,7 @@ from victor.config.groups import (
     ToolSelectionSettings,
     FuzzyMatchingSettings,
     GovernanceSettings,
+    EvaluationSettings,
 )
 
 # Old config imports (to be migrated to groups)
@@ -732,6 +748,7 @@ _NESTED_GROUPS = {
     "fuzzy_matching": FuzzyMatchingSettings,
     "governance": GovernanceSettings,
     "temperature_policy": TemperatureSettings,
+    "evaluation": EvaluationSettings,
 }
 
 
@@ -1333,6 +1350,7 @@ class Settings(BaseSettings):
     tool_selection: Optional[ToolSelectionSettings] = Field(default=None, exclude=True, repr=False)
     fuzzy_matching: Optional[FuzzyMatchingSettings] = Field(default=None, exclude=True, repr=False)
     governance: Optional[GovernanceSettings] = Field(default=None, exclude=True, repr=False)
+    evaluation: Optional[EvaluationSettings] = Field(default=None, exclude=True, repr=False)
     temperature_policy: Optional[TemperatureSettings] = Field(
         default=None, exclude=True, repr=False
     )
@@ -1376,6 +1394,17 @@ class Settings(BaseSettings):
     user_scope_enabled: bool = True
     project_scope_enabled: bool = True
     memory_injection_max_tokens: int = 500
+
+    # ADR-036 field-data collection (flag-graduation evidence). Strictly opt-in:
+    # when enabled, each session records flag exposure + outcome markers — NO
+    # conversation content, NO code, NO raw identifiers — to an append-only
+    # JSONL store (one file per day, size-capped rotation). Aggregate with
+    # `victor evaluation field-data summary`.
+    # NOTE: field_data_enabled / field_data_store_dir / field_data_max_file_bytes
+    # now in the evaluation nested group
+    field_data_enabled: bool = False
+    field_data_store_dir: Optional[str] = None
+    field_data_max_file_bytes: int = 5 * 1024 * 1024
 
     # ==========================================================================
     # Vertical Configuration

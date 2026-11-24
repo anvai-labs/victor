@@ -57,6 +57,41 @@ def test_gateway_mode_handle_constructs_on_real_binding(name, native_cls, model)
     assert handle is not None
 
 
+def test_gateway_mode_constructs_with_symlinked_ca_on_real_binding(tmp_path):
+    """Victor and Sandhi must agree that a symlink to a regular CA file is valid."""
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "gateway-ca-conformance")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=1))
+        .not_valid_after(now + datetime.timedelta(hours=1))
+        .sign(key, hashes.SHA256())
+    )
+    certificate_file = tmp_path / "gateway-ca.der"
+    certificate_file.write_bytes(certificate.public_bytes(serialization.Encoding.DER))
+    ca_file = tmp_path / "gateway-ca-link.der"
+    try:
+        ca_file.symlink_to(certificate_file)
+    except OSError as error:
+        pytest.skip(f"temporary symlink support unavailable: {error}")
+    provider = _construct(
+        "openai", OpenAIProvider, {"gateway": {**GATEWAY, "ca_file": str(ca_file)}}
+    )
+    assert provider._typed_provider("gpt-test") is not None
+
+
 @pytest.mark.parametrize(
     "protocol", ["chat_completions", "anthropic_messages", "responses", "gemini_generate_content"]
 )

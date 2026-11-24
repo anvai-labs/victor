@@ -223,10 +223,11 @@ class OpenAIConfig(ProviderConfigStrategy):
             result.setdefault("base_url", "https://chatgpt.com/backend-api/codex")
         else:
             # API key mode
-            raw_key = settings.provider.openai_api_key
-            api_key = (raw_key.get_secret_value() if raw_key else None) or get_api_key("openai")
-            if api_key:
-                result["api_key"] = api_key
+            if not result.get("api_key"):
+                raw_key = settings.provider.openai_api_key
+                api_key = (raw_key.get_secret_value() if raw_key else None) or get_api_key("openai")
+                if api_key:
+                    result["api_key"] = api_key
             result.setdefault("base_url", "https://api.openai.com/v1")
 
         return result
@@ -379,10 +380,10 @@ class ZAIConfig(ProviderConfigStrategy):
         result = dict(base_settings)
         spec = get_openai_compat_provider_spec("zai")
 
-        # Resolve API key
-        api_key = get_api_key("zai")
-        if api_key:
-            result["api_key"] = api_key
+        if not result.get("api_key"):
+            api_key = get_api_key("zai")
+            if api_key:
+                result["api_key"] = api_key
 
         # Coding plan uses a dedicated endpoint
         coding_plan = result.pop("coding_plan", False)
@@ -474,6 +475,7 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
             "audience",
             "protocol",
             "auth_mode",
+            "ca_file",
         }
         unsupported_fields = sorted(set(gateway) - supported_fields)
         if unsupported_fields:
@@ -504,7 +506,7 @@ def resolve_provider_gateway(base_settings: Dict[str, Any], provider: str) -> No
     if virtual_key is not None and not isinstance(virtual_key, str):
         raise ValueError("gateway virtual key must be a string")
     extra = {}
-    for name in ("oidc", "grant", "credential", "audience", "protocol", "auth_mode"):
+    for name in ("oidc", "grant", "credential", "audience", "protocol", "auth_mode", "ca_file"):
         if name in gateway:
             value = gateway[name]
             extra[name] = value.model_dump() if hasattr(value, "model_dump") else value

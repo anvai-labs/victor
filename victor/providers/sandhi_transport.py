@@ -9,19 +9,25 @@ demotion state, or replay on a second transport.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
+import os
 import platform
 import re
 import socket
 import ssl
+import stat
+import tempfile
+from pathlib import Path
+import weakref
 
 import httpx
 from contextlib import aclosing
 from json import JSONDecodeError
 from collections.abc import Mapping
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type, Union
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -47,6 +53,7 @@ from victor.providers.llamacpp_provider import LlamaCppProvider
 from victor.providers.lmstudio_provider import LMStudioProvider
 from victor.providers.ollama_provider import OllamaProvider
 from victor.providers.openai_provider import OpenAIProvider
+from victor.providers.planning import _planning_session_id
 from victor.providers.vllm_provider import VLLMProvider
 from victor.providers.openai_compat import build_openai_messages, convert_tools_to_openai_format
 from victor.providers.usage_parsing import usage_dict_from_neutral
@@ -114,7 +121,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.23.0 is required for provider transport",
+            "sandhi-gateway 0.24.1 is required for provider transport",
             provider=name,
         )
     return variant
@@ -305,11 +312,126 @@ def _tls_trust_remediation() -> str:
     return f"import the issuing CA into this {system or 'unknown'} platform's trust store"
 
 
-def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[str]:
+_MAX_GATEWAY_CA_FILE_BYTES = 4 * 1024 * 1024
+_PEM_CERTIFICATE_PREFIX = b"-----BEGIN CERTIFICATE-----"
+
+
+def _is_exact_der_sequence(bytes_value: bytes) -> bool:
+    """Match Sandhi's structural DER selector, not a text heuristic."""
+    if not bytes_value or bytes_value[0] != 0x30 or len(bytes_value) < 2:
+        return False
+    encoded_length = bytes_value[1]
+    if encoded_length < 0x80:
+        length_bytes, declared_length = 0, encoded_length
+    else:
+        length_bytes = encoded_length & 0x7F
+        if length_bytes == 0 or length_bytes > 8 or len(bytes_value) < 2 + length_bytes:
+            return False
+        declared_value = 0
+        for byte in bytes_value[2 : 2 + length_bytes]:
+            declared_value = declared_value * 256 + byte
+            if declared_value > len(bytes_value):
+                return False
+        declared_length = declared_value
+    header_length = 2 + length_bytes
+    return len(bytes_value) - header_length == declared_length
+
+
+def _read_gateway_ca_file(ca_file: str) -> bytes:
+    """Read a bounded CA through a descriptor to the opened regular file.
+
+    This mirrors Sandhi 0.24's transport validation: at most 4 MiB and a regular
+    file, an exact DER X.509 sequence, or a PEM bundle containing certificate
+    blocks. The descriptor and fstat ensure symlink resolution and regular-file
+    validation apply to the opened target, not a separately racy path stat.
+    """
+    if not Path(ca_file).is_absolute():
+        raise ValueError("gateway ca_file must be an absolute filesystem path")
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    descriptor = os.open(ca_file, flags)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("gateway ca_file must reference a regular file")
+        if not 0 < info.st_size <= _MAX_GATEWAY_CA_FILE_BYTES:
+            raise ValueError("gateway ca_file is empty or exceeds the 4 MiB bound")
+        with os.fdopen(descriptor, "rb") as source:
+            descriptor = -1
+            content = source.read(_MAX_GATEWAY_CA_FILE_BYTES + 1)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if len(content) > _MAX_GATEWAY_CA_FILE_BYTES:
+        raise ValueError("gateway ca_file is empty or exceeds the 4 MiB bound")
+    return content
+
+
+def _gateway_ssl_context_from_bytes(content: bytes) -> ssl.SSLContext:
+    """Build a replacement-root context from already validated CA bytes."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.check_hostname = True
+    if _is_exact_der_sequence(content):
+        certificate_data = ssl.DER_cert_to_PEM_cert(content)
+    elif _PEM_CERTIFICATE_PREFIX in content:
+        try:
+            certificate_data = content.decode("ascii")
+        except UnicodeDecodeError as error:
+            raise ValueError("gateway ca_file is not a PEM certificate") from error
+    else:
+        raise ValueError("gateway ca_file is not a PEM or DER certificate")
+    context.load_verify_locations(cadata=certificate_data)
+    return context
+
+
+def _gateway_ssl_context(ca_file: str) -> ssl.SSLContext:
+    """Load a profile-scoped PEM bundle or exact DER certificate for discovery."""
+    return _gateway_ssl_context_from_bytes(_read_gateway_ca_file(ca_file))
+
+
+class _GatewayCaSnapshot:
+    """One immutable trust snapshot shared by discovery, diagnostics, and FFI.
+
+    Sandhi accepts a CA path and validates it when a handle is constructed. A
+    mutable source path would otherwise let Python discovery and the native
+    runtime observe different rotations. Victor copies the validated bytes once
+    to a private regular file, derives both TLS consumers from that snapshot,
+    and pins handle-cache identity to its content digest. Changing the profile
+    path creates a new snapshot; changing the same source path deliberately
+    keeps the provider pinned until the provider is recreated or closed.
+    """
+
+    def __init__(self, source: str):
+        content = _read_gateway_ca_file(source)
+        self.source = source
+        self.content_sha256 = hashlib.sha256(content).hexdigest()
+        self.context = _gateway_ssl_context_from_bytes(content)
+        descriptor, self.path = tempfile.mkstemp(prefix="victor-gateway-ca-")
+        closed = False
+        try:
+            with os.fdopen(descriptor, "wb") as target:
+                closed = True
+                target.write(content)
+                target.flush()
+                os.fsync(target.fileno())
+        except BaseException:
+            if not closed:
+                os.close(descriptor)
+            Path(self.path).unlink(missing_ok=True)
+            raise
+        self._finalizer = weakref.finalize(self, Path(self.path).unlink, missing_ok=True)
+
+    def release(self) -> None:
+        self._finalizer()
+
+
+def _diagnose_endpoint_tls(
+    url: str, connect_timeout: float = 1.5, ca_file: Optional[str] = None
+) -> Optional[str]:
     """Classify a transport error against an https endpoint.
 
     Returns TLS-trust guidance only when the signature matches: TCP connects
-    but the default-context handshake fails certificate verification (the
+    but the configured-context handshake fails certificate verification (the
     self-signed/private-CA gateway case). Unreachable endpoints return None —
     the default "check network" hint is then correct — and so do healthy
     handshakes.
@@ -333,15 +455,23 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
         # One connection for both the reachability check and the handshake:
         # create_connection's timeout also bounds the wrap_socket handshake.
         with socket.create_connection((parsed.hostname, port), timeout=connect_timeout) as sock:
-            context = ssl.create_default_context()
+            context = _gateway_ssl_context(ca_file) if ca_file else ssl.create_default_context()
             try:
                 with context.wrap_socket(sock, server_hostname=parsed.hostname):
                     return None
             except ssl.SSLCertVerificationError:
+                if ca_file:
+                    return (
+                        "the endpoint's TLS certificate was not accepted by the "
+                        "gateway ca_file configured for this Victor profile. Verify "
+                        "the server hostname/SAN and full issuer chain, or update "
+                        "that profile's CA file"
+                    )
                 return (
                     "the endpoint's TLS certificate is not trusted by this "
                     "machine's trust store (private/self-signed CA). Configure "
-                    "SSL_CERT_FILE with a trusted CA bundle for the SDK process "
+                    "gateway ca_file for this Victor profile, configure "
+                    "SSL_CERT_FILE with a trusted CA bundle for a legacy SDK process "
                     "(verify support on the installed SDK/platform), import "
                     f"the issuing CA into the system trust store ({_tls_trust_remediation()}), "
                     "or serve a publicly-trusted certificate"
@@ -356,7 +486,12 @@ def _diagnose_endpoint_tls(url: str, connect_timeout: float = 1.5) -> Optional[s
 
 
 async def map_sandhi_error(
-    exc: BaseException, provider_name: str, timeout: float, *, gateway: bool = False
+    exc: BaseException,
+    provider_name: str,
+    timeout: float,
+    *,
+    gateway: bool = False,
+    ca_file: Optional[str] = None,
 ) -> ProviderError:
     """Map `ProviderErrorV1` from the FFI without changing retry ownership.
 
@@ -489,7 +624,11 @@ async def map_sandhi_error(
             if url_match:
                 try:
                     diagnosis = await asyncio.wait_for(
-                        asyncio.to_thread(_diagnose_endpoint_tls, url_match.group(0)),
+                        asyncio.to_thread(
+                            _diagnose_endpoint_tls,
+                            url_match.group(0),
+                            ca_file=ca_file,
+                        ),
                         timeout=_TLS_PROBE_DEADLINE_SECS,
                     )
                 except Exception:
@@ -716,7 +855,7 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
     # metadata — never the body, where it would break prompt-cache byte-stability.
     # The typed runtime maps it onto catalog-declared vendor affinity headers (e.g.
     # InferFlux's ``x-inferflux-session-id`` KV/prefix-cache key).
-    session_id = _gateway_run_id()
+    session_id = _planning_session_id.get() or _gateway_run_id()
     if session_id:
         request["metadata"] = {"session_id": session_id}
     return request
@@ -831,13 +970,20 @@ def _usage_diagnostics(usage: Any) -> Optional[Dict[str, Any]]:
     return diagnostics
 
 
+GatewayScope = Union[
+    Tuple[str, str, Optional[str], Optional[str]],
+    Tuple[str, str, Optional[str], str, str],
+]
+
+
 class SandhiTypedProviderMixin:
     """Shared direct consumer of Sandhi's typed FFI contract."""
 
     _sandhi_runtime: Any = None
     _sandhi_typed_providers: Optional[Dict[Tuple[str, ...], Any]] = None
     _gateway_model_capabilities: Optional[Dict[str, Dict[str, Any]]] = None
-    _gateway_model_capabilities_key: Optional[Tuple[str, str, Optional[str]]] = None
+    _gateway_model_capabilities_key: Optional[GatewayScope] = None
+    _gateway_ca_snapshot: Optional[_GatewayCaSnapshot] = None
 
     @staticmethod
     def _validate_call_options(options: Dict[str, Any]) -> None:
@@ -859,6 +1005,10 @@ class SandhiTypedProviderMixin:
         finally:
             self._sandhi_typed_providers = None
             self._sandhi_runtime = None
+            snapshot = self._gateway_ca_snapshot
+            self._gateway_ca_snapshot = None
+            if snapshot is not None:
+                snapshot.release()
 
     def _static_sandhi_model_descriptor(self, model: str) -> Optional[Dict[str, Any]]:
         """Return an exact model descriptor from the pinned binding catalog."""
@@ -912,9 +1062,9 @@ class SandhiTypedProviderMixin:
         return result
 
     def _cached_gateway_model_capabilities(
-        self, gateway: Tuple[str, str, Optional[str]]
+        self, gateway: GatewayScope
     ) -> Optional[Dict[str, Dict[str, Any]]]:
-        """Return discovery data for the current gateway credential and grant."""
+        """Return discovery data for the current gateway credential, grant, and CA."""
         if (
             self._gateway_model_capabilities is not None
             and self._gateway_model_capabilities_key == gateway
@@ -923,17 +1073,50 @@ class SandhiTypedProviderMixin:
         return None
 
     def _store_gateway_model_capabilities(
-        self, gateway: Tuple[str, str, Optional[str]], capabilities: Dict[str, Dict[str, Any]]
+        self,
+        gateway: GatewayScope,
+        capabilities: Dict[str, Dict[str, Any]],
     ) -> None:
         self._gateway_model_capabilities = capabilities
         self._gateway_model_capabilities_key = gateway
 
-    def _gateway_scope(self) -> Optional[Tuple[str, str, Optional[str]]]:
+    def _gateway_scope(
+        self,
+    ) -> Optional[GatewayScope]:
         gateway = self._gateway_overrides()
         if gateway is None:
             return None
         config = gateway_config((getattr(self, "extra_config", None) or {}).get("gateway"))
-        return (*gateway, config.get("grant") if config else None)
+        source = (
+            (str(config["ca_file"]).strip() or None) if config and config.get("ca_file") else None
+        )
+        scope = (*gateway, config.get("grant") if config else None, source)
+        if source is None:
+            return scope
+        snapshot = self._gateway_ca_snapshot
+        if snapshot is None or snapshot.source != source:
+            replacement = _GatewayCaSnapshot(source)
+            if snapshot is not None:
+                snapshot.release()
+            self._gateway_ca_snapshot = replacement
+            snapshot = replacement
+        return (*scope[:3], snapshot.path, snapshot.content_sha256)
+
+    def _gateway_ca_file(self) -> Optional[str]:
+        if self._gateway_ca_snapshot is not None:
+            return self._gateway_ca_snapshot.path
+        config = gateway_config((getattr(self, "extra_config", None) or {}).get("gateway"))
+        return (
+            (str(config["ca_file"]).strip() or None) if config and config.get("ca_file") else None
+        )
+
+    def _gateway_ssl_verify(self, gateway: GatewayScope) -> ssl.SSLContext | bool:
+        if len(gateway) != 5:
+            return True
+        snapshot = self._gateway_ca_snapshot
+        if snapshot is not None and snapshot.path == gateway[3]:
+            return snapshot.context
+        return _gateway_ssl_context(gateway[3])
 
     @staticmethod
     def _gateway_discovery_headers(credential: str, grant: Optional[str]) -> Dict[str, str]:
@@ -954,7 +1137,7 @@ class SandhiTypedProviderMixin:
         cached = self._cached_gateway_model_capabilities(gateway)
         if cached is not None:
             return cached
-        root, credential, grant = gateway
+        root, credential, grant = gateway[:3]
         url = _gateway_family_base(root, "chat_completions") + "/models"
         capabilities: Dict[str, Dict[str, Any]] = {}
         try:
@@ -963,6 +1146,7 @@ class SandhiTypedProviderMixin:
                 headers=self._gateway_discovery_headers(credential, grant),
                 timeout=min(self._sandhi_timeout(), 5.0),
                 follow_redirects=False,
+                verify=self._gateway_ssl_verify(gateway),
             )
             response.raise_for_status()
             capabilities = self._parse_gateway_model_capabilities(response.json())
@@ -987,13 +1171,14 @@ class SandhiTypedProviderMixin:
         cached = self._cached_gateway_model_capabilities(gateway)
         if cached is not None:
             return
-        root, credential, grant = gateway
+        root, credential, grant = gateway[:3]
         url = _gateway_family_base(root, "chat_completions") + "/models"
         capabilities: Dict[str, Dict[str, Any]] = {}
         try:
             async with httpx.AsyncClient(
                 timeout=min(self._sandhi_timeout(), 5.0),
                 follow_redirects=False,
+                verify=self._gateway_ssl_verify(gateway),
             ) as client:
                 response = await client.get(
                     url, headers=self._gateway_discovery_headers(credential, grant)
@@ -1029,23 +1214,31 @@ class SandhiTypedProviderMixin:
             return cached.get(model)
         return self._static_sandhi_model_descriptor(model)
 
-    def supports_reasoning_effort(self, model: Optional[str] = None) -> bool:
-        """Use exact Sandhi model metadata; never infer from provider or prefix."""
+    def _reasoning_effort_values(self, model: Optional[str]) -> tuple[str, ...]:
         descriptor = self._sandhi_model_descriptor(model)
         thinking = descriptor.get("thinking") if isinstance(descriptor, dict) else None
         effort = thinking.get("effort") if isinstance(thinking, dict) else None
         values = effort.get("values") if isinstance(effort, dict) else None
-        return bool(
+        if (
             isinstance(thinking, dict)
             and thinking.get("supported") is True
             and isinstance(values, list)
-            and values
-        )
+        ):
+            return tuple(values)
+        return ()
 
-    async def supports_reasoning_effort_async(self, model: Optional[str] = None) -> bool:
-        """Exact capability check with async gateway discovery and token refresh."""
+    def supports_reasoning_effort(self, model: Optional[str] = None) -> bool:
+        """Use exact Sandhi model metadata; never infer from provider or prefix."""
+        return bool(self._reasoning_effort_values(model))
+
+    async def supports_reasoning_effort_async(
+        self, model: Optional[str] = None, *, effort: Optional[str] = None
+    ) -> bool:
+        """Check the advertised effort vocabulary, or whether it exists at all."""
         await self._refresh_gateway_model_capabilities()
-        return self.supports_reasoning_effort(model)
+        if effort is None:
+            return self.supports_reasoning_effort(model)
+        return effort in self._reasoning_effort_values(model)
 
     async def supports_thinking_disable_async(self, model: str) -> bool:
         await self._refresh_gateway_model_capabilities()
@@ -1135,7 +1328,15 @@ class SandhiTypedProviderMixin:
         (blocked-header filtering, step-id headers, etc.)."""
         if self._gateway_overrides() is None:
             return {}
-        return _gateway_wire_headers(_wire_call_headers())
+        headers = _wire_call_headers()
+        if session_id := _planning_session_id.get():
+            # Explicit planning sessions are call metadata, so changing jobs
+            # can reuse the same connection pool and preserve configured headers.
+            configured = {name.lower() for name in (getattr(self, "_wire_headers", None) or {})}
+            for name in ("x-sandhi-run-id", "x-sandhi-session"):
+                if name not in configured:
+                    headers[name] = session_id
+        return _gateway_wire_headers(headers)
 
     def _sandhi_stream_wire_headers(self) -> Dict[str, str]:
         # Validate unconditionally: a misconfigured knob must fail the same
@@ -1283,14 +1484,18 @@ class SandhiTypedProviderMixin:
         )
         gateway = self._gateway_scope()
         grant = None
+        ca_file = None
+        ca_identity = None
         # Run cost tree (sandhi PR #149): only gateway mode stamps the run id —
         # direct-provider mode must stay byte-identical on the wire.
-        run_id = _gateway_run_id() if gateway is not None else ""
+        run_id = _gateway_run_id() if gateway is not None and not _planning_session_id.get() else ""
         if gateway is not None:
             # Gateway mode (TD-0003 P3): the FFI handle targets the Sandhi proxy with
             # the configured credential or starter marker. The explicit client
             # dialect is independent of the provider identity and server backend.
-            proxy_url, virtual_key, grant = gateway
+            proxy_url, virtual_key, grant = gateway[:3]
+            ca_file = gateway[3]
+            ca_identity = gateway[4] if len(gateway) == 5 else None
             if not virtual_key:
                 raise ProviderConnectionError(
                     "configured gateway credential is unavailable",
@@ -1340,6 +1545,8 @@ class SandhiTypedProviderMixin:
             endpoint_profile,
             "sandhi_gateway_v1" if gateway is not None else "provider",
             grant or "",
+            ca_file or "",
+            ca_identity or "",
             run_id,
         )
         if cache_key not in self._sandhi_typed_providers:
@@ -1371,6 +1578,8 @@ class SandhiTypedProviderMixin:
                 kwargs["headers_json"] = json.dumps(wire_headers)
             if gateway is not None:
                 kwargs["peer_role"] = "sandhi_gateway_v1"
+                if ca_file:
+                    kwargs["ca_file"] = ca_file
             if auth_scheme:
                 kwargs["auth_scheme"] = auth_scheme
             if protocol:
@@ -1401,7 +1610,7 @@ class SandhiTypedProviderMixin:
         self._validate_gateway_request(request)
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
-        # Per-call step headers (gateway mode only — direct mode stays byte-identical).
+        # Per-call correlation headers are sent only in gateway mode.
         call_headers = self._sandhi_base_wire_headers()
         wire_headers = json.dumps(call_headers) if call_headers else None
         try:
@@ -1414,7 +1623,11 @@ class SandhiTypedProviderMixin:
             raise
         except BaseException as exc:  # pyo3 panics may subclass BaseException
             mapped = await map_sandhi_error(
-                exc, self._sandhi_slug(), timeout, gateway=self._gateway_overrides() is not None
+                exc,
+                self._sandhi_slug(),
+                timeout,
+                gateway=self._gateway_overrides() is not None,
+                ca_file=self._gateway_ca_file(),
             )
             if (
                 isinstance(mapped, ProviderPolicyError)
@@ -1610,6 +1823,8 @@ class SandhiTypedProviderMixin:
                         ),
                         self._sandhi_slug(),
                         timeout,
+                        gateway=self._gateway_overrides() is not None,
+                        ca_file=self._gateway_ca_file(),
                     )
                 else:
                     # Contract-drift alarm (TD-0008 P1): a new ChatStreamEventV1
@@ -1646,7 +1861,11 @@ class SandhiTypedProviderMixin:
             raise
         except BaseException as exc:
             mapped = await map_sandhi_error(
-                exc, self._sandhi_slug(), timeout, gateway=self._gateway_overrides() is not None
+                exc,
+                self._sandhi_slug(),
+                timeout,
+                gateway=self._gateway_overrides() is not None,
+                ca_file=self._gateway_ca_file(),
             )
             if (
                 isinstance(mapped, ProviderPolicyError)

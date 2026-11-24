@@ -9,7 +9,7 @@ MkDocs Material supplies navigation, search, API rendering and Mermaid diagrams.
 | --- | --- |
 | Last verified successful Pages source | `main` `261f5bd61d3be0a13b25e3ad5702b69adddbe14b`, 2026-11-18; published 0.31.0 |
 | Workflow run | [44368060530](https://github.com/anvai-labs/victor/actions/runs/44368060530) succeeded |
-| Prepared release source | Victor 0.32.0 co-design candidate; replace this row with the actual promoted merge and successful workflow before claiming publication |
+| Prepared release source | Victor 0.33.0 co-design candidate; replace this row with the actual promoted merge and successful workflow before claiming publication |
 | Develop preview | Built in pull-request CI; published after the next main promotion |
 
 !!! tip "Page shape"

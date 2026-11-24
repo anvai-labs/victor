@@ -26,6 +26,22 @@ adoption. Each completed provider call is metered against a per-subject virtual
 key, producing exactly one neutral usage event (with the full prompt-cache split)
 that lands in ``sandhi``'s local sink.
 
+**Principal & billing-group rule** (Codex wave-2 finding 23; D5 in
+``docs/architecture/fou-a4-rbac-sso-design.md``): the STABLE metering identity is
+the principal (the subject label — the legacy key label for key-only principals,
+the issuer-qualified principal ID once A4c lands). The billing GROUP is recorded
+PER EVENT, realized as the **versioned metering key**: the gateway's meter path is
+key-authoritative (ADR-0004 D4 — ``meter_tokens`` resolves the event's
+``subject_id``/``group_id`` from the virtual key and admits no per-event group
+parameter), so the group travels in the key id. A principal whose group changes
+meters through a NEW virtual key carrying the new group — subsequent events
+reflect the change without disturbing history, and events already emitted keep
+the group they were recorded with. Versioned keys are also race-free under
+overlapping HTTP/SSE/WS calls: each event's key encodes its own event-time group
+rather than a shared mutable binding. Key-only principals (no verified group)
+keep the unversioned ``victor:{subject}`` key with no group — the pre-finding-23
+shape, pinned behavior-neutral.
+
 The dependency is **optional and default-off**: ``sandhi-gateway`` lives behind the
 ``victor[sandhi]`` extra. When it is not installed, :func:`sandhi_available` returns
 ``False`` and callers skip the bridge — the base install is byte-for-byte unaffected
@@ -56,9 +72,10 @@ def sandhi_available() -> bool:
 class SandhiMeter:
     """Bridge Victor provider usage → the ``sandhi`` usage gateway.
 
-    A Victor *subject* (a ``client_id`` / user) is mapped to a ``sandhi`` virtual
-    key on first sight; provider usage is then metered against it. The gateway
-    emits one neutral usage event per call to its local sink, carrying the
+    A Victor *principal* (a ``client_id`` / user) meters through one virtual key
+    per (subject, billing group) pair — the versioned metering key of the
+    finding-23 billing-group rule (see the module docstring). The gateway emits
+    one neutral usage event per call to its local sink, carrying the
     ``subject_id`` / ``group_id`` attribution that Victor's own cost records lacked.
 
     Emission is **best-effort and off the critical path**: any failure is logged at
@@ -82,9 +99,20 @@ class SandhiMeter:
         """The neutral usage-event schema version the linked ``sandhi`` core speaks."""
         return str(_sg.wire_contract_version())
 
+    @staticmethod
+    def _metering_key(subject: str, group_id: Optional[str]) -> str:
+        """Versioned metering key: ``victor:{subject}`` (no verified group) or
+        ``victor:{subject}:{group}``.
+
+        The id is opaque — it is only ever computed forward and never parsed
+        back, so the plain concatenation is safe; both components come from
+        verified registry vocabularies (``principal_id`` / verified groups).
+        """
+        return f"victor:{subject}" if group_id is None else f"victor:{subject}:{group_id}"
+
     def _ensure_key(self, subject_id: Optional[str], group_id: Optional[str]) -> str:
         subject = subject_id or "anonymous"
-        virtual_key = f"victor:{subject}"
+        virtual_key = self._metering_key(subject, group_id)
         if virtual_key not in self._known_keys:
             # upstream="" — Victor holds the real provider key; the bridge only meters.
             self._gw.add_virtual_key(virtual_key, subject, group_id, "")

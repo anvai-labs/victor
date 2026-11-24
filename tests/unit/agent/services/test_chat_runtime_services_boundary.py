@@ -27,7 +27,11 @@ CLUSTER_CAPS = {
         "raw_state": 5,
     },
     "chat_stream_executor.py": {
-        "private_attributes": 76,
+        # +2 for the ADR-036 field-data session hook (opt-in recorder, wired
+        # 2026-11-21): the static `_resolve_provider_identity` accessor and the
+        # `type(exc).__name__` error-class capture in the session-end finally.
+        # Deliberate cross-cutting hook, not owner-state probing.
+        "private_attributes": 78,
         "private_probes": 5,
         "dynamic_probes": 4,
         "delivery_accesses": 0,
