@@ -10,7 +10,7 @@
 | **Git** | status, log, diff, commit, branch | LOW | Version control |
 | **Search** | code_search, symbol, refs | LOW | Code navigation |
 | **Execution** | shell, python, docker_exec | MEDIUM | Run code |
-| **Web** | web_search, web_fetch | MEDIUM | Network requests |
+| **Web** | web_search, web_fetch, browser_tool (agentbrowser client) | MEDIUM-HIGH | Network requests |
 | **Analysis** | review, test_generation | HIGH | LLM-intensive |
 | **Verification** | codebase_verify, codebase_verify_batch | LOW | Semantic validation |
 
@@ -59,6 +59,7 @@
 |------|-------------|---------|
 | `web_search` | Search web (DuckDuckGo by default; Tavily/Brave/Serper with a key) | `web_search "Python async"` |
 | `web_fetch` | Readable page fetch (title + main text, size cap, content-type guard) | `web_fetch https://example.com` |
+| `browser_tool` | Headless-browser read for JS-required pages (title/url/text/links) via the **agentbrowser service** (127.0.0.1:5709); local Playwright fallback with `engine="playwright"` (optional `browser-playwright` extra + `playwright install chromium`) | `browser_tool https://example.com/spa` |
 
 **Search providers (FOU-A5, optional, key-gated):** `web_search(provider=...)` accepts
 `auto` (default), `duckduckgo` (no key), `tavily`, `brave`, or `serper`. A provider is

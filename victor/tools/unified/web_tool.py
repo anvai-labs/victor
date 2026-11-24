@@ -43,6 +43,23 @@ async def render_page(url: str):
     return result
 
 
+async def browser_page(url: str):
+    """Read a page through the production browser tool (FOU-A5 phase 2)."""
+    from victor.tools.browser_tool import browser_tool
+
+    result = await browser_tool(url=url)
+    if isinstance(result, dict):
+        if result.get("success") is False:
+            raise RuntimeError(result.get("error", "browser read failed"))
+        return {
+            "title": result.get("title", ""),
+            "url": result.get("url", url),
+            "content": result.get("content", ""),
+            "links": result.get("links", []),
+        }
+    return result
+
+
 class UnifiedWebParser(argparse.ArgumentParser):
     def error(self, message):
         self.print_usage(sys.stderr)
@@ -67,6 +84,12 @@ def create_web_parser() -> UnifiedWebParser:
     render_parser = subparsers.add_parser("render", help="Render a page with a browser")
     render_parser.add_argument("url", help="The URL to render")
 
+    # `browser` subcommand (FOU-A5 phase 2): full browser read (title/text/links)
+    browser_parser = subparsers.add_parser(
+        "browser", help="Read a JS-required page in a headless browser"
+    )
+    browser_parser.add_argument("url", help="The URL to read in the browser")
+
     return parser
 
 
@@ -83,6 +106,7 @@ async def web_tool(cmd: str) -> str:
       web fetch "https://google.com"
       web search "python async tutorials"
       web render "https://example.com"
+      web browser "https://example.com/spa"
     """
     parser = create_web_parser()
 
@@ -126,6 +150,25 @@ async def web_tool(cmd: str) -> str:
             return str(await render_page(parsed_args.url))
         except Exception as e:
             return f"### ❌ ERROR\nRender failed: {e}"
+
+    elif parsed_args.subcommand == "browser":
+        try:
+            result = await browser_page(parsed_args.url)
+            if not isinstance(result, dict):
+                return str(result)
+            lines = [f"### {result.get('title') or result.get('url', '')}", ""]
+            lines.append(result.get("content") or "(no text extracted)")
+            links = result.get("links") or []
+            if links:
+                lines.append("")
+                lines.append("Links:")
+                for link in links[:20]:
+                    lines.append(
+                        f"- [{link.get('text') or link.get('href', '')}]({link.get('href', '')})"
+                    )
+            return "\n".join(lines)
+        except Exception as e:
+            return f"### ❌ ERROR\nBrowser read failed: {e}"
     else:
         old_stdout = sys.stdout
         sys.stdout = capture = StringIO()
