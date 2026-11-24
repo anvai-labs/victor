@@ -168,6 +168,7 @@ Tools for searching code and web content.
 | `grep` | Fast text search (like grep) | FREE | "Find TODO comments" |
 | `web_search` | Search the web | MEDIUM | "Search for Python async best practices" |
 | `web_fetch` | Fetch content from URL | MEDIUM | "Get the content from that documentation page" |
+| `browser_tool` | Render a JS-required page in a headless browser (optional `web` extra) | HIGH | "Open that SPA page in a browser and extract the table" |
 
 **Semantic vs Literal Search**
 
@@ -226,6 +227,7 @@ Tools for accessing web content (disabled in air-gapped mode).
 |------|-------------|------|---------------|
 | `web_search` | Search using DuckDuckGo (or Tavily/Brave/Serper with a key) | MEDIUM | "Search for Django REST framework docs" |
 | `web_fetch` | Fetch and extract readable page content (title + main text) | MEDIUM | "Get the content from that URL" |
+| `browser_tool` | Headless-browser read for JS-required pages (title/url/text/links) | HIGH | "Render that page in a browser" |
 
 **Search API providers (optional, key-gated).** By default `web_search` uses
 DuckDuckGo, which needs no key. If you have a search API key, Victor upgrades
@@ -327,7 +329,7 @@ Tools are classified by resource consumption:
 | **FREE** | None | `read`, `ls`, `grep`, `git`, `shell` | Local operations only |
 | **LOW** | Minimal | `commit_msg`, `code_review` | Compute-only, no external calls |
 | **MEDIUM** | Moderate | `web_search`, `web_fetch` | External API calls |
-| **HIGH** | Significant | `batch` (100+ files) | Resource-intensive operations |
+| **HIGH** | Significant | `browser_tool`, `batch` (100+ files) | Resource-intensive operations; browser render is an optional dependency |
 
 ### Tool Budgets
 
@@ -411,7 +413,7 @@ Victor automatically:
 | **READONLY** | Only reads data | Yes | `read`, `ls`, `grep` |
 | **WRITE** | Modifies files | With consent | `write`, `edit` |
 | **EXECUTE** | Runs external code | Cautious | `shell`, `sandbox` |
-| **NETWORK** | External connections | Logged | `web_search`, `web_fetch` |
+| **NETWORK** | External connections | Logged | `web_search`, `web_fetch`, `browser_tool` |
 | **MIXED** | Multiple access types | Careful | `git`, `docker` |
 
 ### Sandbox Restrictions

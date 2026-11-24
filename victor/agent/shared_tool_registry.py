@@ -120,6 +120,11 @@ DEMAND_TOOL_SPECS: Dict[str, tuple[str, str]] = {
     # with git need not have gh, and bootstrap schema space is spent only on
     # tools every session needs. Hydrated via GH_DEMAND_KEYWORDS like graph.
     "gh": ("victor.tools.unified.gh_tool", "gh_tool_registered"),
+    # browser is core-repo but backs an OPTIONAL dependency (playwright +
+    # its chromium binary, the `web` extra): a bare install must not spend
+    # bootstrap schema space on it, and the tool answers with a structured
+    # playwright_missing result when the extra is absent (FOU-A5 phase 2).
+    "browser_tool": ("victor.tools.browser_tool", "browser_tool"),
 }
 
 
@@ -154,6 +159,23 @@ GH_DEMAND_KEYWORDS = frozenset(
         "gh repo",
         "gh api",
         "gh auth",
+    }
+)
+
+
+# Hydrate the `browser_tool` (FOU-A5 phase 2) when a request clearly asks for
+# browser rendering of a JS-required page. Deliberately narrow: bare
+# "javascript" fires on ordinary coding prompts, so only rendering-intent
+# phrases are listed.
+BROWSER_DEMAND_KEYWORDS = frozenset(
+    {
+        "browser",
+        "headless browser",
+        "render page",
+        "render the page",
+        "requires javascript",
+        "js-required",
+        "js-rendered",
     }
 )
 
@@ -406,6 +428,8 @@ class SharedToolRegistry:
             demand.append("graph")
         if any(keyword in lowered for keyword in GH_DEMAND_KEYWORDS):
             demand.append("gh")
+        if any(keyword in lowered for keyword in BROWSER_DEMAND_KEYWORDS):
+            demand.append("browser_tool")
         return demand
 
     def _discover_tools(self) -> None:

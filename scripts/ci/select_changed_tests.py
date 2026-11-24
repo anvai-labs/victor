@@ -1479,6 +1479,10 @@ RELATED_TESTS = {
         "tests/unit/tools/test_web_fetch_destination_policy.py",
         "tests/unit/tools/test_web_tool.py",
     ),
+    "victor/tools/browser_tool.py": (
+        "tests/unit/tools/test_browser_tool.py",
+        "tests/unit/tools/test_web_tool.py",
+    ),
     "victor/tools/search_providers/__init__.py": (
         "tests/unit/tools/test_search_providers.py",
         "tests/unit/tools/test_web_search_provider_dispatch.py",
