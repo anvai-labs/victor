@@ -25,7 +25,10 @@ This approach is ideal for:
 
 MCP Servers in this demo:
 - AWS Documentation Server: Search AWS docs
-- Playwright Server: Browser automation and screenshots
+- Playwright Server: Browser automation and screenshots (sample third-party
+  MCP integration only — Victor's built-in browser_tool reads JS-required
+  pages via the agentbrowser service, so you only need an external browser
+  server for interactive automation beyond page reads)
 - Filesystem Server: File operations (optional)
 - Memory Server: Key-value storage (optional)
 
