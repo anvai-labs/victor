@@ -14,26 +14,36 @@
 
 """Tests for the browser tool (FOU-A5 phase 2).
 
-The browser tool is a web_fetch companion for JS-required pages: headless
-Chromium render returning title/url/text/links. Every test asserts the
-guarantees the tool exists to provide:
+Substrate (owner direction): the PRIMARY engine is the agentbrowser
+service — ``victor.tools.browser_tool`` is a thin HTTP client of
+``127.0.0.1:5709`` (session → page → navigate → extract → close). All
+service interaction is mocked with respx against the protocol shapes from
+agentbrowser's ``openapi.ts`` (SessionSummary / PageSummary /
+NavigationStatus / ApiError / extract {data, evidence}); a sibling-checkout
+contract test asserts the client's assumptions against the real
+``openapi.json`` when available. NO real network and NO real browser here —
+the playwright fallback engine has its own test module.
+
+Every test asserts the guarantees the tool exists to provide:
 
 1. Destination policy: the ``tools.web_fetch_allowed_hosts`` allowlist is
-   enforced on the initial URL BEFORE any browser launches, and on EVERY
-   navigation hop/request the page makes (the redirect-hop rule from the
-   #1990 policy hook, extended to the browser's request stream).
-2. Structured errors: playwright-missing, browser-binary-missing, policy
-   denial, timeout, and download-cap results are dicts — never raises.
-3. Hard browser-kill teardown: no chromium process survives the session,
-   including on cancellation — probed against the real process table.
-4. Happy-path extraction over ``file://`` fixtures — NO real network.
+   enforced on the initial URL BEFORE any call is made (Victor's half of
+   the policy division; agentbrowser's Cedar stack owns navigation
+   admission), and the final URL is re-checked after navigation.
+2. Structured errors: unreachable service (naming the startup command),
+   ApiError envelopes, blocked navigation, timeout — all dicts, never
+   raises.
+3. Session lifecycle: the session Victor created is closed even when a
+   later step fails; an explicit ``session_id`` is reused (no
+   create/close) and never closed.
 """
 
-import asyncio
+import json
 import os
-import sys
 
+import httpx
 import pytest
+import respx
 
 from victor.tools import browser_tool
 from victor.tools.base import ToolConfig
@@ -41,132 +51,102 @@ from victor.tools.web_search_tool import DestinationPolicyDenied
 
 _ALLOWLIST_CTX = {"tool_config": ToolConfig(web_fetch_allowed_hosts=["allowed.test"])}
 
+_BASE = "http://127.0.0.1:5709"
 
-def _playwright_install_info() -> tuple[bool, str]:
-    """(chromium_available, browsers_cache_dir), probed under the real HOME.
+# Protocol-shaped fixtures (required fields per agentbrowser openapi.ts).
+_SESSION_SUMMARY = {
+    "sessionId": "sess-1",
+    "status": "ready",
+    "engine": "playwright-chromium",
+    "createdAt": 0,
+    "ttlMs": 60000,
+    "idleTimeoutMs": 30000,
+    "pages": [],
+}
+_PAGE_SUMMARY = {
+    "pageId": "page-1",
+    "sessionId": "sess-1",
+    "status": "ready",
+    "url": "https://allowed.test/page",
+    "title": "Rendered Page",
+}
+_NAVIGATION_SUCCESS = {
+    "status": "success",
+    "url": "https://allowed.test/page",
+    "redirectChain": [],
+}
 
-    Must run at import time: the session-scoped ``isolate_global_victor_db``
-    conftest fixture redirects ``$HOME`` to a sandbox before any test runs,
-    and the playwright driver resolves its browser cache from ``$HOME``. The
-    autouse fixture below repoints ``PLAYWRIGHT_BROWSERS_PATH`` at the real
-    cache so real-browser tests launch the developer-installed chromium.
-    """
-    try:
-        from playwright.sync_api import sync_playwright
-    except Exception:
-        return False, ""
-    try:
-        with sync_playwright() as p:
-            exe = p.chromium.executable_path
-    except Exception:
-        return False, ""
-    available = os.path.exists(exe)
-    # <cache>/chromium-1208/chrome-linux64/chrome -> <cache>
-    browsers_dir = os.path.dirname(os.path.dirname(os.path.dirname(exe)))
-    return available, browsers_dir
 
+def _mock_service(
+    *,
+    navigation=None,
+    page_summary=None,
+    text_data=None,
+    links_data=None,
+):
+    """Wire the full session → page → navigate → extract → close surface.
 
-_HAS_CHROMIUM, _BROWSERS_DIR = _playwright_install_info()
+    Payloads use the protocol shapes from agentbrowser's openapi.ts
+    (SessionSummary / PageSummary / NavigationStatus / extract
+    {data, evidence} — required fields included)."""
+    if text_data is None:
+        text_data = {"text": "the rendered main text of the page"}
+    if links_data is None:
+        links_data = [{"text": "Next", "url": "https://allowed.test/next"}]
+    respx.route(method="POST", path="/v1/sessions").mock(
+        return_value=httpx.Response(201, json=dict(_SESSION_SUMMARY))
+    )
+    respx.route(method="POST", path="/v1/sessions/sess-1/pages").mock(
+        return_value=httpx.Response(201, json=dict(page_summary or _PAGE_SUMMARY))
+    )
+    respx.route(method="POST", path="/v1/sessions/sess-1/pages/page-1/navigate").mock(
+        return_value=httpx.Response(200, json=dict(navigation or _NAVIGATION_SUCCESS))
+    )
+    respx.route(method="GET", path="/v1/sessions/sess-1/pages/page-1").mock(
+        return_value=httpx.Response(200, json=dict(page_summary or _PAGE_SUMMARY))
+    )
 
-_REAL_BROWSER = pytest.mark.skipif(
-    not _HAS_CHROMIUM, reason="playwright chromium binary not installed"
-)
+    def _extract(request: httpx.Request) -> httpx.Response:
+        fmt = json.loads(request.content or b"{}").get("format")
+        data = text_data if fmt == "text" else links_data
+        return httpx.Response(200, json={"data": data, "evidence": []})
+
+    respx.route(method="POST", path="/v1/sessions/sess-1/pages/page-1/extract").mock(
+        side_effect=_extract
+    )
+    close_route = respx.route(method="DELETE", path="/v1/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"sessionId": "sess-1", "status": "closed"})
+    )
+    return close_route
 
 
 @pytest.fixture(autouse=True)
-def _reset_browser_tool_state():
-    """Isolate the session seam and the playwright browser cache location."""
-    browser_tool.set_browser_session_factory(None)
-    if _BROWSERS_DIR:
-        saved = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = _BROWSERS_DIR
-        try:
-            yield
-        finally:
-            if saved is None:
-                os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
-            else:
-                os.environ["PLAYWRIGHT_BROWSERS_PATH"] = saved
-    else:
-        yield
+def _reset_browser_tool_state(monkeypatch):
+    """Isolate the session seam and service env between tests."""
+    from victor.tools.browser_playwright_fallback import set_browser_session_factory
+
+    set_browser_session_factory(None)
+    monkeypatch.delenv("AGENTBROWSER_BASE_URL", raising=False)
+    monkeypatch.delenv("AGENTBROWSER_API_KEY", raising=False)
+    yield
+    set_browser_session_factory(None)
 
 
 # ---------------------------------------------------------------------------
-# Fakes
-# ---------------------------------------------------------------------------
-
-
-class _FakeAPIResponse:
-    def __init__(self, body: bytes = b"x", headers: dict | None = None, status: int = 200):
-        self._body = body
-        self.status = status
-        self.headers = headers or {}
-
-    async def body(self) -> bytes:
-        return self._body
-
-
-class _FakeRoute:
-    def __init__(self, body: bytes = b"x", headers: dict | None = None):
-        self.aborted = False
-        self.fulfilled = False
-        self.fetch_kwargs: dict | None = None
-        self._response = _FakeAPIResponse(body, headers)
-
-    async def abort(self):
-        self.aborted = True
-
-    async def fulfill(self, response=None, **kwargs):
-        self.fulfilled = True
-
-    async def fetch(self, **kwargs):
-        self.fetch_kwargs = kwargs
-        return self._response
-
-
-class _FakeRequest:
-    def __init__(self, url: str, resource_type: str = "document"):
-        self.url = url
-        self.resource_type = resource_type
-
-
-class _FakeSession:
-    """Minimal _BrowserSession stand-in for the tool-level factory seam."""
-
-    def __init__(self, read=None, exc=None):
-        self.started = False
-        self.closed = False
-        self._read = read
-        self._exc = exc
-
-    async def __aenter__(self):
-        self.started = True
-        return self
-
-    async def __aexit__(self, *exc_info):
-        self.closed = True
-        return False
-
-    async def read(self, url, **kwargs):
-        if self._exc is not None:
-            raise self._exc
-        return await self._read(url, **kwargs)
-
-
-# ---------------------------------------------------------------------------
-# Destination policy (the #1990 policy class, browser edition)
+# Destination policy (Victor's half of the division — before ANY call)
 # ---------------------------------------------------------------------------
 
 
 class TestDestinationPolicy:
-    async def test_denied_host_refused_before_any_browser_launches(self):
-        launches = []
+    @respx.mock
+    async def test_denied_host_refused_before_any_service_call(self):
+        called = []
 
-        def _factory():
-            launches.append(1)
-            return _FakeSession(read=lambda url, **kw: asyncio.sleep(0, result={"success": True}))
+        def _boom(request):
+            called.append(request.url)
+            return httpx.Response(200, json={})
 
-        browser_tool.set_browser_session_factory(_factory)
+        respx.route(host="127.0.0.1").mock(side_effect=_boom)
 
         result = await browser_tool.browser_tool(
             url="https://denied.test/page", _exec_ctx=_ALLOWLIST_CTX
@@ -176,7 +156,7 @@ class TestDestinationPolicy:
         assert result["destination_policy_denied"] is True
         assert result["denied_host"] == "denied.test"
         assert result["denied_url"] == "https://denied.test/page"
-        assert launches == [], "policy must refuse before a browser is launched"
+        assert called == [], "policy must refuse before any agentbrowser call"
 
     async def test_file_url_refused_under_non_empty_allowlist(self):
         result = await browser_tool.browser_tool(
@@ -187,529 +167,383 @@ class TestDestinationPolicy:
         assert result["destination_policy_denied"] is True
 
     async def test_allowlist_semantics_match_web_fetch(self):
-        policy = browser_tool._NavigationPolicy(allowed_hosts=["allowed.test"], byte_cap=1024)
+        def _check(url):
+            browser_tool._check_destination(url, ["allowed.test"])
 
-        policy.check("https://allowed.test/page")  # exact host
-        policy.check("https://www.allowed.test/deep/page")  # subdomain
+        _check("https://allowed.test/page")  # exact host
+        _check("https://www.allowed.test/deep/page")  # subdomain
         with pytest.raises(DestinationPolicyDenied):
-            policy.check("https://notallowed.test/page")  # suffix trick
+            _check("https://notallowed.test/page")  # suffix trick
         with pytest.raises(DestinationPolicyDenied):
-            policy.check("ftp://allowed.test/page")  # non-http scheme
-
-    async def test_route_guard_denies_document_navigation_hop(self):
-        policy = browser_tool._NavigationPolicy(allowed_hosts=["allowed.test"], byte_cap=1024)
-        route = _FakeRoute()
-
-        await policy.handle_route(route, _FakeRequest("https://denied.test/redirect-target"))
-
-        # A denied DOCUMENT is settled with a synthetic empty page (not an
-        # abort) so read() maps the recorded denial deterministically.
-        assert route.fulfilled is True
-        assert policy.document_denied is not None
-        assert policy.document_denied.host == "denied.test"
-
-    async def test_route_guard_admits_allowed_hop(self):
-        policy = browser_tool._NavigationPolicy(allowed_hosts=["allowed.test"], byte_cap=1024)
-        route = _FakeRoute(body=b"hello")
-
-        await policy.handle_route(route, _FakeRequest("https://www.allowed.test/page"))
-
-        assert route.aborted is False
-        assert route.fulfilled is True
-        assert policy.bytes_downloaded == 5
-
-    async def test_subresource_to_denied_host_is_aborted_but_not_a_document_denial(self):
-        policy = browser_tool._NavigationPolicy(allowed_hosts=["allowed.test"], byte_cap=1024)
-        route = _FakeRoute()
-
-        await policy.handle_route(route, _FakeRequest("https://tracker.test/pixel", "image"))
-
-        assert route.aborted is True
-        assert policy.document_denied is None
-        assert len(policy.denials) == 1
+            _check("ftp://allowed.test/page")  # non-http scheme
 
 
 # ---------------------------------------------------------------------------
-# Optional dependency: structured errors, never crashes
+# Parameter validation
 # ---------------------------------------------------------------------------
 
 
-class TestOptionalDependency:
-    async def test_playwright_missing_returns_structured_error(self, monkeypatch):
-        monkeypatch.setitem(sys.modules, "playwright", None)
-        monkeypatch.setitem(sys.modules, "playwright.async_api", None)
+class TestParameterValidation:
+    async def test_missing_url(self):
+        result = await browser_tool.browser_tool(url="")
+        assert result["success"] is False
+
+    async def test_invalid_engine(self):
+        result = await browser_tool.browser_tool(url="https://allowed.test", engine="http")
+        assert result["success"] is False
+        assert "agentbrowser" in result["error"]
+
+    async def test_invalid_wait_until(self):
+        result = await browser_tool.browser_tool(url="https://allowed.test", wait_until="whenever")
+        assert result["success"] is False
+        assert "wait_until" in result["error"]
+
+    async def test_commit_is_fallback_only(self):
+        result = await browser_tool.browser_tool(url="https://allowed.test", wait_until="commit")
+        assert result["success"] is False
+        assert "playwright" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# agentbrowser primary: session → page → navigate → extract → close
+# ---------------------------------------------------------------------------
+
+
+class TestAgentbrowserPrimary:
+    @respx.mock
+    async def test_full_lifecycle_returns_structured_read(self):
+        _mock_service(
+            text_data={"text": "the rendered main text of the page"},
+            links_data=[
+                {"text": "Next", "url": "https://allowed.test/next"},
+                {"text": "Again", "url": "https://allowed.test/next"},  # dup
+                {"text": "Bare", "url": "/relative"},
+                {"text": "Bad", "url": "javascript:void(0)"},
+            ],
+        )
 
         result = await browser_tool.browser_tool(url="https://allowed.test/page")
 
-        assert result["success"] is False
-        assert result["playwright_missing"] is True
-        assert "victor-ai[web]" in result["error"]
+        assert result["success"] is True
+        assert result["engine"] == "agentbrowser"
+        assert result["title"] == "Rendered Page"
+        assert result["url"] == "https://allowed.test/page"
+        assert result["content"] == "the rendered main text of the page"
+        assert result["session_id"] == "sess-1"
+        hrefs = [link["href"] for link in result["links"]]
+        assert "https://allowed.test/next" in hrefs
+        assert "https://allowed.test/relative" in hrefs  # made absolute
+        assert len(hrefs) == len(set(hrefs)), "links must be deduplicated"
+        assert all("javascript:" not in h for h in hrefs)
 
-    async def test_browser_binary_missing_returns_structured_error(self, monkeypatch):
-        from playwright.async_api import Error as PWError
-        from playwright.async_api import TimeoutError as PWTimeout
+    @respx.mock
+    async def test_session_closed_after_successful_read(self):
+        close_route = _mock_service(text_data={"text": "x"})
 
-        class _FakeChromium:
-            async def launch(self, **kwargs):
-                raise PWError(
-                    "Executable doesn't exist at /x/chrome. "
-                    "Please run the following command to download new browsers: "
-                    "playwright install chromium"
-                )
+        result = await browser_tool.browser_tool(url="https://allowed.test/page")
 
-        class _FakePW:
-            chromium = _FakeChromium()
+        assert result["success"] is True
+        assert close_route.called, "the created session must be closed"
 
-        class _FakePlaywrightCM:
-            async def __aenter__(self):
-                return _FakePW()
-
-            async def __aexit__(self, *exc_info):
-                return None
-
-        monkeypatch.setattr(
-            browser_tool,
-            "_import_playwright",
-            lambda: (lambda: _FakePlaywrightCM(), PWError, PWTimeout),
+    @respx.mock
+    async def test_session_closed_when_extraction_fails(self):
+        close_route = _mock_service(
+            text_data={"text": "x"},
+            links_data=[{"text": "a", "url": "https://allowed.test/a"}],
+        )
+        # Extraction raises an ApiError envelope (e.g. OUTPUT_TRUNCATED).
+        respx.route(method="POST", path="/v1/sessions/sess-1/pages/page-1/extract").mock(
+            return_value=httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "code": "OUTPUT_TRUNCATED",
+                        "message": "Extraction exceeds maxBytes",
+                        "retryable": False,
+                    }
+                },
+            )
         )
 
         result = await browser_tool.browser_tool(url="https://allowed.test/page")
 
         assert result["success"] is False
-        assert result["browser_binary_missing"] is True
-        assert "playwright install chromium" in result["error"]
+        assert result["agentbrowser_error"] is True
+        assert result["agentbrowser_error_code"] == "OUTPUT_TRUNCATED"
+        assert close_route.called, "session must close even when a step fails"
 
+    @respx.mock
+    async def test_explicit_session_id_is_reused_not_closed(self):
+        def _no_create(request):
+            raise AssertionError("session_id reuse must not create a session")
 
-# ---------------------------------------------------------------------------
-# Navigation failures: timeout mapping, download cap
-# ---------------------------------------------------------------------------
+        respx.route(method="POST", path="/v1/sessions").mock(side_effect=_no_create)
+        respx.route(method="POST", path="/v1/sessions/live-sess/pages").mock(
+            return_value=httpx.Response(201, json={"pageId": "page-9", "sessionId": "live-sess"})
+        )
+        respx.route(method="POST", path="/v1/sessions/live-sess/pages/page-9/navigate").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "url": "https://allowed.test/page",
+                    "redirectChain": [],
+                },
+            )
+        )
+        respx.route(method="GET", path="/v1/sessions/live-sess/pages/page-9").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "pageId": "page-9",
+                    "sessionId": "live-sess",
+                    "status": "ready",
+                    "url": "https://allowed.test/page",
+                    "title": "Reused",
+                },
+            )
+        )
+        respx.route(method="POST", path="/v1/sessions/live-sess/pages/page-9/extract").mock(
+            return_value=httpx.Response(200, json={"data": {"text": "body"}, "evidence": []})
+        )
+        close_route = respx.route(method="DELETE", path="/v1/sessions/live-sess").mock(
+            return_value=httpx.Response(200, json={"sessionId": "live-sess", "status": "closed"})
+        )
 
+        result = await browser_tool.browser_tool(
+            url="https://allowed.test/page", session_id="live-sess"
+        )
 
-class _FakePage:
-    def __init__(self, goto_exc=None):
-        self._goto_exc = goto_exc
-        self.routes = []
-        self.closed = False
+        assert result["success"] is True
+        assert result["session_id"] == "live-sess"
+        assert close_route.called is False, "a caller-owned session is never closed"
 
-    async def route(self, pattern, handler):
-        self.routes.append((pattern, handler))
+    @respx.mock
+    async def test_bearer_key_header_when_configured(self, monkeypatch):
+        monkeypatch.setenv("AGENTBROWSER_API_KEY", "sekrit")
+        seen_headers = []
 
-    async def goto(self, url, **kwargs):
-        if self._goto_exc is not None:
-            raise self._goto_exc
+        def _capture(request):
+            seen_headers.append(request.headers.get("authorization"))
+            return httpx.Response(201, json=dict(_SESSION_SUMMARY))
 
-    async def close(self):
-        self.closed = True
+        respx.route(method="POST", path="/v1/sessions").mock(side_effect=_capture)
+        respx.route(method="POST", path="/v1/sessions/sess-1/pages").mock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
 
+        result = await browser_tool.browser_tool(url="https://allowed.test/page")
 
-class _FakeContext:
-    def __init__(self, page):
-        self._page = page
-        self.closed = False
-        self.routes = []
+        assert result["agentbrowser_unreachable"] is True
+        assert seen_headers == ["Bearer sekrit"]
 
-    async def new_page(self, **kwargs):
-        return self._page
+    @respx.mock
+    async def test_base_url_env_override(self, monkeypatch):
+        monkeypatch.setenv("AGENTBROWSER_BASE_URL", "http://127.0.0.1:9999")
+        seen = []
 
-    async def route(self, pattern, handler):
-        self.routes.append((pattern, handler))
+        def _capture(request):
+            seen.append(str(request.url))
+            return httpx.Response(201, json=dict(_SESSION_SUMMARY))
 
-    async def close(self):
-        self.closed = True
+        respx.route(method="POST", path="/v1/sessions").mock(side_effect=_capture)
+        respx.route(method="POST", path="/v1/sessions/sess-1/pages").mock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
 
+        result = await browser_tool.browser_tool(url="https://allowed.test/page")
 
-class _FakeBrowser:
-    def __init__(self, page):
-        self._page = page
-        self.closed = False
-        self.contexts = []
+        assert seen and seen[0].startswith("http://127.0.0.1:9999")
+        assert result["agentbrowser_unreachable"] is True
+        assert result["service_url"] == "http://127.0.0.1:9999"
 
-    async def new_context(self, **kwargs):
-        context = _FakeContext(self._page)
-        self.contexts.append(context)
-        return context
+    @respx.mock
+    async def test_bearer_auth_omits_body_tenant(self, monkeypatch):
+        """The server derives the tenant from the bearer key (SHA-256(key) ->
+        tenantId); a disagreeing body tenantId is refused FORBIDDEN (verified
+        against the live service)."""
+        monkeypatch.setenv("AGENTBROWSER_API_KEY", "sekrit")
+        bodies = []
 
-    async def close(self):
-        self.closed = True
+        def _capture(request):
+            bodies.append(json.loads(request.content or b"{}"))
+            return httpx.Response(201, json=dict(_SESSION_SUMMARY))
 
+        respx.route(method="POST", path="/v1/sessions").mock(side_effect=_capture)
+        respx.route(method="POST", path="/v1/sessions/sess-1/pages").mock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
 
-class _FakeLaunch:
-    def __init__(self, browser):
-        self._browser = browser
+        result = await browser_tool.browser_tool(url="https://allowed.test/page")
 
-    async def launch(self, **kwargs):
-        return self._browser
+        assert result["agentbrowser_unreachable"] is True
+        assert bodies and "tenantId" not in bodies[0]
+        assert bodies[0]["headless"] is True
 
+    @respx.mock
+    async def test_unauthenticated_local_deploy_declares_tenant(self):
+        bodies = []
 
-class _FakePW:
-    def __init__(self, browser):
-        self.chromium = _FakeLaunch(browser)
+        def _capture(request):
+            bodies.append(json.loads(request.content or b"{}"))
+            return httpx.Response(201, json=dict(_SESSION_SUMMARY))
 
+        respx.route(method="POST", path="/v1/sessions").mock(side_effect=_capture)
+        respx.route(method="POST", path="/v1/sessions/sess-1/pages").mock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
 
-class _FakePlaywrightCM:
-    def __init__(self, browser):
-        self._browser = browser
-        self.stopped = False
+        result = await browser_tool.browser_tool(url="https://allowed.test/page")
 
-    async def __aenter__(self):
-        return _FakePW(self._browser)
+        assert result["agentbrowser_unreachable"] is True
+        assert bodies and bodies[0]["tenantId"] == "victor"
 
-    async def __aexit__(self, *exc_info):
-        self.stopped = True
-        return None
+    @respx.mock
+    async def test_unreachable_service_names_startup_command(self):
+        respx.route(host="127.0.0.1").mock(side_effect=httpx.ConnectError("connection refused"))
 
+        result = await browser_tool.browser_tool(url="https://allowed.test/page")
 
-def _install_fake_playwright(monkeypatch, page):
-    from playwright.async_api import Error as PWError
-    from playwright.async_api import TimeoutError as PWTimeout
+        assert result["success"] is False
+        assert result["agentbrowser_unreachable"] is True
+        assert browser_tool._SERVICE_START_COMMAND in result["error"]
+        assert "playwright" in result["error"], "the fallback escape hatch is named"
+        assert "AGENTBROWSER_POLICY_FILE" in result["error"]
 
-    browser = _FakeBrowser(page)
-    cm = _FakePlaywrightCM(browser)
-    monkeypatch.setattr(
-        browser_tool,
-        "_import_playwright",
-        lambda: (lambda: cm, PWError, PWTimeout),
-    )
-    return browser, cm
-
-
-class TestNavigationFailures:
-    async def test_timeout_maps_to_structured_result_and_still_cleans_up(self, monkeypatch):
-        from playwright.async_api import TimeoutError as PWTimeout
-
-        page = _FakePage(goto_exc=PWTimeout("Timeout 30000ms exceeded"))
-        browser, cm = _install_fake_playwright(monkeypatch, page)
+    @respx.mock
+    async def test_navigation_timeout_maps_to_structured_result(self):
+        _mock_service(
+            navigation={
+                "status": "timeout",
+                "url": "https://allowed.test/slow",
+                "redirectChain": [],
+            },
+            text_data={"text": "x"},
+        )
 
         result = await browser_tool.browser_tool(url="https://allowed.test/slow")
 
         assert result["success"] is False
         assert result["timeout"] is True
-        assert browser.closed is True, "timed-out navigation must still close the browser"
-        assert cm.stopped is True
-        # Negative test for the popup bypass: the policy guard MUST be
-        # attached at the context level (page.route would leave popup pages
-        # free to navigate outside the allowlist unguarded).
-        assert page.routes == [], "the guard must NOT be page-scoped"
-        assert browser.contexts and browser.contexts[-1].routes, "the guard must be context-scoped"
 
-    async def test_route_fetch_pins_max_redirects_to_zero(self):
-        """Negative test for the server-side redirect-chain bypass.
-
-        route.fetch with its default maxRedirects=20 would follow the whole
-        redirect chain inside the handler and fulfill the FINAL body —
-        letting a redirect move the navigation to a host the operator never
-        admitted without any policy check. The handler must pin 0 so every
-        hop re-enters the guard as its own request.
-        """
-        policy = browser_tool._NavigationPolicy(allowed_hosts=["allowed.test"], byte_cap=1024)
-        route = _FakeRoute(body=b"x")
-
-        await policy.handle_route(route, _FakeRequest("https://allowed.test/page"))
-
-        assert route.fulfilled is True
-        assert route.fetch_kwargs["max_redirects"] == 0
-        assert route.fetch_kwargs["url"] == "https://allowed.test/page"
-
-    async def test_download_cap_records_and_settles_requests(self):
-        policy = browser_tool._NavigationPolicy(allowed_hosts=[], byte_cap=10)
-
-        first = _FakeRoute(body=b"abcdef")  # 6 bytes, admitted
-        await policy.handle_route(first, _FakeRequest("https://any.test/a", "document"))
-        assert policy.cap_exceeded is False
-        assert first.fulfilled is True
-
-        # A document that would blow the cap is settled with a synthetic
-        # page (so read() maps the refusal deterministically)...
-        second = _FakeRoute(body=b"ghijkl")  # total 12 > cap 10
-        await policy.handle_route(second, _FakeRequest("https://any.test/b", "document"))
-        assert policy.cap_exceeded is True
-        assert second.fulfilled is True
-        assert policy.bytes_downloaded == 6  # the oversized body is not admitted
-
-        # ...while a subresource is simply aborted.
-        third = _FakeRoute(body=b"ghijklmn")  # total 14 > cap 10
-        await policy.handle_route(third, _FakeRequest("https://any.test/c", "image"))
-        assert third.aborted is True
-
-    @_REAL_BROWSER
-    async def test_real_browser_download_cap_exceeded(self, tmp_path):
-        """The network-level cap fires on a real (loopback) page load.
-
-        file:// navigations bypass request interception, so the cap is
-        exercised against a local test server — no external network.
-        """
-        import threading
-        from http.server import BaseHTTPRequestHandler, HTTPServer
-
-        fixture = tmp_path / "big.html"
-        fixture.write_text(
-            "<html><head><title>Big</title></head><body>" + ("filler " * 512) + "</body></html>",
-            encoding="utf-8",
+    @respx.mock
+    async def test_blocked_navigation_surfaces_cedar_denial(self):
+        _mock_service(
+            navigation={
+                "status": "blocked",
+                "url": "https://allowed.test/locked",
+                "redirectChain": [],
+                "reason": "egress_policy",
+                "scopeDenials": {"egress": 1},
+            },
+            text_data={"text": "x"},
         )
 
-        class _Handler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                body = fixture.read_bytes()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *args):
-                pass
-
-        server = HTTPServer(("127.0.0.1", 0), _Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            url = f"http://127.0.0.1:{server.server_port}/big.html"
-            session = browser_tool._BrowserSession()
-            async with session:
-                result = await session.read(
-                    url,
-                    allowed_hosts=[],
-                    byte_cap=8,
-                    wait_until="load",
-                    selector="",
-                    timeout_seconds=15.0,
-                    max_links=10,
-                    max_content_length=5000,
-                )
-        finally:
-            server.shutdown()
-            server.server_close()
+        result = await browser_tool.browser_tool(url="https://allowed.test/locked")
 
         assert result["success"] is False
-        assert result["download_cap_exceeded"] is True
+        assert result["navigation_blocked"] is True
+        assert result["blocked_reason"] == "egress_policy"
+        assert result["scope_denials"] == {"egress": 1}
 
+    @respx.mock
+    async def test_final_url_allowlist_recheck_after_redirect(self):
+        _mock_service(
+            navigation={
+                "status": "success",
+                "url": "https://denied.test/escaped",
+                "redirectChain": ["https://allowed.test/page"],
+            },
+            text_data={"text": "x"},
+        )
 
-# ---------------------------------------------------------------------------
-# Real redirect chains: the per-hop policy rule, end to end
-# ---------------------------------------------------------------------------
-
-
-def _redirect_server(target_path: str, redirect_to: str):
-    """Local HTTP server that 302s ``target_path`` to ``redirect_to``."""
-    import threading
-    from http.server import BaseHTTPRequestHandler, HTTPServer
-
-    class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path == target_path:
-                self.send_response(302)
-                self.send_header("Location", redirect_to)
-                self.end_headers()
-                return
-            body = b"<html><head><title>Landed</title></head><body>landed page</body></html>"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *args):
-            pass
-
-    server = HTTPServer(("127.0.0.1", 0), _Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server
-
-
-class TestRedirectHops:
-    @_REAL_BROWSER
-    async def test_same_host_redirect_chain_succeeds(self, tmp_path):
-        server = _redirect_server("/start", "/landed")
-        try:
-            url = f"http://127.0.0.1:{server.server_port}/start"
-            session = browser_tool._BrowserSession()
-            async with session:
-                result = await session.read(
-                    url,
-                    allowed_hosts=["127.0.0.1"],  # redirect hop is re-admitted
-                    byte_cap=browser_tool._PAGE_DOWNLOAD_CAP_BYTES,
-                    wait_until="load",
-                    selector="",
-                    timeout_seconds=15.0,
-                    max_links=10,
-                    max_content_length=5000,
-                )
-        finally:
-            server.shutdown()
-            server.server_close()
-
-        assert result["success"] is True
-        assert result["title"] == "Landed"
-        assert result["url"].endswith("/landed")
-
-    @_REAL_BROWSER
-    async def test_redirect_hop_to_denied_host_is_structurally_refused(self):
-        server = _redirect_server("/start", "http://10.255.255.1:1/escaped")
-        try:
-            url = f"http://127.0.0.1:{server.server_port}/start"
-            session = browser_tool._BrowserSession()
-            async with session:
-                result = await session.read(
-                    url,
-                    allowed_hosts=["127.0.0.1"],  # the redirect target is NOT admitted
-                    byte_cap=browser_tool._PAGE_DOWNLOAD_CAP_BYTES,
-                    wait_until="load",
-                    selector="",
-                    timeout_seconds=15.0,
-                    max_links=10,
-                    max_content_length=5000,
-                )
-        finally:
-            server.shutdown()
-            server.server_close()
+        result = await browser_tool.browser_tool(
+            url="https://allowed.test/page", _exec_ctx=_ALLOWLIST_CTX
+        )
 
         assert result["success"] is False
         assert result["destination_policy_denied"] is True
-        assert result["denied_host"] == "10.255.255.1"
+        assert result["denied_host"] == "denied.test"
 
-
-# ---------------------------------------------------------------------------
-# Happy path: real headless chromium over a file:// fixture (no network)
-# ---------------------------------------------------------------------------
-
-
-def _write_fixture(path):
-    paragraph = " ".join(
-        ["The rendered page exposes content that plain HTTP extraction misses."] * 6
-    )
-    path.write_text(
-        "<html><head><title>Fixture Page</title></head><body>"
-        "<nav>ignored chrome</nav>"
-        f"<main><h1>Rendered</h1><p>{paragraph}</p></main>"
-        '<a href="https://example.com/absolute">Absolute</a>'
-        '<a href="/relative">Relative</a>'
-        '<a href="https://example.com/absolute">Duplicate</a>'
-        "</body></html>",
-        encoding="utf-8",
-    )
-    return path
-
-
-class TestHappyPath:
-    @_REAL_BROWSER
-    async def test_file_url_extraction_returns_title_text_links(self, tmp_path):
-        fixture = _write_fixture(tmp_path / "page.html")
-
-        result = await browser_tool.browser_tool(url=fixture.as_uri())
-
-        assert result["success"] is True
-        assert result["title"] == "Fixture Page"
-        assert "plainhttpextractionmisses" in result["content"].replace(" ", "").lower()
-        assert result["render"] == "browser"
-        assert result["url"] == fixture.as_uri()
-        hrefs = [link["href"] for link in result["links"]]
-        assert "https://example.com/absolute" in hrefs  # relative href made absolute
-        assert len(hrefs) == len(set(hrefs)), "links must be deduplicated"
-
-    @_REAL_BROWSER
-    async def test_max_links_caps_link_list(self, tmp_path):
-        fixture = _write_fixture(tmp_path / "page.html")
-
-        result = await browser_tool.browser_tool(url=fixture.as_uri(), max_links=1)
-
-        assert result["success"] is True
-        assert result["link_count"] <= 1
-
-    @_REAL_BROWSER
-    async def test_clean_close_leaves_no_chromium_process(self, tmp_path):
-        fixture = _write_fixture(tmp_path / "page.html")
-        session = browser_tool._BrowserSession()
-        async with session:
-            live = browser_tool._chromium_pids(session._token)
-            assert live, "a launched browser must be discoverable by its env token"
-            result = await session.read(
-                fixture.as_uri(),
-                allowed_hosts=[],
-                byte_cap=browser_tool._PAGE_DOWNLOAD_CAP_BYTES,
-                wait_until="load",
-                selector="",
-                timeout_seconds=15.0,
-                max_links=10,
-                max_content_length=5000,
-            )
-            assert result["success"] is True
-
-        assert browser_tool._chromium_pids(session._token) == set()
-        assert session.killed_pids == set(), "a clean close must not need the hard kill"
-
-
-# ---------------------------------------------------------------------------
-# Hard browser-kill: no leaked chromium, even on abort
-# ---------------------------------------------------------------------------
-
-
-class TestHardKill:
-    @_REAL_BROWSER
-    async def test_cancelled_teardown_still_kills_the_browser(self, monkeypatch):
-        session = browser_tool._BrowserSession()
-        session._STEP_TIMEOUT_S = 0.2
-        await session.__aenter__()
-        live = browser_tool._chromium_pids(session._token)
-        assert live, "precondition: live browser discoverable"
-
-        # Make the graceful close hang so only the hard-kill path can reap.
-        async def _slow_close():
-            await asyncio.sleep(30)
-
-        monkeypatch.setattr(session._browser, "close", _slow_close)
-
-        closer = asyncio.create_task(session.aclose())
-        await asyncio.sleep(0)
-        closer.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await closer
-
-        deadline = asyncio.get_event_loop().time() + 10.0
-        while browser_tool._chromium_pids(session._token):
-            assert asyncio.get_event_loop().time() < deadline, "browser process leaked"
-            await asyncio.sleep(0.1)
-        assert browser_tool._chromium_pids(session._token) == set()
-
-    async def test_failed_close_still_hard_kills_leftover_pids(self, monkeypatch):
-        session = browser_tool._BrowserSession()
-        session._STEP_TIMEOUT_S = 0.2
-        session._executable = "/fake/chrome"
-        session._token = "victor-browser-test-token"
-
-        class _BrokenBrowser:
-            async def close(self):
-                raise RuntimeError("close exploded")
-
-        session._browser = _BrokenBrowser()
-
-        killed: set = set()
-        monkeypatch.setattr(
-            browser_tool,
-            "_chromium_pids",
-            lambda tok: {4242} if tok == session._token else set(),
-        )
-        monkeypatch.setattr(
-            browser_tool, "_kill_pids", lambda pids: killed.update(pids) or len(pids)
+    @respx.mock
+    async def test_max_links_caps_link_list(self):
+        _mock_service(
+            text_data={"text": "x"},
+            links_data=[{"text": f"l{i}", "url": f"https://allowed.test/{i}"} for i in range(5)],
         )
 
-        await session.aclose()
+        result = await browser_tool.browser_tool(url="https://allowed.test/page", max_links=2)
 
-        assert 4242 in killed
-        assert session.killed_pids == {4242}
+        assert result["success"] is True
+        assert result["link_count"] <= 2
 
-    async def test_aclose_is_idempotent(self, monkeypatch):
-        session = browser_tool._BrowserSession()
-        session._executable = "/fake/chrome"
-        session._token = "victor-browser-test-token"
 
-        calls: list = []
-        monkeypatch.setattr(browser_tool, "_chromium_pids", lambda tok: set())
-        monkeypatch.setattr(browser_tool, "_kill_pids", lambda pids: calls.append(tuple(pids)) or 0)
+# ---------------------------------------------------------------------------
+# Contract: the client's assumptions against agentbrowser's openapi.json
+# ---------------------------------------------------------------------------
 
-        await session.aclose()
-        await session.aclose()
+_AGENTBROWSER_OPENAPI = os.path.join(
+    os.path.expanduser("~"), "code", "agentbrowser", "openapi.json"
+)
 
-        assert calls == [()]
+
+class TestAgentbrowserContract:
+    """Contract tests against the real openapi.json (skip when the sibling
+    checkout is absent, e.g. CI)."""
+
+    @pytest.fixture
+    def openapi(self):
+        if not os.path.exists(_AGENTBROWSER_OPENAPI):
+            pytest.skip("agentbrowser sibling checkout not present")
+        return json.load(open(_AGENTBROWSER_OPENAPI))
+
+    def test_read_surface_paths_exist(self, openapi):
+        for path in (
+            "/v1/sessions",
+            "/v1/sessions/{sessionId}/pages",
+            "/v1/sessions/{sessionId}/pages/{pageId}/navigate",
+            "/v1/sessions/{sessionId}/pages/{pageId}/extract",
+            "/v1/sessions/{sessionId}",
+        ):
+            assert path in openapi["paths"], path
+
+    def test_session_create_requires_tenant_id_and_headless(self, openapi):
+        create = openapi["paths"]["/v1/sessions"]["post"]
+        req = create["requestBody"]["content"]["application/json"]["schema"]
+        assert req["required"] == ["tenantId"]
+        props = req["properties"]
+        assert "tenantId" in props and "headless" in props
+        # Victor always passes headless: true — agentbrowser's Cedar
+        # capability authorizer gates session.headed.
+        assert props["headless"]["type"] == "boolean"
+
+    def test_navigate_wait_until_enum_covers_client(self, openapi):
+        navigate = openapi["paths"]["/v1/sessions/{sessionId}/pages/{pageId}/navigate"]["post"]
+        req = navigate["requestBody"]["content"]["application/json"]["schema"]["properties"][
+            "waitUntil"
+        ]
+        assert set(browser_tool._AGENTBROWSER_WAIT_UNTIL) <= set(req["enum"])
+
+    def test_extract_formats_include_text_and_links(self, openapi):
+        extract = openapi["paths"]["/v1/sessions/{sessionId}/pages/{pageId}/extract"]["post"]
+        req = extract["requestBody"]["content"]["application/json"]["schema"]["properties"][
+            "format"
+        ]
+        assert {"text", "links"} <= set(req["enum"])
+
+    def test_navigation_status_shape(self, openapi):
+        status = openapi["components"]["schemas"]["NavigationStatus"]
+        assert {"status", "url", "redirectChain"} <= set(status["required"])
+        states = status["properties"]["status"]
+        values = states.get("enum") or [item["const"] for item in states.get("anyOf", [])]
+        assert values == ["success", "timeout", "blocked"]
+
+    def test_page_summary_carries_title(self, openapi):
+        summary = openapi["components"]["schemas"]["PageSummary"]
+        assert "title" in summary["properties"]
+
+    def test_default_service_address(self):
+        assert browser_tool._DEFAULT_SERVICE_URL == "http://127.0.0.1:5709"
 
 
 # ---------------------------------------------------------------------------

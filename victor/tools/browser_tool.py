@@ -15,607 +15,430 @@
 """Headless-browser page read for JavaScript-required pages (FOU-A5 phase 2).
 
 ``browser_tool`` is the ``web_fetch`` companion: where ``web_fetch`` reads a
-page over plain HTTP, this tool renders it in headless Chromium (Playwright)
-and returns structured results — title, final URL, main text, and links —
-for pages that need JS to produce content.
+page over plain HTTP, this tool renders it in a real browser session and
+returns structured results — title, final URL, main text, and links — for
+pages that need JS to produce content.
 
-Guarantees (mirroring the web_fetch destination-policy hook that landed in
-#1990, extended to the browser's request stream):
+**Substrate (owner direction, FOU-A5 phase 2): the primary engine is the
+agentbrowser service** (the owner's product; HTTP API on ``127.0.0.1:5709``,
+override with ``AGENTBROWSER_BASE_URL``, authenticate with
+``AGENTBROWSER_API_KEY``). This module is a thin HTTP CLIENT of that service:
+per read it creates a session (``headless: true`` — agentbrowser's Cedar
+capability authorizer gates ``session.headed``, so Victor never asks for a
+headed session), creates a page, navigates, extracts (``text`` + ``links``),
+reads the title, and closes the session in a ``finally`` (a failed close
+never masks the read result). An explicit ``session_id`` reuses a live
+session instead of creating/closing one.
 
-1. **Destination policy on EVERY request.** The
-   ``tools.web_fetch_allowed_hosts`` allowlist (empty = admit everything)
-   is checked on the initial URL BEFORE any browser process exists, then
-   enforced inside the browser via request interception: every navigation
-   hop (server redirects fire one request per hop) and every request the
-   page makes (documents, XHR, subresources) is checked, and denied
-   destinations are aborted. A denied document navigation returns the same
-   structured ``destination_policy_denied`` result shape as web_fetch, and
-   the final URL is re-checked after navigation (belt and braces).
-2. **Download cap.** Every admitted response body is counted against a
-   hard byte cap (2 MB, the ``web_fetch`` cap); the first response that
-   would exceed it is aborted and the read fails with a structured
-   ``download_cap_exceeded`` error. (``file://`` navigations bypass the
-   network stack, so they cannot be intercepted or counted; the returned
-   text is still size-bounded.)
-3. **Timeout.** Navigation, selector waits, and extraction run under the
-   per-navigation timeout; timeouts come back as structured
-   ``timeout: true`` results.
-4. **Hard browser-kill teardown.** The browser is launched with a unique
-   env token, so its exact process tree can be found in ``/proc``. Teardown
-   closes page/context/browser/driver under per-step timeouts, then
-   SIGKILLs anything still alive under the token. The kill survives
-   cancellation and close failures — a cancelled teardown still reaps
-   (inline), and no other Chromium on the machine is touched.
+Policy division, by design:
 
-Playwright is an OPTIONAL dependency (``pip install 'victor-ai[web]'`` plus
-``playwright install chromium``); without it the tool returns a structured
-``playwright_missing`` error instead of crashing.
+- **Victor** enforces the ``tools.web_fetch_allowed_hosts`` destination
+  allowlist (the #1990 web_fetch policy class) on the INITIAL URL before
+  any call is made — a denied host never reaches the service, and the
+  final URL is re-checked after navigation (belt and braces).
+- **agentbrowser** enforces its own Cedar capability policies and network
+  admission on every navigation (its own denial traces); a ``blocked``
+  navigation status is surfaced as a structured ``navigation_blocked``
+  result carrying the service's reason.
+
+Every failure is a structured dict, never a raise: service unreachable
+(``agentbrowser_unreachable`` — names the startup command),
+``agentbrowser_denied`` / ``navigation_blocked``, ``timeout``, policy
+denial, and — for the documented playwright fallback engine
+(``engine="playwright"``, ``victor.tools.browser_playwright_fallback``) —
+``playwright_missing`` / ``browser_binary_missing`` /
+``download_cap_exceeded``.
 """
 
 import asyncio
 import logging
 import os
-import re
-import signal
-import uuid
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
+
+import httpx
 
 from victor.tools.base import AccessMode, CostTier, DangerLevel, Priority
 from victor.tools.decorators import tool
 from victor.tools.web_search_tool import (
-    _MAX_REDIRECT_HOPS,
     _PAGE_DOWNLOAD_CAP_BYTES,
     _check_destination,
     _destination_policy_error,
-    _extract_content,
     _get_web_config,
-    _pick_user_agent,
     DestinationPolicyDenied,
 )
 
 logger = logging.getLogger(__name__)
 
-_VALID_WAIT_UNTIL = ("commit", "domcontentloaded", "load", "networkidle")
+# agentbrowser service defaults (ADR-017: 127.0.0.1:5709; HOST/PORT env).
+_DEFAULT_SERVICE_URL = "http://127.0.0.1:5709"
+_SERVICE_ENV_URL = "AGENTBROWSER_BASE_URL"
+_SERVICE_ENV_KEY = "AGENTBROWSER_API_KEY"
+# agentbrowser derives the tenant from the bearer key when authenticated;
+# this claim is used only on unauthenticated local deployments.
+_TENANT_ID = "victor"
 
-# Env var carrying the per-session token used to attribute chromium processes
-# to THIS session precisely (process-tree ownership without collateral kills).
-_BROWSER_ENV_TOKEN = "VICTOR_BROWSER_TOKEN"
+# agentbrowser's navigate waitUntil enum (openapi.ts SessionRequest /
+# navigate route). The playwright fallback additionally accepts "commit".
+_AGENTBROWSER_WAIT_UNTIL = ("networkidle", "load", "domcontentloaded")
+_FALLBACK_ONLY_WAIT_UNTIL = ("commit",)
+
+_SERVICE_UNREACHABLE_TEMPLATE = (
+    "The agentbrowser service is not reachable at {base_url}. Start it with: "
+    "`node packages/api/dist/bin.js` from the agentbrowser checkout "
+    "(HOST/PORT env override the bind address; the Cedar capability policy "
+    "file is configured via AGENTBROWSER_POLICY_FILE). Or deploy the "
+    'documented local fallback with `engine="playwright"` '
+    "(pip install 'victor-ai[browser-playwright]' plus "
+    "`playwright install chromium`)."
+)
+
+# Startup hint surfaced verbatim in unreachable-service errors.
+_SERVICE_START_COMMAND = "node packages/api/dist/bin.js"
 
 
-class _NavigationRefused(Exception):
-    """A navigation could not be admitted (redirect hop budget exhausted)."""
-
-
-class _CapExceeded(Exception):
-    """A response would push the session past its download cap."""
-
-
-class BrowserDependencyError(Exception):
-    """Playwright (package or browser binary) is not usable in this install.
+class _AgentbrowserUnavailable(Exception):
+    """The agentbrowser service could not be reached.
 
     ``payload`` is the structured tool result to return.
     """
 
-    def __init__(self, payload: Dict[str, Any]):
-        self.payload = payload
-        super().__init__(payload.get("error", "playwright dependency missing"))
+    def __init__(self, base_url: str, detail: str = ""):
+        self.base_url = base_url
+        self.payload = {
+            "success": False,
+            "error": _SERVICE_UNREACHABLE_TEMPLATE.format(base_url=base_url)
+            + (f" ({detail})" if detail else ""),
+            "agentbrowser_unreachable": True,
+            "service_url": base_url,
+            "start_command": _SERVICE_START_COMMAND,
+        }
+        super().__init__(self.payload["error"])
 
 
-def _import_playwright() -> Tuple[Any, Any, Any]:
-    """Import playwright lazily; raise BrowserDependencyError when absent.
+class _AgentbrowserApiError(Exception):
+    """An agentbrowser ApiError envelope (protocol-shaped refusal).
 
-    Returns ``(async_playwright, Error, TimeoutError)`` from
-    ``playwright.async_api``.
+    ``payload`` is the structured tool result to return.
     """
+
+    def __init__(self, code: str, message: str, status_code: int, retryable: bool):
+        self.code = code
+        self.payload = {
+            "success": False,
+            "error": f"agentbrowser {code}: {message}",
+            "agentbrowser_error": True,
+            "agentbrowser_error_code": code,
+            "http_status": status_code,
+            "retryable": retryable,
+        }
+        super().__init__(self.payload["error"])
+
+
+def _service_base_url() -> str:
+    """Resolve the agentbrowser service base URL (env-overridable)."""
+    return (os.environ.get(_SERVICE_ENV_URL) or _DEFAULT_SERVICE_URL).rstrip("/")
+
+
+class _AgentbrowserClient:
+    """Thin async client for the agentbrowser HTTP API (openapi 1.0.0).
+
+    Only the read surface Victor needs: session create/close, page
+    create/get, navigate, extract (text + links). Every method maps
+    protocol ApiError envelopes to :class:`_AgentbrowserApiError` and
+    transport failures to :class:`_AgentbrowserUnavailable`.
+    """
+
+    def __init__(self, base_url: str, timeout_seconds: float):
+        self._base_url = base_url.rstrip("/")
+        self._timeout = httpx.Timeout(max(1.0, float(timeout_seconds)))
+        self._tenant_body = {"tenantId": _TENANT_ID}
+        headers = {"Accept": "application/json"}
+        api_key = os.environ.get(_SERVICE_ENV_KEY)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+            # With a bearer key the server derives the tenant from the key
+            # (SHA-256(key) -> tenantId); a body tenantId that disagrees is
+            # refused FORBIDDEN. Only unauthenticated local deployments
+            # declare the tenant in the body.
+            self._tenant_body = {}
+        self._headers = headers
+
+    def _url(self, path: str) -> str:
+        return f"{self._base_url}{path}"
+
+    @staticmethod
+    async def _raise_for_envelope(response: httpx.Response) -> None:
+        """Map a protocol ApiError envelope to _AgentbrowserApiError."""
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        error = body.get("error") if isinstance(body, dict) else None
+        if isinstance(error, dict) and error.get("code"):
+            raise _AgentbrowserApiError(
+                code=str(error.get("code")),
+                message=str(error.get("message") or "request refused"),
+                status_code=response.status_code,
+                retryable=bool(error.get("retryable")),
+            )
+        raise _AgentbrowserApiError(
+            code="HTTP_ERROR",
+            message=f"agentbrowser returned HTTP {response.status_code}",
+            status_code=response.status_code,
+            retryable=False,
+        )
+
+    async def _request(self, method: str, path: str, json_body: Any = None) -> Any:
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.request(
+                    method, self._url(path), json=json_body, headers=self._headers
+                )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise _AgentbrowserUnavailable(self._base_url, str(exc)) from exc
+        except httpx.TimeoutException as exc:
+            raise _AgentbrowserUnavailable(
+                self._base_url, f"timed out after {self._timeout.connect}s+"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise _AgentbrowserUnavailable(self._base_url, str(exc)) from exc
+        if response.status_code >= 400:
+            await self._raise_for_envelope(response)
+        if response.status_code == 204 or not response.content:
+            return {}
+        return response.json()
+
+    async def create_session(self) -> Dict[str, Any]:
+        """POST /v1/sessions — headless by default (Cedar gates headed)."""
+        return await self._request(
+            "POST",
+            "/v1/sessions",
+            {**self._tenant_body, "headless": True},
+        )
+
+    async def create_page(self, session_id: str, url: str = "") -> Dict[str, Any]:
+        """POST /v1/sessions/{sessionId}/pages — page starts blank when
+        ``url`` is omitted; the explicit navigate carries the wait policy."""
+        body = {"url": url} if url else {}
+        return await self._request("POST", f"/v1/sessions/{session_id}/pages", body)
+
+    async def get_page(self, session_id: str, page_id: str) -> Dict[str, Any]:
+        """GET /v1/sessions/{sessionId}/pages/{pageId} — PageSummary."""
+        return await self._request("GET", f"/v1/sessions/{session_id}/pages/{page_id}")
+
+    async def navigate(
+        self, session_id: str, page_id: str, url: str, wait_until: str
+    ) -> Dict[str, Any]:
+        """POST .../pages/{pageId}/navigate — NavigationStatus."""
+        return await self._request(
+            "POST",
+            f"/v1/sessions/{session_id}/pages/{page_id}/navigate",
+            {"url": url, "waitUntil": wait_until},
+        )
+
+    async def extract(self, session_id: str, page_id: str, fmt: str) -> Any:
+        """POST .../pages/{pageId}/extract — {data, evidence}."""
+        body = await self._request(
+            "POST",
+            f"/v1/sessions/{session_id}/pages/{page_id}/extract",
+            {"format": fmt},
+        )
+        data = body.get("data") if isinstance(body, dict) else None
+        if data is None:
+            raise _AgentbrowserApiError(
+                code="EMPTY_EXTRACTION",
+                message=f"extract format {fmt!r} returned no data",
+                status_code=200,
+                retryable=False,
+            )
+        return data
+
+    async def close_session(self, session_id: str) -> None:
+        """DELETE /v1/sessions/{sessionId} — best-effort teardown."""
+        try:
+            await self._request("DELETE", f"/v1/sessions/{session_id}")
+        except Exception as exc:
+            logger.debug("[browser_tool] session close failed: %s", exc)
+
+
+def _normalize_links(raw_links: Any, base_url: str, max_links: int) -> List[Dict[str, str]]:
+    """agentbrowser links extraction ([{text, url}]) → filtered, deduped,
+    absolute-href, capped list (same shape as the playwright fallback)."""
+    links: List[Dict[str, str]] = []
+    seen: set = set()
+    for item in raw_links or []:
+        if not isinstance(item, dict):
+            continue
+        href = str(item.get("url") or item.get("href") or "").strip()
+        if not href or href.startswith(("javascript:", "data:", "mailto:", "tel:")):
+            continue
+        absolute = urljoin(base_url, href)
+        if not absolute.startswith(("http://", "https://", "file://")):
+            continue
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        links.append({"text": str(item.get("text") or "")[:200], "href": absolute})
+        if len(links) >= max(0, int(max_links)):
+            break
+    return links
+
+
+async def _read_via_agentbrowser(
+    url: str,
+    *,
+    client: _AgentbrowserClient,
+    wait_until: str,
+    timeout_seconds: float,
+    max_links: int,
+    max_content_length: int,
+    allowed_hosts: List[str],
+    existing_session_id: str,
+) -> Dict[str, Any]:
+    """One read over the agentbrowser surface: session → page → navigate →
+    extract (text + links) → title → close. Closes the session it created
+    even when a later step fails; never raises."""
+    session: Optional[Dict[str, Any]] = None
+    session_id = existing_session_id
     try:
-        from playwright.async_api import Error as pw_error
-        from playwright.async_api import TimeoutError as pw_timeout
-        from playwright.async_api import async_playwright
-    except Exception as exc:
-        raise BrowserDependencyError(
-            {
+        if not session_id:
+            session = await client.create_session()
+            session_id = str(session.get("sessionId") or "")
+            if not session_id:
+                return {
+                    "success": False,
+                    "error": "agentbrowser session creation returned no sessionId",
+                    "agentbrowser_error": True,
+                }
+        page = await client.create_page(session_id)
+        page_id = str(page.get("pageId") or "")
+        if not page_id:
+            return {
+                "success": False,
+                "error": "agentbrowser page creation returned no pageId",
+                "agentbrowser_error": True,
+                "session_id": session_id,
+            }
+
+        navigation = await client.navigate(session_id, page_id, url, wait_until)
+        nav_status = str(navigation.get("status") or "")
+        final_url = str(navigation.get("url") or url)
+        if nav_status == "timeout":
+            return {
                 "success": False,
                 "error": (
-                    "Playwright is not installed. Install it with "
-                    "`pip install 'victor-ai[web]'` and then run "
-                    "`playwright install chromium` "
-                    f"(import failed: {exc})."
+                    f"Page load timed out after {timeout_seconds}s "
+                    f"(wait_until={wait_until}): {url}"
                 ),
-                "playwright_missing": True,
-            }
-        ) from exc
-    return async_playwright, pw_error, pw_timeout
-
-
-def _chromium_pids(token: str) -> Set[int]:
-    """Find live pids belonging to the browser session carrying ``token``.
-
-    The token is a per-session UUID passed BOTH as a chromium launch
-    argument (visible in the main process's ``/proc/<pid>/cmdline``) and in
-    its launch environment (``/proc/<pid>/environ``). Child chromium
-    processes don't carry the launch argument, but they live in the main
-    process's detached process group, so :func:`_kill_pids` reaps them via
-    ``killpg``. A concurrent browser session (or the user's own chrome) is
-    never matched. Returns an empty set on any /proc access failure.
-    """
-    pids: Set[int] = set()
-    if not token:
-        return pids
-    needle = token.encode()
-    env_needle = f"{token}=".encode()
-    try:
-        entries = os.listdir("/proc")
-    except OSError:
-        return pids
-    for entry in entries:
-        if not entry.isdigit():
-            continue
-        try:
-            with open(f"/proc/{entry}/cmdline", "rb") as fh:
-                if needle in fh.read():
-                    pids.add(int(entry))
-                    continue
-            with open(f"/proc/{entry}/environ", "rb") as fh:
-                environ = fh.read()
-        except (OSError, ValueError):
-            continue
-        if env_needle in environ:
-            pids.add(int(entry))
-    return pids
-
-
-def _kill_pids(pids: Set[int]) -> int:
-    """SIGKILL the session's browser processes; returns kills attempted.
-
-    Playwright launches chromium detached (its own process-group leader),
-    so killing the group takes the whole tree — child processes (zygote,
-    GPU, renderer) don't carry the marker but share the group.
-    """
-    killed = 0
-    for pid in pids:
-        group_killed = False
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
-            group_killed = True
-        except (OSError, ValueError):
-            pass
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except (OSError, ValueError):
-            if not group_killed:
-                continue
-        killed += 1
-    return killed
-
-
-class _NavigationPolicy:
-    """Per-session destination-policy + download-cap state.
-
-    ``handle_route`` is the Playwright route handler. Redirects are followed
-    MANUALLY inside the guard (``route.fetch(max_redirects=0)`` + Location
-    resolution — the same structure as web_fetch's ``_fetch_page``): the
-    destination policy is re-checked at EVERY hop and on EVERY request the
-    page makes, and the browser never follows a redirect response itself
-    (a fulfilled 3xx is followed by the network stack without firing
-    another route event, which would bypass the guard). Denied destinations
-    and download-cap overruns are answered with a synthetic empty page for
-    document requests — so the navigation completes and ``read()`` maps the
-    recorded denial deterministically — and with an abort for subresources.
-    """
-
-    def __init__(self, allowed_hosts: List[str], byte_cap: int):
-        self.allowed_hosts = list(allowed_hosts or [])
-        self.byte_cap = max(1, int(byte_cap))
-        self.bytes_downloaded = 0
-        self.denials: List[DestinationPolicyDenied] = []
-        self.document_denied: Optional[DestinationPolicyDenied] = None
-        self.cap_exceeded = False
-        self.redirect_budget_exceeded: Optional[str] = None
-        #: Last admitted hop of a document's redirect chain (the browser only
-        #: sees the first URL when redirects are followed inside the guard).
-        self.final_document_url: Optional[str] = None
-
-    def check(self, url: str) -> None:
-        """Admit one destination URL; raise DestinationPolicyDenied."""
-        _check_destination(url, self.allowed_hosts)
-
-    async def handle_route(self, route: Any, request: Any) -> None:
-        url = request.url
-        is_document = getattr(request, "resource_type", "") == "document"
-        try:
-            # Non-network schemes (file://) cannot be fetched/fulfilled
-            # through the route API — pass them straight through. Policy
-            # still applies: under a non-empty allowlist the scheme check in
-            # _admit_and_fulfill already refuses them.
-            if not url.lower().startswith(("http://", "https://")):
-                await route.continue_()
-                return
-            await self._admit_and_fulfill(route, url, is_document)
-        except DestinationPolicyDenied as denied:
-            self.denials.append(denied)
-            if is_document:
-                self.document_denied = denied
-            await self._settle(route, is_document)
-        except _NavigationRefused as refused:
-            if is_document:
-                self.redirect_budget_exceeded = str(refused)
-            await self._settle(route, is_document)
-        except _CapExceeded:
-            self.cap_exceeded = True
-            await self._settle(route, is_document)
-        except Exception:
-            # The navigation was torn down (route aborted / page closed) or
-            # the transport failed — never mask the original navigation error.
-            try:
-                await route.abort()
-            except Exception:
-                pass
-
-    async def _admit_and_fulfill(self, route: Any, url: str, is_document: bool) -> None:
-        """Policy-check + fetch one request, following redirects manually.
-
-        Because redirects are followed inside the guard, the browser only
-        ever sees the FIRST URL of a chain — ``final_document_url`` records
-        the last admitted hop so ``read()`` can report and re-check the real
-        destination.
-        """
-        current = url
-        response = None
-        for _ in range(_MAX_REDIRECT_HOPS):
-            self.check(current)
-            response = await route.fetch(url=current, max_redirects=0)
-            if response.status in (301, 302, 303, 307, 308):
-                location = response.headers.get("location") or ""
-                if not location:
-                    break
-                current = urljoin(current, location)
-                continue
-            break
-        else:
-            raise _NavigationRefused(f"more than {_MAX_REDIRECT_HOPS} redirects: {url}")
-        if is_document:
-            self.final_document_url = current
-        await self._count_and_fulfill(route, response)
-
-    async def _count_and_fulfill(self, route: Any, response: Any) -> None:
-        """Enforce the download cap on one admitted response, then fulfill."""
-        declared = response.headers.get("content-length") or ""
-        try:
-            declared_bytes = int(declared) if declared else 0
-        except ValueError:
-            declared_bytes = 0
-        if declared_bytes and self.bytes_downloaded + declared_bytes > self.byte_cap:
-            raise _CapExceeded()
-        body = await response.body()
-        if self.bytes_downloaded + len(body) > self.byte_cap:
-            raise _CapExceeded()
-        self.bytes_downloaded += len(body)
-        await route.fulfill(response=response)
-
-    async def _settle(self, route: Any, is_document: bool) -> None:
-        """Answer a refused request: synthetic page for documents (so the
-        navigation completes and read() maps the recorded refusal
-        deterministically), abort for subresources."""
-        if is_document:
-            try:
-                await route.fulfill(
-                    status=200,
-                    content_type="text/html",
-                    body="<html><body></body></html>",
-                )
-                return
-            except Exception:
-                pass
-        try:
-            await route.abort()
-        except Exception:
-            pass
-
-
-class _BrowserSession:
-    """One headless-chromium read with guaranteed hard cleanup.
-
-    The browser is launched with a unique ``VICTOR_BROWSER_TOKEN`` env value;
-    teardown (``aclose``) closes the page/context/browser/driver under
-    per-step timeouts, then SIGKILLs any process still alive under the
-    token. The kill is unconditional and survives cancellation: a cancelled
-    ``aclose`` reaps inline before propagating, and the detached close task
-    reaps again (idempotently) in the background.
-    """
-
-    _STEP_TIMEOUT_S: float = 4.0
-    _TOTAL_TIMEOUT_S: float = 10.0
-
-    def __init__(self) -> None:
-        self._pw_cm: Any = None
-        self._pw: Any = None
-        self._browser: Any = None
-        self._context: Any = None
-        self._executable = ""
-        self._token = f"victor-browser-{uuid.uuid4().hex}"
-        self._closed = False
-        self._reap_task: Optional[asyncio.Task] = None
-        #: Pids that had to be SIGKILLed (empty on a clean close).
-        self.killed_pids: Set[int] = set()
-
-    async def __aenter__(self) -> "_BrowserSession":
-        async_playwright, pw_error, _ = _import_playwright()
-        try:
-            self._pw_cm = async_playwright()
-            self._pw = await self._pw_cm.__aenter__()
-            try:
-                self._executable = self._pw.chromium.executable_path
-            except Exception:
-                self._executable = ""  # resolved at reap time only; hard kill degrades
-            launch_env = {**os.environ, _BROWSER_ENV_TOKEN: self._token}
-            self._browser = await self._pw.chromium.launch(
-                headless=True,
-                env=launch_env,
-                # Chromium ignores unknown switches; this marks the main
-                # process's cmdline for precise process-tree attribution.
-                args=[f"--{_BROWSER_ENV_TOKEN}={self._token}"],
-            )
-        except pw_error as exc:
-            message = str(exc)
-            if "Executable doesn't exist" in message:
-                raise BrowserDependencyError(
-                    {
-                        "success": False,
-                        "error": (
-                            "The playwright chromium browser is not downloaded. "
-                            "Run `playwright install chromium` "
-                            f"(launch failed: {message})."
-                        ),
-                        "browser_binary_missing": True,
-                    }
-                ) from exc
-            raise BrowserDependencyError(
-                {
-                    "success": False,
-                    "error": f"Failed to launch the headless browser: {message}",
-                }
-            ) from exc
-        except Exception as exc:
-            raise BrowserDependencyError(
-                {
-                    "success": False,
-                    "error": f"Failed to launch the headless browser: {exc}",
-                }
-            ) from exc
-        return self
-
-    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
-        await self.aclose()
-        return False
-
-    async def read(
-        self,
-        url: str,
-        *,
-        allowed_hosts: List[str],
-        byte_cap: int = _PAGE_DOWNLOAD_CAP_BYTES,
-        wait_until: str = "networkidle",
-        selector: str = "",
-        timeout_seconds: float = 30.0,
-        max_links: int = 50,
-        max_content_length: int = 5000,
-    ) -> Dict[str, Any]:
-        """Render one URL and return structured title/url/text/links.
-
-        Never raises: policy denials, timeouts, download-cap hits, and
-        navigation failures all come back as structured error dicts.
-        """
-        policy = _NavigationPolicy(allowed_hosts=allowed_hosts, byte_cap=byte_cap)
-        timeout_ms = int(max(1.0, float(timeout_seconds)) * 1000)
-        _, pw_error, pw_timeout = _import_playwright()
-
-        context = await self._browser.new_context(user_agent=_pick_user_agent())
-        self._context = context
-        page = await context.new_page()
-        try:
-            # Route at the CONTEXT level, not the page: popup pages spawned by
-            # the document would otherwise bypass the policy guard entirely.
-            await context.route("**/*", policy.handle_route)
-            try:
-                await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
-            except pw_timeout:
-                if policy.document_denied is not None:
-                    return _destination_policy_error(policy.document_denied)
-                return {
-                    "success": False,
-                    "error": (
-                        f"Page load timed out after {timeout_seconds}s "
-                        f"(wait_until={wait_until}): {url}"
-                    ),
-                    "timeout": True,
-                    "url": url,
-                }
-            except pw_error:
-                if policy.document_denied is not None:
-                    return _destination_policy_error(policy.document_denied)
-                if policy.cap_exceeded:
-                    return self._cap_error(url)
-                return {
-                    "success": False,
-                    "error": f"Navigation failed: {url}",
-                    "url": url,
-                }
-
-            if policy.document_denied is not None:
-                return _destination_policy_error(policy.document_denied)
-            if policy.redirect_budget_exceeded is not None:
-                return {
-                    "success": False,
-                    "error": (
-                        f"Redirect hop budget exhausted while fetching {url}: "
-                        f"{policy.redirect_budget_exceeded}"
-                    ),
-                    "redirect_budget_exceeded": True,
-                    "url": url,
-                }
-            if policy.cap_exceeded:
-                return self._cap_error(url)
-
-            # With redirects followed inside the guard, the browser only sees
-            # the first URL — report and re-check the guard's final hop.
-            final_url = policy.final_document_url or page.url
-            try:
-                policy.check(final_url)
-            except DestinationPolicyDenied as denied:
-                # Belt and braces: a navigation that bypassed interception
-                # (or a JS-driven redirect) still cannot escape the policy.
-                return _destination_policy_error(denied)
-
-            if selector:
-                await page.wait_for_selector(selector, timeout=timeout_ms)
-
-            title = (await page.title() or "").strip()
-            html = await page.content()
-            raw_links = await page.eval_on_selector_all(
-                "a[href]",
-                (
-                    "els => els.map(e => ({"
-                    "text: ((e.innerText || e.textContent || '') + '').trim().slice(0, 200),"
-                    "href: e.href || e.getAttribute('href') || ''"
-                    "}))"
-                ),
-            )
-            links = self._normalize_links(raw_links, final_url, max_links)
-
-            content = _extract_content(html, max_length=max_content_length)
-            truncated = len(content) >= max_content_length
-            if not content:
-                content = (await page.locator("body").inner_text(timeout=timeout_ms) or "").strip()
-                content = re.sub(r"\n\s*\n", "\n\n", content)
-                content = re.sub(r" +", " ", content)
-                content = content[:max_content_length]
-
-            return {
-                "success": True,
-                "title": title,
+                "timeout": True,
                 "url": final_url,
-                "content": content,
-                "links": links,
-                "link_count": len(links),
-                "html_length": len(html or ""),
-                "bytes_downloaded": policy.bytes_downloaded,
-                "denied_subresource_count": len(policy.denials)
-                - (1 if policy.document_denied is not None else 0),
-                "render": "browser",
-                "truncated": truncated,
             }
-        except pw_timeout:
+        if nav_status == "blocked":
+            # agentbrowser's Cedar admission stack refused the destination.
             return {
                 "success": False,
-                "error": f"Page read timed out after {timeout_seconds}s: {url}",
-                "timeout": True,
-                "url": url,
+                "error": (
+                    "agentbrowser navigation blocked by its capability policy "
+                    f"(reason: {navigation.get('reason') or 'policy'}): {final_url}"
+                ),
+                "navigation_blocked": True,
+                "blocked_reason": navigation.get("reason"),
+                "scope_denials": navigation.get("scopeDenials"),
+                "url": final_url,
             }
-        finally:
-            try:
-                await asyncio.wait_for(page.close(), timeout=self._STEP_TIMEOUT_S)
-            except Exception:
-                pass
 
-    @staticmethod
-    def _cap_error(url: str) -> Dict[str, Any]:
+        try:
+            _check_destination(final_url, allowed_hosts)
+        except DestinationPolicyDenied as denied:
+            # Belt and braces: agentbrowser admitted it, but the Victor
+            # destination allowlist still governs what we READ.
+            return _destination_policy_error(denied)
+
+        summary = await client.get_page(session_id, page_id)
+        title = str(summary.get("title") or navigation.get("title") or "").strip()
+
+        text_data = await client.extract(session_id, page_id, "text")
+        text = text_data.get("text", "") if isinstance(text_data, dict) else str(text_data or "")
+        text = str(text or "").strip()
+        truncated = len(text) > max_content_length
+        content = text[:max_content_length]
+
+        raw_links = await client.extract(session_id, page_id, "links")
+        links = _normalize_links(raw_links, final_url, max_links)
+
+        return {
+            "success": True,
+            "title": title,
+            "url": final_url,
+            "content": content,
+            "links": links,
+            "link_count": len(links),
+            "render": "browser",
+            "engine": "agentbrowser",
+            "session_id": session_id,
+            "redirect_chain": navigation.get("redirectChain") or [],
+            "truncated": truncated,
+        }
+    except _AgentbrowserUnavailable as unavailable:
+        return unavailable.payload
+    except _AgentbrowserApiError as api_error:
+        payload = dict(api_error.payload)
+        if session_id:
+            payload["session_id"] = session_id
+        return payload
+    except httpx.TimeoutException:
         return {
             "success": False,
-            "error": (
-                f"Page exceeded the {_PAGE_DOWNLOAD_CAP_BYTES} byte download cap "
-                "and cannot be read"
-            ),
-            "download_cap_exceeded": True,
+            "error": f"agentbrowser request timed out after {timeout_seconds}s: {url}",
+            "timeout": True,
             "url": url,
         }
+    finally:
+        if session and session_id:
+            # Only close sessions WE created (an explicit session_id is
+            # the caller's to manage).
+            await client.close_session(session_id)
 
-    @staticmethod
-    def _normalize_links(
-        raw_links: List[Dict[str, Any]], base_url: str, max_links: int
-    ) -> List[Dict[str, str]]:
-        """Absolute-ize, filter, dedupe, and cap the extracted links."""
-        links: List[Dict[str, str]] = []
-        seen: Set[str] = set()
-        for item in raw_links or []:
-            href = str(item.get("href") or "").strip()
-            if not href or href.startswith(("javascript:", "data:", "mailto:", "tel:")):
-                continue
-            absolute = urljoin(base_url, href)
-            if absolute.startswith("file://") is False and not absolute.startswith(
-                ("http://", "https://")
-            ):
-                continue
-            if absolute in seen:
-                continue
-            seen.add(absolute)
-            links.append({"text": str(item.get("text") or "")[:200], "href": absolute})
-            if len(links) >= max(0, int(max_links)):
-                break
-        return links
 
-    async def aclose(self) -> None:
-        """Guaranteed teardown: graceful closes, then a precise hard kill.
+async def _read_via_playwright_fallback(
+    url: str,
+    *,
+    allowed_hosts: List[str],
+    wait_until: str,
+    selector: str,
+    timeout_seconds: float,
+    max_links: int,
+    max_content_length: int,
+) -> Dict[str, Any]:
+    """Documented local fallback: the playwright engine module (see
+    ``victor.tools.browser_playwright_fallback`` for its policy/cleanup
+    guarantees). Never raises."""
+    from victor.tools.browser_playwright_fallback import (
+        BrowserDependencyError,
+        _get_session_factory,
+    )
 
-        Cancellation-safe: if ``aclose`` itself is cancelled, the pids are
-        reaped inline before the cancellation propagates, and the detached
-        close task reaps again idempotently in the background.
-        """
-        if self._closed:
-            return
-        self._closed = True
-        close_task = asyncio.ensure_future(self._close_and_reap())
-        self._reap_task = close_task
-        try:
-            await asyncio.wait_for(asyncio.shield(close_task), timeout=self._TOTAL_TIMEOUT_S)
-        except asyncio.CancelledError:
-            # A cancelled teardown must not skip the kill.
-            self._reap_now()
-            raise
-        except Exception:
-            self._reap_now()
-
-    async def _close_and_reap(self) -> None:
-        if self._context is not None:
-            await self._step(self._context.close)
-        if self._browser is not None:
-            await self._step(self._browser.close)
-        if self._pw_cm is not None:
-            await self._step(lambda: self._pw_cm.__aexit__(None, None, None))
-        self._reap_now()
-
-    async def _step(self, fn: Callable[[], Any]) -> None:
-        try:
-            await asyncio.wait_for(fn(), timeout=self._STEP_TIMEOUT_S)
-        except Exception:
-            pass  # hard kill below is the safety net
-
-    def _reap_now(self) -> None:
-        leftover = _chromium_pids(self._token)
-        if leftover:
-            logger.warning(
-                "[browser_tool] hard-killing %d leftover chromium process(es) for session %s",
-                len(leftover),
-                self._token,
+    try:
+        factory = _get_session_factory()
+        session = factory()
+        async with session:
+            return await session.read(
+                url,
+                allowed_hosts=allowed_hosts,
+                byte_cap=_PAGE_DOWNLOAD_CAP_BYTES,
+                wait_until=wait_until,
+                selector=selector,
+                timeout_seconds=timeout_seconds,
+                max_links=max_links,
+                max_content_length=max_content_length,
             )
-        self.killed_pids |= leftover
-        _kill_pids(leftover)
-
-
-# Test/embedding seam: override the browser lifecycle wholesale.
-_SESSION_FACTORY: Optional[Callable[[], _BrowserSession]] = None
-
-
-def set_browser_session_factory(
-    factory: Optional[Callable[[], _BrowserSession]],
-) -> None:
-    """Override the browser-session factory (tests pass ``None`` to reset)."""
-    global _SESSION_FACTORY
-    _SESSION_FACTORY = factory
-
-
-def _get_session_factory() -> Callable[[], _BrowserSession]:
-    return _SESSION_FACTORY or _BrowserSession
+    except BrowserDependencyError as dep:
+        return dep.payload
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        return {"success": False, "error": f"Browser read failed: {exc}"}
 
 
 @tool(
@@ -646,9 +469,11 @@ async def browser_tool(
     selector: str = "",
     timeout_seconds: float = 30.0,
     max_links: int = 50,
+    engine: str = "agentbrowser",
+    session_id: str = "",
     _exec_ctx: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Render a JavaScript-required page in a headless browser and extract content.
+    """Render a JavaScript-required page in a browser and extract content.
 
     Purpose:
     - Read pages that need JS to produce content (SPAs, dynamic pages).
@@ -656,23 +481,32 @@ async def browser_tool(
     - Companion to web_fetch: use web_fetch first; use this when extraction
       comes back empty or the page explicitly requires JavaScript.
 
-    The destination policy applies identically to web_fetch: when
-    ``tools.web_fetch_allowed_hosts`` is non-empty, only those hosts (and
-    their subdomains) may be loaded — enforced on the initial URL before any
-    browser launches, on every navigation hop and request the page makes
-    (violations abort the request and return a structured
-    ``destination_policy_denied`` error), and on the final URL. A hard
-    download cap (2 MB) and a per-navigation timeout bound every read, and
-    teardown SIGKILLs any surviving browser process, so nothing leaks.
+    The primary substrate is the **agentbrowser service** (default
+    ``http://127.0.0.1:5709``; ``AGENTBROWSER_BASE_URL`` /
+    ``AGENTBROWSER_API_KEY`` override). Victor enforces the destination
+    allowlist (``tools.web_fetch_allowed_hosts``, the web_fetch policy) on
+    the initial URL before any call and re-checks the final URL; agentbrowser's
+    Cedar capability stack enforces its own navigation admission (a blocked
+    navigation returns a structured ``navigation_blocked`` result with the
+    service's reason). Sessions run headless and are closed after the read;
+    pass ``session_id`` to reuse a live session you manage. If the service is
+    unreachable the tool returns a structured error naming the startup command
+    — or deploy the documented local fallback with ``engine="playwright"``
+    (optional ``browser-playwright`` extra).
 
     Args:
         url: URL to render and read.
         wait_until: When navigation is considered done: 'networkidle'
-            (default), 'load', 'domcontentloaded', or 'commit'.
-        selector: Optional CSS selector to wait for before extraction (e.g.
-            '#results' for content that appears late).
-        timeout_seconds: Per-navigation timeout (default: 30).
+            (default), 'load', or 'domcontentloaded' (agentbrowser enum;
+            the playwright fallback also accepts 'commit').
+        selector: Optional CSS selector to wait for before extraction
+            (playwright fallback engine only).
+        timeout_seconds: Per-request/navigation timeout (default: 30).
         max_links: Maximum number of outbound links to return (default: 50).
+        engine: 'agentbrowser' (default; the service) or 'playwright'
+            (the documented local fallback).
+        session_id: Reuse this live agentbrowser session instead of
+            creating and closing one per call.
         _exec_ctx: Tool execution context containing ToolConfig.
 
     Returns:
@@ -683,52 +517,66 @@ async def browser_tool(
         - content: Extracted main text
         - links: List of {text, href} dicts (absolute hrefs, deduplicated)
         - link_count: Number of links returned
-        - bytes_downloaded / html_length / truncated: size accounting
-        - render: Always 'browser'
-        - error / destination_policy_denied / timeout /
-          download_cap_exceeded / playwright_missing /
+        - engine / session_id / redirect_chain / truncated: read accounting
+        - error / destination_policy_denied / navigation_blocked / timeout /
+          agentbrowser_unreachable / agentbrowser_error / playwright_missing /
           browser_binary_missing: structured failure fields
     """
     if not url:
         return {"success": False, "error": "Missing required parameter: url"}
     wait_mode = (wait_until or "networkidle").lower().strip()
-    if wait_mode not in _VALID_WAIT_UNTIL:
+    engine_mode = (engine or "agentbrowser").lower().strip()
+    if engine_mode not in ("agentbrowser", "playwright"):
+        return {
+            "success": False,
+            "error": "Invalid engine. Use 'agentbrowser' or 'playwright'.",
+        }
+    if wait_mode not in _AGENTBROWSER_WAIT_UNTIL + _FALLBACK_ONLY_WAIT_UNTIL:
         return {
             "success": False,
             "error": (
                 f"Invalid wait_until '{wait_until}'. "
-                f"Use one of: {', '.join(_VALID_WAIT_UNTIL)}."
+                f"Use one of: {', '.join(_AGENTBROWSER_WAIT_UNTIL + _FALLBACK_ONLY_WAIT_UNTIL)}."
             ),
+        }
+    if engine_mode == "agentbrowser" and wait_mode == "commit":
+        return {
+            "success": False,
+            "error": "wait_until='commit' is only supported by the playwright fallback engine.",
         }
 
     config = _get_web_config(_exec_ctx)
     allowed_hosts = list(config.get("web_fetch_allowed_hosts", []) or [])
     max_content_length = int(config.get("max_content_length", 5000) or 5000)
 
-    # Destination policy BEFORE anything else — no browser process exists
-    # while a denied URL is refused (same entry-point rule as web_fetch).
+    # Destination policy BEFORE anything else — a denied URL never reaches
+    # the service or a local browser (same entry-point rule as web_fetch).
     try:
         _check_destination(url, allowed_hosts)
     except DestinationPolicyDenied as denied:
         return _destination_policy_error(denied)
 
-    try:
-        factory = _get_session_factory()
-        session = factory()
-        async with session:
-            return await session.read(
-                url,
-                allowed_hosts=allowed_hosts,
-                byte_cap=_PAGE_DOWNLOAD_CAP_BYTES,
-                wait_until=wait_mode,
-                selector=selector,
-                timeout_seconds=timeout_seconds,
-                max_links=max_links,
-                max_content_length=max_content_length,
-            )
-    except BrowserDependencyError as dep:
-        return dep.payload
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        return {"success": False, "error": f"Browser read failed: {exc}"}
+    if engine_mode == "agentbrowser":
+        client = _AgentbrowserClient(
+            base_url=_service_base_url(),
+            timeout_seconds=timeout_seconds,
+        )
+        return await _read_via_agentbrowser(
+            url,
+            client=client,
+            wait_until=wait_mode,
+            timeout_seconds=timeout_seconds,
+            max_links=max_links,
+            max_content_length=max_content_length,
+            allowed_hosts=allowed_hosts,
+            existing_session_id=session_id.strip(),
+        )
+    return await _read_via_playwright_fallback(
+        url,
+        allowed_hosts=allowed_hosts,
+        wait_until=wait_mode,
+        selector=selector,
+        timeout_seconds=timeout_seconds,
+        max_links=max_links,
+        max_content_length=max_content_length,
+    )

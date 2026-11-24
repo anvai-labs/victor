@@ -176,6 +176,15 @@ web = [
     "trafilatura>=1.6",
 ]
 
+# Browser tool PLAYWRIGHT FALLBACK engine (FOU-A5 phase 2): the browser_tool
+# primary substrate is the agentbrowser service (127.0.0.1:5709) — this extra
+# is only needed for the documented local fallback, browser_tool(engine=
+# "playwright") over victor.tools.browser_playwright_fallback. The `web`
+# extra keeps playwright for web_fetch's render=browser path.
+browser-playwright = [
+    "playwright>=1.40",
+]
+
 # Web chat UI: a pure-Python Chainlit surface bound to VictorClient (`victor ui`)
 chat-ui = [
     "chainlit>=2,<3",  # 2.x cl.Action uses payload= (the 1.x value= kwarg was removed)
