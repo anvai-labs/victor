@@ -2,8 +2,8 @@
 mkdocs==1.6.1
 mkdocs-material==9.8.1
 mkdocstrings[python]==1.0.8
-mkdocstrings-python==2.0.10
-mkdocs-git-revision-date-localized-plugin==1.6.3
-pymdown-extensions==12.3
+mkdocstrings-python==2.0.11
+mkdocs-git-revision-date-localized-plugin==1.7.0
+pymdown-extensions==13.1
 # Patched lexer; validate API signature highlighting when updating this toolchain.
 Pygments==2.21.0
