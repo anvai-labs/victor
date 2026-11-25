@@ -2,7 +2,7 @@
 
 ## Coordinated execution-contract migration
 
-Victor 0.33.2 source requires the published `sandhi-gateway>=0.26.0` wheel.
+Victor 0.34.0 source requires the published `sandhi-gateway>=0.26.0` wheel.
 Victor 0.33.0 pins 0.24.0. The configured gateway service has its own release
 version and is selected explicitly by the caller.
 

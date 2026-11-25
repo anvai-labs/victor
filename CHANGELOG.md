@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.34.0] - Source candidate, 2026-11-25
+
+### Added
+
+- Background subagent mode: `spawn_subagent` accepts `background=true` with
+  `subagent_status` / `subagent_result` companion tools and a per-session bounded run
+  registry; hallucinated run ids are refused and terminal events notify the session
+  (#2018, completing the FOU-A1 arc with foreground subagents).
+- `browser_tool`: headless-browser page read for JavaScript-required pages (FOU-A5
+  phase 2, #2016), with example surface reconciled to the shipped tools (#2017).
+- Sandhi endpoint dialect configuration: `endpoint_profile` and `protocol` are admitted
+  on `ProviderConfig`, and a configured `protocol` now reaches the typed transport on
+  the direct path (previously it loaded nowhere and was silently dormant). Selecting
+  `openai_chat_completions` switches the request dialect to `max_completion_tokens` for
+  OpenAI's newer models; the bindings fail closed on an unknown profile (#2019).
+
+### Changed
+
+- The Sandhi consumer contract is now a floor: `pyproject.toml` declares
+  `sandhi-gateway>=0.26.0` (the endpoint-profile dialect requires 0.26+), so sandhi
+  maintenance/minor releases ride without a Victor edit. Deployment requirement locks
+  stay exact (`==0.26.0`), runtime installation errors and docs name the floor, and the
+  alignment guards enforce the split — including that no exact pin reappears in
+  pyproject and no floor appears in the locks (#2021).
+
+### Fixed
+
+- Graph checkpointing: a completed run is checkpointed at the END boundary so FEP-0032
+  completed-thread resume guarantees hold even when the last node's write raced the
+  run's completion (#2000).
+
 ## [0.33.2] - Source candidate, 2026-11-23
 
 ### Fixed
