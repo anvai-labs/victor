@@ -193,7 +193,7 @@ typing-inspection==0.4.5
     #   pydantic-settings
 urllib3==2.8.0
     # via requests
-victor-contracts==0.17.0
+victor-contracts==0.18.0
     # via victor-ai (pyproject.toml)
 wcwidth==0.9.4
     # via prompt-toolkit
