@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-ai"
-version = "0.33.2"
+version = "0.34.0"
 description = "Open-source agentic AI framework with multi-provider support, workflow orchestration, and extensible tool system"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -51,14 +51,15 @@ classifiers = [
 
 dependencies = [
     # Core
-    "victor-contracts>=0.17.0,<1.0",  # Contract protocol definitions (independent semver)
+    "victor-contracts>=0.18.0,<1.0",  # Contract protocol definitions (independent semver)
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",
     "typing-extensions>=4.9",  # Shared typing helpers used by runtime and contracts
     "orjson>=3.9.0",  # Fast JSON serialization (Rust-backed, 5-10x faster than stdlib)
     # Typed provider runtime and wire transport; Sandhi is a core boundary, not an extra.
-    "sandhi-gateway==0.24.1",
+    # 0.26+ required for OpenaiChatCompletions endpoint_profile (max_completion_tokens dialect)
+    "sandhi-gateway>=0.26.0",
     # Imported on the `import victor` path (core.verticals.version_matrix) and for
     # vertical version gating. Previously satisfied only transitively via dev tools —
     # a bare `pip install victor-ai` could land in an env without it.
@@ -174,6 +175,15 @@ examples = []
 web = [
     "playwright>=1.40",
     "trafilatura>=1.6",
+]
+
+# Browser tool PLAYWRIGHT FALLBACK engine (FOU-A5 phase 2): the browser_tool
+# primary substrate is the agentbrowser service (127.0.0.1:5709) — this extra
+# is only needed for the documented local fallback, browser_tool(engine=
+# "playwright") over victor.tools.browser_playwright_fallback. The `web`
+# extra keeps playwright for web_fetch's render=browser path.
+browser-playwright = [
+    "playwright>=1.40",
 ]
 
 # Web chat UI: a pure-Python Chainlit surface bound to VictorClient (`victor ui`)
@@ -571,7 +581,7 @@ apple-silicon = [
 #   pip install victor-ai[native]
 # Build from source: cd rust && maturin develop --release
 native = [
-    "victor-native>=0.33.2",
+    "victor-native>=0.34.0",
 ]
 
 # Extracted vertical packages (optional meta-extras for cross-repo installs)

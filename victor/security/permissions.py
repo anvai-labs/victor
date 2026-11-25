@@ -216,6 +216,9 @@ DEFAULT_TOOL_PERMISSIONS: Dict[str, PermissionMode] = {
     "symbol": PermissionMode.READ_ONLY,
     "web_fetch": PermissionMode.READ_ONLY,
     "web_search": PermissionMode.READ_ONLY,
+    # Headless-browser page read (FOU-A5 phase 2): renders a URL, no local
+    # side effects — same read-only posture as web_fetch.
+    "browser_tool": PermissionMode.READ_ONLY,
     "sleep": PermissionMode.READ_ONLY,
     "tool_search": PermissionMode.READ_ONLY,
     "structured_output": PermissionMode.READ_ONLY,
@@ -239,6 +242,11 @@ DEFAULT_TOOL_PERMISSIONS: Dict[str, PermissionMode] = {
     # the parent's active mode through the normal gate — workspace-write and
     # above allow, read-only denies.
     "spawn_subagent": PermissionMode.WORKSPACE_WRITE,
+    # Background-subagent run companions (FOU-A1 phase 2): metadata queries
+    # over this session's own spawn runs; they mirror the spawn tool's tier
+    # so the mode gate applies to the whole spawn surface end to end.
+    "subagent_status": PermissionMode.WORKSPACE_WRITE,
+    "subagent_result": PermissionMode.WORKSPACE_WRITE,
     # Danger/full-access tools
     "shell": PermissionMode.DANGER_FULL_ACCESS,
     "code_executor": PermissionMode.DANGER_FULL_ACCESS,

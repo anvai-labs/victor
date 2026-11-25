@@ -121,7 +121,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.24.1 is required for provider transport",
+            "sandhi-gateway >= 0.26.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -1475,8 +1475,15 @@ class SandhiTypedProviderMixin:
         if self._sandhi_typed_providers is None:
             self._sandhi_typed_providers = {}
         slug = self._sandhi_slug()
-        protocol = str(getattr(self, "_sandhi_protocol", "") or "")
         config = getattr(self, "extra_config", None)
+        # Provider-declared protocol wins; a configured providers-section
+        # ``protocol`` is the same dialect declaration as ``endpoint_profile``
+        # and must not be silently dormant on the direct path.
+        protocol = str(
+            getattr(self, "_sandhi_protocol", "")
+            or (config.get("protocol") if isinstance(config, dict) else "")
+            or ""
+        )
         endpoint_profile = str(
             getattr(self, "_sandhi_endpoint_profile", None)
             or (config.get("endpoint_profile") if isinstance(config, dict) else "")

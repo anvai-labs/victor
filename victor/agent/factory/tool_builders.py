@@ -22,6 +22,7 @@ Part of CRITICAL-001: Monolithic Orchestrator decomposition.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -61,6 +62,7 @@ if TYPE_CHECKING:
     from victor.agent.services.protocols import (
         ToolPlanningRuntimeProtocol as ToolPlannerProtocol,
     )
+    from victor.agent.subagents.run_registry import SubAgentRunRegistry
 
 logger = logging.getLogger(__name__)
 _MISSING = object()
@@ -168,9 +170,13 @@ class ToolBuildersMixin:
             orchestrator: The parent orchestrator the runner is bound to.
 
         Returns:
-            An async callable ``(prompt, tools, model, tool_budget)`` that
-            resolves to ``SubAgentResult.to_dict()``, or ``None`` when the
-            substrate is unavailable.
+            An async callable ``(prompt, tools, model, tool_budget,
+            background=False)``. Foreground: resolves to
+            ``SubAgentResult.to_dict()``. Background: detaches the child as
+            an asyncio task registered in the session's
+            ``SubAgentRunRegistry`` and resolves to the structured run
+            handle; ``None`` when the substrate (or the registry) is
+            unavailable.
         """
         from victor.tools.spawn_subagent import sanitize_subagent_tool_list
 
@@ -179,6 +185,7 @@ class ToolBuildersMixin:
             tools: Any = None,
             model: Optional[str] = None,
             tool_budget: Optional[int] = None,
+            background: bool = False,
         ) -> Optional[Dict[str, Any]]:
             subagent_orchestrator = orchestrator.subagent_orchestrator
             if subagent_orchestrator is None:
@@ -224,10 +231,84 @@ class ToolBuildersMixin:
                 spawn_kwargs["provider"] = getattr(orchestrator, "provider_name", None)
                 spawn_kwargs["model"] = model
 
-            result = await subagent_orchestrator.spawn(**spawn_kwargs)
-            return result.to_dict()
+            if not background:
+                result = await subagent_orchestrator.spawn(**spawn_kwargs)
+                return result.to_dict()
+
+            # FOU-A1 phase 2 (background): register the run FIRST, then
+            # detach the same spawn path as an asyncio task. The admission
+            # guards above (intersection, depth-1, minted session id) apply
+            # identically — only the awaiting changes.
+            registry = getattr(orchestrator, "subagent_run_registry", None)
+            if registry is None:
+                return None
+
+            # Policy parity with BackgroundAgentManager: capture the admitted
+            # policy snapshot once (from the parent's live context) and bind
+            # it explicitly around the detached run.
+            from victor.runtime.policy_snapshot import (
+                current_run_policy_snapshot,
+                run_policy_context,
+            )
+
+            admitted_policy = current_run_policy_snapshot()
+
+            record = registry.start_run(
+                prompt=prompt,
+                child_session_id=child_session_id,
+                parent_session_id=getattr(orchestrator, "session_id", None),
+            )
+
+            async def _detached_run() -> None:
+                try:
+                    if admitted_policy is not None:
+                        with run_policy_context(admitted_policy):
+                            result = await subagent_orchestrator.spawn(**spawn_kwargs)
+                    else:
+                        result = await subagent_orchestrator.spawn(**spawn_kwargs)
+                    registry.complete_run(record.subagent_id, result.to_dict())
+                except asyncio.CancelledError:
+                    registry.cancel_run(record.subagent_id)
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "Background subagent %s failed: %s", record.subagent_id, type(exc).__name__
+                    )
+                    registry.fail_run(record.subagent_id, f"{type(exc).__name__}: {exc}")
+
+            task = asyncio.get_running_loop().create_task(_detached_run())
+            registry.attach_task(record.subagent_id, task)
+            logger.info(
+                "Background subagent started: %s (child session %s)",
+                record.subagent_id,
+                child_session_id,
+            )
+            return {
+                "success": True,
+                "background": True,
+                "subagent_id": record.subagent_id,
+                "child_session_id": child_session_id,
+                "status": "running",
+            }
 
         return _runner
+
+    def build_subagent_run_registry(self, orchestrator: Any) -> "SubAgentRunRegistry":
+        """Build the per-session background subagent run registry.
+
+        One bounded registry per parent session (FOU-A1 phase 2): the
+        substrate runner detaches background children into it and the
+        ``subagent_status`` / ``subagent_result`` companion tools read it.
+
+        Args:
+            orchestrator: The parent orchestrator the registry is bound to.
+
+        Returns:
+            A fresh ``SubAgentRunRegistry`` (default retention cap).
+        """
+        from victor.agent.subagents.run_registry import SubAgentRunRegistry
+
+        return SubAgentRunRegistry()
 
     def create_tool_executor(
         self,
@@ -237,6 +318,7 @@ class ToolBuildersMixin:
         safety_checker: "SafetyCheckerProtocol",
         code_correction_middleware: Optional[Any],
         spawn_subagent_runner: Optional[Callable] = None,
+        subagent_run_registry: Optional["SubAgentRunRegistry"] = None,
     ) -> "ToolExecutor":
         """Create tool executor for centralized tool execution.
 
@@ -251,6 +333,9 @@ class ToolBuildersMixin:
             spawn_subagent_runner: Optional FOU-A1 substrate runner bound to
                 the parent session (see ``build_spawn_subagent_runner``);
                 injected into the executor context for the spawn_subagent tool.
+            subagent_run_registry: Optional FOU-A1 phase-2 background run
+                registry (see ``build_subagent_run_registry``); injected into
+                the executor context for the spawn handle companions.
 
         Returns:
             ToolExecutor instance configured with settings
@@ -335,6 +420,10 @@ class ToolBuildersMixin:
         executor.update_context(
             spawn_subagent_budget=self._tool_setting("spawn_subagent_tool_budget", None)
         )
+        # FOU-A1 phase 2: bind the background run registry the companions
+        # read. None (registry construction failed) degrades the companions
+        # to structured refusals, never a broken session.
+        executor.update_context(subagent_run_registry=subagent_run_registry)
 
         logger.debug(f"ToolExecutor created with validation_mode={validation_mode}")
         return executor

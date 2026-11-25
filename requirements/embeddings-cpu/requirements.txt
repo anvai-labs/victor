@@ -221,7 +221,7 @@ rpds-py==2026.6.3
     #   referencing
 safetensors==0.8.0
     # via transformers
-sandhi-gateway==0.24.1
+sandhi-gateway==0.26.0
     # via victor-ai (pyproject.toml)
 scikit-learn==1.9.1
     # via sentence-transformers
@@ -303,7 +303,7 @@ urllib3==2.8.0
     # via
     #   lance-namespace-urllib3-client
     #   requests
-victor-contracts==0.17.0
+victor-contracts==0.18.0
     # via victor-ai (pyproject.toml)
 wcwidth==0.8.3
     # via prompt-toolkit

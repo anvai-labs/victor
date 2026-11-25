@@ -414,13 +414,19 @@ RELATED_TESTS = {
     "victor/tools/memory_write.py": ("tests/unit/tools/test_memory_write.py",),
     "victor/tools/spawn_subagent.py": (
         "tests/unit/tools/test_spawn_subagent.py",
+        "tests/unit/tools/test_spawn_subagent_background.py",
         "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/agent/test_spawn_subagent_background_wiring.py",
     ),
     "victor/agent/subagents/orchestrator.py": (
         "tests/unit/agent/subagents/test_orchestrator.py",
         "tests/unit/agent/subagents/test_orchestrator_workspace.py",
         "tests/unit/tools/test_spawn_subagent.py",
         "tests/unit/agent/test_spawn_subagent_wiring.py",
+    ),
+    "victor/agent/subagents/run_registry.py": (
+        "tests/unit/tools/test_spawn_subagent_background.py",
+        "tests/unit/agent/test_spawn_subagent_background_wiring.py",
     ),
     "victor/agent/subagents/base.py": (
         "tests/unit/agent/subagents/test_base_session_binding.py",
@@ -430,6 +436,7 @@ RELATED_TESTS = {
     ),
     "victor/agent/factory/tool_builders.py": (
         "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/agent/test_spawn_subagent_background_wiring.py",
         "tests/unit/agent/runtime/test_component_assembler.py",
     ),
     # Session cost tracker: the attribution join (auth-bound subject/group
@@ -442,6 +449,7 @@ RELATED_TESTS = {
     "victor/agent/runtime/component_assembler.py": (
         "tests/unit/agent/runtime/test_component_assembler.py",
         "tests/unit/agent/test_spawn_subagent_wiring.py",
+        "tests/unit/agent/test_spawn_subagent_background_wiring.py",
     ),
     "victor/agent/orchestrator_properties.py": (
         "tests/unit/agent/test_spawn_subagent_wiring.py",
@@ -531,6 +539,7 @@ RELATED_TESTS = {
         "tests/unit/security/test_permissions.py",
         "tests/unit/tools/test_memory_write.py",
         "tests/unit/tools/test_spawn_subagent.py",
+        "tests/unit/tools/test_spawn_subagent_background.py",
     ),
     "victor/security/safety/secrets.py": (
         "tests/unit/security/test_secrets_scanner.py",
@@ -1477,6 +1486,10 @@ RELATED_TESTS = {
         "tests/unit/tools/test_web_search_provider_dispatch.py",
         "tests/unit/tools/test_web_fetch_page_read.py",
         "tests/unit/tools/test_web_fetch_destination_policy.py",
+        "tests/unit/tools/test_web_tool.py",
+    ),
+    "victor/tools/browser_tool.py": (
+        "tests/unit/tools/test_browser_tool.py",
         "tests/unit/tools/test_web_tool.py",
     ),
     "victor/tools/search_providers/__init__.py": (

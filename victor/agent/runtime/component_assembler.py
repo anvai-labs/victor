@@ -78,6 +78,11 @@ class ComponentAssembler:
         orchestrator._auto_committer = factory.create_auto_committer()
 
         # Tool executor
+        # FOU-A1 phase 2: one bounded background-subagent run registry per
+        # parent session, shared by the spawn tool's background mode (the
+        # substrate runner detaches children into it) and the companion
+        # status/result tools.
+        orchestrator.subagent_run_registry = factory.build_subagent_run_registry(orchestrator)
         orchestrator.tool_executor = factory.create_tool_executor(
             tools=orchestrator.tools,
             argument_normalizer=orchestrator.argument_normalizer,
@@ -88,6 +93,10 @@ class ComponentAssembler:
             # this parent session (resolves the lazy subagent orchestrator
             # at call time; returns None → tool refusal when disabled).
             spawn_subagent_runner=factory.build_spawn_subagent_runner(orchestrator),
+            # FOU-A1 phase 2: the same registry instance, exposed to the
+            # subagent_status / subagent_result companions through the
+            # executor context.
+            subagent_run_registry=orchestrator.subagent_run_registry,
         )
 
         # Response completer

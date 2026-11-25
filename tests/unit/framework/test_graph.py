@@ -1956,7 +1956,75 @@ async def test_checkpoint_after_nodes_writes_only_selected_boundaries():
     result = await app.invoke({"value": 1, "history": []}, thread_id="selective")
 
     assert result.success
-    assert [cp.node_id for cp in await checkpointer.list("selective")] == ["act"]
+    # Per-node writes stay selected to "act"; the run's completion adds the
+    # END-boundary record (FEP-0032 / FOU-C2 item 24): without it the thread's
+    # last durable checkpoint sat mid-graph and a later resume re-executed the
+    # completed tail.
+    checkpoints = await checkpointer.list("selective")
+    assert [cp.node_id for cp in checkpoints] == ["act", "evaluate"]
+    assert checkpoints[1].metadata["checkpoint_boundary"] == "after"
+    assert checkpoints[1].next_node == END
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_after_nodes_completion_records_a_real_node_not_a_send_entry():
+    """A dynamic fan-out that ends at END never re-enters the per-node
+    completion path; the completion checkpoint must name the last real
+    node, never a ``send:`` history pseudo-entry (FOU-C2 item 24)."""
+
+    async def split_node(state: SimpleState) -> SimpleState:
+        state["history"].append("split")
+        return state
+
+    async def branch_node(state: SimpleState) -> SimpleState:
+        state["value"] += 1
+        state["history"].append("branch")
+        return state
+
+    def fan_out_no_join(state: SimpleState) -> List[Send]:
+        return [
+            Send("branch_a", {"value": state["value"], "history": list(state["history"])}),
+            Send("branch_b", {"value": state["value"], "history": list(state["history"])}),
+        ]
+
+    def merge_states(base: dict, branches: List[dict]) -> dict:
+        history = list(base["history"])
+        history.extend(branch["history"][-1] for branch in branches)
+        return {
+            "value": sum(branch["value"] for branch in branches),
+            "history": history,
+        }
+
+    graph = StateGraph(SimpleState)
+    graph.add_node("split", split_node)
+    graph.add_node("branch_a", branch_node)
+    graph.add_node("branch_b", branch_node)
+    graph.add_conditional_edge(
+        "split",
+        fan_out_no_join,
+        {"branch_a": "branch_a", "branch_b": "branch_b"},
+    )
+    graph.add_state_merger(merge_states)
+    graph.set_entry_point("split")
+
+    checkpointer = MemoryCheckpointer()
+    app = graph.compile(
+        checkpointer=checkpointer,
+        checkpoint_after_nodes={"split"},
+    )
+    result = await app.invoke({"value": 3, "history": []}, thread_id="fanout")
+
+    assert result.success
+    checkpoints = await checkpointer.list("fanout")
+    # "split" is both the selected per-node boundary and the last real node,
+    # so no extra completion record is written, no ``send:`` pseudo-entry is
+    # ever recorded, and the documented fan-out fallback stands (its successor
+    # is a Send fan-out, not a single node).
+    assert [cp.node_id for cp in checkpoints] == ["split"]
+    assert "send:" not in checkpoints[-1].node_id
+    assert checkpoints[-1].next_node is None
+    replay = await app.invoke(None, thread_id="fanout")
+    assert replay.success and replay.state["value"] == 8  # split re-ran, branches re-ran
 
 
 def test_checkpoint_binding_copies_immutable_pydantic_state():
