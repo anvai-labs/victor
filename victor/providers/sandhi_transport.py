@@ -121,7 +121,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.26.0 is required for provider transport",
+            "sandhi-gateway >= 0.26.0 is required for provider transport",
             provider=name,
         )
     return variant
