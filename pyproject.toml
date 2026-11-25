@@ -91,7 +91,7 @@ dependencies = [
     # with Click 8.5; older admitted versions passed None into command handlers.
     # Keep the pair on the CLI minor line validated by the dependency locks.
     "click>=8.2,<9.0",
-    "typer>=0.27.3,<0.29",
+    "typer>=0.27.3,<0.30",
     "rich>=13.7",
     "prompt-toolkit>=3.0",
 
@@ -147,7 +147,7 @@ data = [
 # providers when absent. Pin kept identical to victor-coding's proximadb extra
 # so the backend version stays aligned across packages.
 proximadb = [
-    "proximadb>=0.4.1,<0.6",
+    "proximadb>=0.4.1,<0.8",
 ]
 
 # LangChain interop: adapt LangChain tools as native Victor tools
@@ -235,7 +235,7 @@ dev = [
     "pandas>=2.0",  # For data analysis handler tests
 
     # Linting/Formatting
-    "ruff==0.17.4",
+    "ruff==0.17.5",
     "mypy==2.4.1",
     "black==26.10.1",
 
@@ -307,7 +307,7 @@ ci = [
     "scikit-learn>=1.4",  # FEP-0012 edge-classifier trainer round-trip tests
 
     # Linting/Formatting/Typing
-    "ruff==0.17.4",
+    "ruff==0.17.5",
     "mypy==2.4.1",
     "black==26.10.1",
     "radon>=6.0",
