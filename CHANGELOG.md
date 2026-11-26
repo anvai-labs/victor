@@ -26,6 +26,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   surrounding handler — the overrides never worked. Both sites now resolve through
   `victor.providers.registry.create_provider_or_none` with a miss-fallback to the
   parent provider (#2030).
+- The buffered `execute()` path carried the same shadowed-exception defect #2028 fixed
+  in `stream_execute` (found by the release adversarial review, one method over): the
+  details dict crashed with `UnboundLocalError` when a chat failure coincided with a
+  `get_messages()` failure. Distinct binding + RED-first negative test; the
+  planning-complexity rank map also gained an exhaustiveness guard (#2033).
+- The codegraph package pins `tree-sitter-language-pack<1.26`: upstream grammar packs
+  from 1.26 changed cfg-variant node identity and broke the Rust identity/relations
+  contract tests (grammar port tracked as a follow-up) (#2035).
 
 ### Changed
 
