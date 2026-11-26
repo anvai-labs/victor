@@ -705,7 +705,12 @@ class PlanningRuntimeService:
             planning_complexity = self._map_complexity(task_analysis.complexity)
             min_planning_complexity = self._map_complexity(self.config.min_planning_complexity)
 
-            if planning_complexity.value >= min_planning_complexity.value:
+            # Compare by semantic RANK, never by .value: the enum values are
+            # plain strings, so `>=` on them is lexicographic — "complex" <
+            # "moderate" < "simple" — which INVERTED this gate (complex tasks
+            # skipped planning, simple ones triggered it).
+            rank = self._PLANNING_COMPLEXITY_RANK
+            if rank.get(planning_complexity, 0) >= rank.get(min_planning_complexity, 0):
                 logger.info(f"Planning triggered by complexity: {planning_complexity.value}")
                 return True
 
@@ -757,10 +762,13 @@ class PlanningRuntimeService:
             # Parse planning model (format: "model" or "provider:model")
             if ":" in cli_planning_model:
                 planning_provider_name, planning_model = cli_planning_model.split(":", 1)
-                from victor.providers.provider_factory import get_provider
+                from victor.providers.registry import create_provider_or_none
 
                 try:
-                    planning_provider = get_provider(planning_provider_name)
+                    planning_provider = (
+                        create_provider_or_none(planning_provider_name, purpose="planning")
+                        or planning_provider
+                    )
                     logger.info(
                         f"Using planning provider from CLI override: {planning_provider_name}"
                     )
@@ -779,10 +787,13 @@ class PlanningRuntimeService:
                     logger.info(
                         f"Using planning provider override from profile: {planning_provider_override}"
                     )
-                    from victor.providers.provider_factory import get_provider
+                    from victor.providers.registry import create_provider_or_none
 
                     try:
-                        planning_provider = get_provider(planning_provider_override)
+                        planning_provider = (
+                            create_provider_or_none(planning_provider_override, purpose="planning")
+                            or planning_provider
+                        )
                     except Exception as e:
                         logger.warning(
                             f"Failed to get planning provider {planning_provider_override}: {e}"
@@ -2281,7 +2292,15 @@ class PlanningRuntimeService:
             r"^i need to (?:see|read|re-read|check|look|examine|review|get)\b)",
             re.IGNORECASE,
         )
-        filtered = [i for i in items if not _CONTINUATION_RE.search(i)]
+        filtered = [
+            i
+            for i in items
+            if not _CONTINUATION_RE.search(i)
+            # A lead-in ("Found the following:", "Candidates:") is narration,
+            # never a produced artifact. The single-item prose guard below
+            # cannot catch it once real list items follow.
+            and not (i.endswith(":") and len(items) > 1)
+        ]
         if filtered:
             items = filtered
 
@@ -2429,6 +2448,14 @@ class PlanningRuntimeService:
         r"(?:(?:^|[\s`'\"(])(?:[\w.-]+/)+(?:src|benches|tests|examples|crates)?/?)",
         re.IGNORECASE,
     )
+    # Semantic rank for planning-complexity comparison (the enum values are
+    # plain strings; comparing them directly is lexicographic and inverted).
+    _PLANNING_COMPLEXITY_RANK = {
+        PlanningTaskComplexity.SIMPLE: 0,
+        PlanningTaskComplexity.MODERATE: 1,
+        PlanningTaskComplexity.COMPLEX: 2,
+    }
+
     _WEAK_STEP_OUTPUTS = {
         "done",
         "complete",

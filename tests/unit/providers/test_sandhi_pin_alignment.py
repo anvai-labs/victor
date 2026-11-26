@@ -76,7 +76,7 @@ def test_canonical_gateway_qualification_tracks_current_floor():
         encoding="utf-8"
     )
     assert (
-        "Victor 0.34.0 source requires the published `sandhi-gateway>=0.26.0` wheel."
+        "Victor 0.34.1 source requires the published `sandhi-gateway>=0.26.0` wheel."
     ) in document
 
 
