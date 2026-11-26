@@ -692,7 +692,15 @@ def _rust_cfg_attributes(node, src: bytes) -> list[str]:
             # (``mod_item attributes: (attributes (attribute_item ...))``);
             # older packs list attribute_items as source-level siblings.
             if child.type == "attributes":
-                for item in _rust_attribute_items(child):
+                # Collect NEAREST-TO-ITEM FIRST, matching the prev-sibling
+                # walk's semantics on older packs exactly: the container's
+                # children are in source order, and the collection order
+                # feeds the signature prefix via reversed() in _mk — a
+                # forward-order scan flipped the prefix across pack
+                # versions and drifted stable_symbol_key for the same
+                # source (stored OIDs would stop joining after a
+                # re-index on a newer pack).
+                for item in reversed(list(_rust_attribute_items(child))):
                     if _rust_attribute_name(item, src) in {"cfg", "cfg_attr"}:
                         attributes.append(_text(item, src))
             if child.type == "inner_attribute_item" and _rust_attribute_name(child, src) in {
