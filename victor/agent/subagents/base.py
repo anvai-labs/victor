@@ -851,8 +851,14 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 tool_calls_used = getattr(self.orchestrator, "tool_calls_used", 0)
                 try:
                     context_size = len(str(self.orchestrator.get_messages()))
-                except Exception as e:
-                    logger.debug("Failed to compute sub-agent context size: %s", e)
+                except Exception as size_error:
+                    # Distinct binding: an ``except ... as e`` here would shadow
+                    # the outer handler's ``e`` and Python's implicit ``del`` at
+                    # this block's exit would unbind it — the details dict below
+                    # reads ``e`` and would crash with UnboundLocalError exactly
+                    # when the failure is severe enough that get_messages() also
+                    # fails (same mechanism the stream path fixed in #2028).
+                    logger.debug("Failed to compute sub-agent context size: %s", size_error)
 
             runtime_context = self._get_runtime_context()
             return SubAgentResult(
