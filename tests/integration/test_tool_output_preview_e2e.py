@@ -6,15 +6,36 @@ from unittest.mock import patch
 from victor.config.tool_settings import ToolSettings
 from victor.ui.output_formatter import OutputFormatter
 from victor.ui.rendering.live_renderer import LiveDisplayRenderer
+
+
+@pytest.fixture
+def renderer():
+    """A LiveDisplayRenderer whose Live display ALWAYS stops.
+
+    The bare inline ``renderer.cleanup()`` pattern wedged two promotions:
+    any failure between start() and the trailing cleanup left rich's 10 Hz
+    daemon refresher thread writing to a shared console while pytest/xdist
+    swapped capture objects underneath — the worker then never took more
+    work (0.34.0 in-test hang; 0.34.1 between-tests wedge). Teardown MUST
+    be guaranteed on every exit path.
+    """
+    console = Console()
+    r = LiveDisplayRenderer(console)
+    r.start()
+    try:
+        yield r
+    finally:
+        r.cleanup()
+        # Invariant: the Live display (and its refresher thread) is gone.
+        assert r._live is None
+
+
 from rich.console import Console
 
 
 @pytest.mark.asyncio
-async def test_preview_in_interactive_mode():
+async def test_preview_in_interactive_mode(renderer):
     """Test that preview is shown in interactive mode."""
-    console = Console()
-    renderer = LiveDisplayRenderer(console)
-    renderer.start()
 
     # Simulate tool execution result
     original_result = "\n".join([f"Match {i}: found TODO" for i in range(20)])
@@ -35,15 +56,10 @@ async def test_preview_in_interactive_mode():
     assert renderer._last_tool_result["success"] is True
     assert renderer._last_tool_result["result"] == original_result
 
-    renderer.cleanup()
-
 
 @pytest.mark.asyncio
-async def test_pruning_transparency_message():
+async def test_pruning_transparency_message(renderer):
     """Test that pruning status is shown to user."""
-    console = Console()
-    renderer = LiveDisplayRenderer(console)
-    renderer.start()
 
     # Enable transparency
     with patch("victor.config.tool_settings.get_tool_settings") as mock_settings:
@@ -68,15 +84,10 @@ async def test_pruning_transparency_message():
         assert renderer._last_tool_result is not None
         # The transparency message would be printed in on_tool_result
 
-    renderer.cleanup()
-
 
 @pytest.mark.asyncio
-async def test_expand_hotkey_integration():
+async def test_expand_hotkey_integration(renderer):
     """Test that Ctrl+O expands output via hotkey."""
-    console = Console()
-    renderer = LiveDisplayRenderer(console)
-    renderer.start()
 
     # Simulate tool result
     full_output = "Line 1\nLine 2\nLine 3\n" * 20
@@ -95,15 +106,10 @@ async def test_expand_hotkey_integration():
     # Calling expand_last_output should not raise exception
     renderer.expand_last_output()
 
-    renderer.cleanup()
-
 
 @pytest.mark.asyncio
-async def test_preview_disabled_via_settings():
+async def test_preview_disabled_via_settings(renderer):
     """Test that preview can be disabled via settings."""
-    console = Console()
-    renderer = LiveDisplayRenderer(console)
-    renderer.start()
 
     with patch("victor.config.tool_settings.get_tool_settings") as mock_settings:
         # Disable preview
@@ -127,11 +133,9 @@ async def test_preview_disabled_via_settings():
         # State should still be stored for potential expansion
         assert renderer._last_tool_result is not None
 
-    renderer.cleanup()
-
 
 @pytest.mark.asyncio
-async def test_accuracy_first_default_behavior():
+async def test_accuracy_first_default_behavior(renderer):
     """Test that safe-default pruning defaults are correct."""
     settings = ToolSettings()  # Use defaults
 
@@ -142,11 +146,8 @@ async def test_accuracy_first_default_behavior():
 
 
 @pytest.mark.asyncio
-async def test_backward_compatibility_mode():
+async def test_backward_compatibility_mode(renderer):
     """Test that broader pruning mode can still be enabled explicitly."""
-    console = Console()
-    renderer = LiveDisplayRenderer(console)
-    renderer.start()
 
     with patch("victor.config.tool_settings.get_tool_settings") as mock_settings:
         # Restore old behavior: cost-optimized
@@ -172,11 +173,9 @@ async def test_backward_compatibility_mode():
         # Should still work without errors
         assert renderer._last_tool_result is not None
 
-    renderer.cleanup()
-
 
 @pytest.mark.asyncio
-async def test_output_formatter_preview_integration():
+async def test_output_formatter_preview_integration(renderer):
     """Test preview integration in OutputFormatter."""
     formatter = OutputFormatter()
 
@@ -201,11 +200,8 @@ async def test_output_formatter_preview_integration():
 
 
 @pytest.mark.asyncio
-async def test_preview_with_failed_tool():
+async def test_preview_with_failed_tool(renderer):
     """Test that failed tools don't show preview."""
-    console = Console()
-    renderer = LiveDisplayRenderer(console)
-    renderer.start()
 
     renderer.on_tool_result(
         name="read",
@@ -225,15 +221,10 @@ async def test_preview_with_failed_tool():
     # Expand should not show anything for failed tools
     renderer.expand_last_output()  # Should handle gracefully
 
-    renderer.cleanup()
-
 
 @pytest.mark.asyncio
-async def test_multiple_tool_results_state_management():
+async def test_multiple_tool_results_state_management(renderer):
     """Test that multiple tool results are handled correctly."""
-    console = Console()
-    renderer = LiveDisplayRenderer(console)
-    renderer.start()
 
     # First tool result
     renderer.on_tool_result(
@@ -264,15 +255,10 @@ async def test_multiple_tool_results_state_management():
     assert renderer._last_tool_result["name"] == "read"
     assert renderer._last_tool_result["result"] == "Second result\n" * 10
 
-    renderer.cleanup()
-
 
 @pytest.mark.asyncio
-async def test_preview_with_custom_line_count():
+async def test_preview_with_custom_line_count(renderer):
     """Test preview with custom line count."""
-    console = Console()
-    renderer = LiveDisplayRenderer(console)
-    renderer.start()
 
     original_result = "\n".join([f"Line {i}" for i in range(100)])
 
@@ -297,4 +283,32 @@ async def test_preview_with_custom_line_count():
     assert "Line 4" in preview
     assert "Line 5" not in preview
 
-    renderer.cleanup()
+
+class TestLifecycleGuarantees:
+    """The renderer must never leak a Live refresher, whatever happens."""
+
+    def test_context_manager_stops_the_display_on_success(self):
+        from rich.console import Console as RConsole
+
+        with LiveDisplayRenderer(RConsole()) as r:
+            assert r._live is not None
+        assert r._live is None
+
+    def test_context_manager_stops_the_display_on_failure(self):
+        from rich.console import Console as RConsole
+
+        renderer_ref = None
+        with pytest.raises(RuntimeError):
+            with LiveDisplayRenderer(RConsole()) as r:
+                renderer_ref = r
+                raise RuntimeError("mid-render failure")
+        assert renderer_ref._live is None
+
+    def test_cleanup_is_idempotent(self):
+        from rich.console import Console as RConsole
+
+        r = LiveDisplayRenderer(RConsole())
+        r.start()
+        r.cleanup()
+        r.cleanup()  # second call must be a safe no-op
+        assert r._live is None
