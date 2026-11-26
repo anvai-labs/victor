@@ -1121,8 +1121,14 @@ class SubAgent(IAgent):  # type: ignore[misc]
                 tool_calls_used = getattr(self.orchestrator, "tool_calls_used", 0)
                 try:
                     context_size = len(str(self.orchestrator.get_messages()))
-                except Exception as e:
-                    logger.debug("Failed to compute sub-agent stream context size: %s", e)
+                except Exception as size_error:
+                    # Bind a DIFFERENT name: an ``except ... as e`` here would
+                    # shadow the outer handler's ``e`` and Python's implicit
+                    # ``del`` at this block's exit would unbind it, crashing the
+                    # error-chunk construction below with UnboundLocalError
+                    # exactly when the stream failure is severe enough that
+                    # get_messages() also fails.
+                    logger.debug("Failed to compute sub-agent stream context size: %s", size_error)
 
             # Yield error chunk with is_final=True
             yield StreamChunk(
