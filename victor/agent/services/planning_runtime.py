@@ -762,10 +762,13 @@ class PlanningRuntimeService:
             # Parse planning model (format: "model" or "provider:model")
             if ":" in cli_planning_model:
                 planning_provider_name, planning_model = cli_planning_model.split(":", 1)
-                from victor.providers.provider_factory import get_provider
+                from victor.providers.registry import create_provider_or_none
 
                 try:
-                    planning_provider = get_provider(planning_provider_name)
+                    planning_provider = (
+                        create_provider_or_none(planning_provider_name, purpose="planning")
+                        or planning_provider
+                    )
                     logger.info(
                         f"Using planning provider from CLI override: {planning_provider_name}"
                     )
@@ -784,10 +787,13 @@ class PlanningRuntimeService:
                     logger.info(
                         f"Using planning provider override from profile: {planning_provider_override}"
                     )
-                    from victor.providers.provider_factory import get_provider
+                    from victor.providers.registry import create_provider_or_none
 
                     try:
-                        planning_provider = get_provider(planning_provider_override)
+                        planning_provider = (
+                            create_provider_or_none(planning_provider_override, purpose="planning")
+                            or planning_provider
+                        )
                     except Exception as e:
                         logger.warning(
                             f"Failed to get planning provider {planning_provider_override}: {e}"
