@@ -23,7 +23,7 @@ the documented contracts in the source.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -192,8 +192,11 @@ class TestStreamExecuteErrorTerminal:
         chunks = [c async for c in sub.stream_execute()]
         final = chunks[-1]
         assert final.is_final is True
-        # The context-size fallback degraded to zero, error still surfaced.
+        # The context-size fallback degraded to zero, error still surfaced —
+        # and it is the ORIGINAL stream error, not the size error.
         assert final.metadata["tool_calls_used"] == 3
+        assert final.metadata["error_type"] == "RuntimeError"
+        assert "boom" in final.metadata["error"]
 
 
 class TestCreateOrchestratorOverrides:
@@ -443,3 +446,25 @@ class TestRunRegistryListAndEmission:
         # Terminal is terminal: no second transition of any kind.
         assert registry.fail_run(sid, error="late") is None
         assert registry.cancel_run(sid) is None
+
+
+class TestExecuteErrorTerminal:
+    """The buffered sibling of the stream error terminal (#2028's missed twin)."""
+
+    @pytest.mark.asyncio
+    async def test_get_messages_failure_does_not_mask_execute_error(self):
+        sub = _make_subagent()
+        orch = MagicMock()
+        orch.tool_calls_used = 4
+        orch.get_messages.side_effect = ValueError("corrupt history")
+        orch.chat = AsyncMock(side_effect=RuntimeError("execute boom"))
+        sub.orchestrator = orch
+
+        result = await sub.execute()
+
+        assert result.success is False
+        assert "execute boom" in result.summary
+        # The details dict must carry the ORIGINAL error, not crash with
+        # UnboundLocalError when the context-size fallback also fails.
+        assert result.details["error_type"] == "RuntimeError"
+        assert "execute boom" in result.details["error_message"]
