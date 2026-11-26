@@ -440,3 +440,21 @@ class TestPlanStorePersistence:
         reset_plan_store()
         assert get_plan_store(project_root=tmp_path) is not store
         reset_plan_store()
+
+
+class TestComplexityRankExhaustiveness:
+    """A future enum member must not silently rank below the threshold."""
+
+    def test_rank_map_covers_every_planning_complexity_member(self):
+        from victor.agent.planning.readable_schema import TaskComplexity
+        from victor.agent.services.planning_runtime import PlanningRuntimeService
+
+        rank = PlanningRuntimeService._PLANNING_COMPLEXITY_RANK
+        members = list(TaskComplexity)
+        assert set(rank.keys()) == set(members), (
+            f"_PLANNING_COMPLEXITY_RANK is missing entries for {set(members) - set(rank)}; "
+            "unmapped members default to rank 0 and would never trigger planning"
+        )
+        # Ranks are strictly ordered and distinct.
+        values = [rank[m] for m in members]
+        assert values == sorted(values), "ranks must order with the enum"
