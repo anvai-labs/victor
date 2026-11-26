@@ -53,6 +53,15 @@ jobs:
               --ignore=tests/integration/workflows
               --ignore=tests/integration/tools
               --ignore=tests/integration/verticals
+              --ignore=tests/integration/test_tool_output_preview_e2e.py
+          # The rich-Live TUI preview suite runs SINGLE-PROCESS: under xdist it
+          # wedged a worker between tests twice at promotion (0.34.0: an
+          # in-test hang; 0.34.1: the same file's last test passed, then no
+          # worker took the remaining ~2% for 23 minutes until the job
+          # timeout — a between-tests wedge no per-test timeout can reach).
+          # Single-process contains the blast radius to this one entry.
+          - name: tui-preview-single
+            path: tests/integration/test_tool_output_preview_e2e.py
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
