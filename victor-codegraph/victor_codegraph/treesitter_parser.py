@@ -500,11 +500,22 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
             )
             body = child.child_by_field_name("body")
             module.metadata["rust_inline_module"] = body is not None
-            sibling = child.prev_named_sibling
-            while sibling is not None and sibling.type == "attribute_item":
-                if _rust_attribute_name(sibling, src) in {"path", "cfg_attr"}:
+            # Older packs: attribute_items are source-level siblings of the
+            # module; 1.26+: they are wrapped in an ``attributes`` CHILD.
+            candidates = list(child.named_children) + [child.prev_named_sibling]
+            while candidates:
+                candidate = candidates.pop(0)
+                if candidate is None:
+                    continue
+                if candidate.type == "attributes":
+                    candidates.extend(candidate.named_children)
+                    continue
+                if candidate.type != "attribute_item":
+                    if candidate.prev_named_sibling is not None:
+                        candidates.append(candidate.prev_named_sibling)
+                    continue
+                if _rust_attribute_name(candidate, src) in {"path", "cfg_attr"}:
                     module.metadata["rust_path_attribute"] = True
-                sibling = sibling.prev_named_sibling
             symbols.append(module)
             if body is not None:
                 _walk_collect(
@@ -650,16 +661,40 @@ def _rust_attribute_name(node, src: bytes) -> str | None:
     return None
 
 
+def _rust_attribute_items(sibling):
+    """Yield attribute_item nodes for a sibling, handling BOTH grammar shapes.
+
+    tree-sitter-language-pack 1.26+ wraps an item's attributes in a container:
+    ``function_item attributes: (attributes (attribute_item ...))``. Older packs
+    list the ``attribute_item`` nodes directly as item children. The sibling
+    chain either way starts at the item's first child, so normalize here.
+    """
+    if sibling.type == "attribute_item":
+        yield sibling
+    elif sibling.type == "attributes":
+        for child in sibling.named_children:
+            if child.type == "attribute_item":
+                yield child
+
+
 def _rust_cfg_attributes(node, src: bytes) -> list[str]:
     attributes: list[str] = []
     ancestor = node
     while ancestor is not None:
         sibling = ancestor.prev_named_sibling
-        while sibling is not None and sibling.type == "attribute_item":
-            if _rust_attribute_name(sibling, src) in {"cfg", "cfg_attr"}:
-                attributes.append(_text(sibling, src))
+        while sibling is not None and sibling.type in ("attribute_item", "attributes"):
+            for item in _rust_attribute_items(sibling):
+                if _rust_attribute_name(item, src) in {"cfg", "cfg_attr"}:
+                    attributes.append(_text(item, src))
             sibling = sibling.prev_named_sibling
         for child in ancestor.named_children:
+            # 1.26+ grammar: the item's outer attributes are a CHILD container
+            # (``mod_item attributes: (attributes (attribute_item ...))``);
+            # older packs list attribute_items as source-level siblings.
+            if child.type == "attributes":
+                for item in _rust_attribute_items(child):
+                    if _rust_attribute_name(item, src) in {"cfg", "cfg_attr"}:
+                        attributes.append(_text(item, src))
             if child.type == "inner_attribute_item" and _rust_attribute_name(child, src) in {
                 "cfg",
                 "cfg_attr",

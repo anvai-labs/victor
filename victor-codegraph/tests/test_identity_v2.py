@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from victor_codegraph import parse, parse_path, to_proxima_records
+from victor_codegraph.treesitter_parser import _get_parser
 
 
 def _by_name(parsed, name):
@@ -119,3 +120,34 @@ def test_object_literal_methods_have_structural_scopes(source):
     assert len(methods) == len({s.id for s in methods}) == 2
     assert not parsed.diagnostics
     assert {s.id for s in parsed.symbols} == {s.id for s in moved.symbols}
+
+
+class TestAttributesContainerGrammar:
+    """Dual-shape support: the 1.26+ grammar wraps item attributes in an
+    ``attributes`` container child instead of source-level siblings."""
+
+    def _cfg_collected(self, source: str) -> list[str]:
+        parser = _get_parser("rust")
+        tree = parser.parse(source.encode())
+        from victor_codegraph.treesitter_parser import _rust_cfg_attributes
+
+        items = [
+            c
+            for c in tree.root_node.named_children
+            if c.type in ("function_item", "mod_item", "use_declaration")
+        ]
+        assert items, "no item parsed"
+        return _rust_cfg_attributes(items[0], source.encode())
+
+    def test_cfg_attribute_on_item_is_collected_from_container_child(self):
+        # Under the 1.26+ grammar the attribute is a CHILD container of the
+        # function; under older packs it is a prev sibling. Both must collect.
+        assert self._cfg_collected("#[cfg(unix)]\nfn f() {}") == ["#[cfg(unix)]"]
+
+    def test_cfg_attr_variant_collected_from_container_child(self):
+        assert self._cfg_collected("#[cfg_attr(test, foo)]\nfn f() {}") == [
+            "#[cfg_attr(test, foo)]"
+        ]
+
+    def test_plain_attribute_is_not_collected(self):
+        assert self._cfg_collected("#[inline]\nfn f() {}") == []
