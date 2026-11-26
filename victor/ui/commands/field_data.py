@@ -75,8 +75,9 @@ def summary(
     if not records:
         console.print(
             f"[yellow]No field data found in {root}. "
-            "Collection is opt-in: set evaluation.field_data_enabled "
-            "(or VICTOR_FIELD_DATA_ENABLED=true) to start recording.[/]"
+            "Collection is opt-in: export VICTOR_FIELD_DATA_ENABLED=true "
+            "(CLI sessions read env/.env only; the settings.yaml evaluation "
+            "group is not on the chat path).[/]"
         )
         raise typer.Exit(0)
 
