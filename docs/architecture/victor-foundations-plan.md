@@ -394,6 +394,18 @@ capability.
   intent leg query. Remaining: ADR-036 graduation battery (field data) — the
   collection harness landed (#2002, FOU-S4 row); enable
   `evaluation.field_data_enabled` to record sessions.
+- **ADR-036 graduation battery — controlled phase RUN (2026-11-25)**:
+  `tests/unit/evaluation/test_intent_tier_graduation_battery.py` green on the
+  0.34 tree (A/B off-vs-on over the fixture corpus with known symbol
+  positions; intent-over-keyword improvement pinned). Field-data collection
+  verified end-to-end live: recorder fires per session (start+end records
+  with flag-arm capture, duration, outcome) into `~/.victor/evaluation/`.
+  Enablement note corrected in-repo: CLI chat sessions load env/.env only —
+  the effective switch is `VICTOR_FIELD_DATA_ENABLED`; the settings.yaml
+  evaluation group binds only via `from_sources` consumers. Graduation of
+  `codebase_intent_indexing_enabled` now waits on accumulated field data
+  (both arms) per ADR-036; `victor evaluation field-data summary` reads the
+  evidence table.
 - **SQLite-only intent tier (#1943, MERGED 2026-11-18)**: chunk vectors
   co-located in project.db (`intent_chunks` table, float32-LE BLOB) via
   `SqliteIntentChunkStore` — lancedb/pyarrow off the intent tier's
