@@ -151,3 +151,37 @@ class TestAttributesContainerGrammar:
 
     def test_plain_attribute_is_not_collected(self):
         assert self._cfg_collected("#[inline]\nfn f() {}") == []
+
+
+class TestAttributeCollectionOrder:
+    """Collection order must be nearest-to-item first on BOTH grammar shapes.
+
+    The order feeds the signature prefix via reversed() in _mk; a forward-
+    order container scan drifted stable_symbol_key for the same source
+    across pack versions (stored OIDs stop joining after a re-index).
+    """
+
+    def test_multi_attribute_collection_is_reverse_source_order(self):
+        source = "#[cfg(windows)]\n#[cfg_attr(x, y)]\nfn g() {}"
+        parser = _get_parser("rust")
+        tree = parser.parse(source.encode())
+        from victor_codegraph.treesitter_parser import _rust_cfg_attributes
+
+        fn = [c for c in tree.root_node.named_children if c.type == "function_item"][0]
+        collected = _rust_cfg_attributes(fn, source.encode())
+        assert collected == ["#[cfg_attr(x, y)]", "#[cfg(windows)]"], (
+            "must be nearest-to-item first on both pack shapes; got "
+            f"{collected} — a forward-order flip drifts stable_symbol_key "
+            "across pack versions"
+        )
+
+    def test_signature_prefix_is_source_order_on_both_shapes(self):
+        source = "#[cfg(windows)]\n#[cfg_attr(x, y)]\nfn g() {}"
+        parser = _get_parser("rust")
+        tree = parser.parse(source.encode())
+        from victor_codegraph.treesitter_parser import _rust_cfg_attributes
+
+        fn = [c for c in tree.root_node.named_children if c.type == "function_item"][0]
+        attrs = _rust_cfg_attributes(fn, source.encode())
+        signature = " ".join([*reversed(attrs), "()"])
+        assert signature == "#[cfg(windows)] #[cfg_attr(x, y)] ()"
