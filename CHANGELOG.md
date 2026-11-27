@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- CodeGraph 0.16.0 indexes C/C++ headers and C++ identities structurally. A `.h`
+  header is classified as C or C++ from its own text (project default: C++, or C
+  for a C-only inventory) and is re-parsed with the other grammar when only that
+  one parses cleanly; previously every `.h` was parsed as C, so C++ headers were
+  partial parses. C++ namespaces and out-of-class qualifiers (`A::B::f`) now take
+  part in the fully qualified name without becoming containers, destructors are
+  named `~T`, reference-returning functions are extracted, and template heads,
+  return types of templated definitions and `const`/`&`/`&&`/`noexcept` qualifiers
+  discriminate overloads. On apache/arrow this takes partial `.h` parses from
+  863 of 951 to 555, C/C++ files quarantined for identity collisions from 347
+  to 141, and syntax-partial C/C++ files from 1,568 to 1,258. C++ stable keys
+  change: rebuild with `victor graph index --force`.
+
 ## [0.34.1] - Source candidate, 2026-11-26
 
 ### Fixed

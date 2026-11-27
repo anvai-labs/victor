@@ -457,6 +457,11 @@ class GraphIndexingPipeline:
         self.config = config
         self._ccg_builder = None
         self._files_to_process: Set[str] = set()
+        # C or C++ for a `.h` header whose text carries no signal (the run's
+        # inventory decides), and the language each re-classified header was
+        # parsed with, so edge builders do not fall back to its extension.
+        self._header_default = "cpp"
+        self._resolved_header_languages: Dict[str, str] = {}
         # Phase busy-time accumulators (seconds) for the Amdahl split the
         # CLI summary prints: parse work runs on executor threads (lock
         # guarded), persist batches and the harvest run on the event loop.
@@ -1980,6 +1985,8 @@ class GraphIndexingPipeline:
         """
         root = (root_path or self.config.root_path).resolve()
         self._files_to_process = {self._graph_file_key(file_path, root) for file_path in files}
+        self._header_default = self._project_header_default(files)
+        self._resolved_header_languages = {}
         self._pending_file_hashes = {}
         if not self.config.incremental:
             return _IncrementalIndexPlan()
@@ -2457,7 +2464,8 @@ class GraphIndexingPipeline:
                     symbol_nodes=nodes,
                     partial=True,
                 )
-            ccg_nodes, ccg_edges = self._build_ccg_inline(file_path, language)
+            # The compiler resolved a `.h` header to C or C++ from its text.
+            ccg_nodes, ccg_edges = self._build_ccg_inline(file_path, parsed.language)
             return ParseResult(
                 file_path=file_path,
                 language=parsed.language,
@@ -2472,6 +2480,12 @@ class GraphIndexingPipeline:
             source_code = file_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             return ParseResult(file_path=file_path, language=language)
+        resolved = self._resolve_header_language(
+            file_path, source_code, language, self._header_default
+        )
+        if resolved != language:
+            self._resolved_header_languages[self._canonical_file_str(file_path)] = resolved
+        language = resolved
 
         # ── Symbol extraction ──────────────────────────────────────────────
         nodes: List[Any] = []
@@ -2683,6 +2697,16 @@ class GraphIndexingPipeline:
             if language == "unknown":
                 stats.files_skipped += 1
                 return stats
+            try:
+                # Same rule as the batch path: a `.h` header is C or C++ by text.
+                language = self._resolve_header_language(
+                    file_path,
+                    file_path.read_text(encoding="utf-8"),
+                    language,
+                    self._header_default,
+                )
+            except (OSError, UnicodeDecodeError):
+                pass
 
             # Extract symbols using tree-sitter
             symbol_nodes = await self._extract_symbols(file_path, language)
@@ -2747,6 +2771,45 @@ class GraphIndexingPipeline:
             yield
         finally:
             self._persist_busy_seconds += time.monotonic() - start
+
+    @staticmethod
+    def _project_header_default(files: List[Path]) -> str:
+        """C when the run's inventory has C sources and no C++ sources; else C++.
+
+        The rule ``parse_repo`` applies, so the fallback path (no CodeGraph
+        repository bound) labels a signal-free header exactly like the
+        CodeGraph path instead of always calling it C++.
+        """
+        try:
+            from victor_codegraph.languages import project_header_default
+        except ImportError:
+            return "cpp"
+        return project_header_default(files)
+
+    @staticmethod
+    def _resolve_header_language(
+        file_path: Path, source_code: str, language: str, header_default: str = "cpp"
+    ) -> str:
+        """Classify a ``.h`` header as C or C++ from its text (shared compiler rule)."""
+        if language not in {"c", "cpp"}:
+            return language
+        try:
+            from victor_codegraph.languages import resolve_language
+        except ImportError:
+            return language
+        return (
+            resolve_language(str(file_path), source_code, header_default=header_default) or language
+        )
+
+    def _file_language(self, file_path: Path) -> str:
+        """The language a file was parsed with.
+
+        Edge builders ask again after parsing; a header resolved to C++ by
+        its text must not fall back to its extension's ``c`` here.
+        """
+        return self._resolved_header_languages.get(
+            self._canonical_file_str(file_path)
+        ) or self._detect_language(file_path)
 
     def _detect_language(self, file_path: Path) -> str:
         """Detect programming language from file extension.
@@ -3299,7 +3362,7 @@ class GraphIndexingPipeline:
                 name_to_ids.setdefault(node.name, []).append(node.node_id)
 
         # Detect language
-        language = self._detect_language(file_path)
+        language = self._file_language(file_path)
         if language == "unknown":
             return edges
 
@@ -3441,7 +3504,7 @@ class GraphIndexingPipeline:
 
         try:
             # Get language module
-            language = self._detect_language(file_path)
+            language = self._file_language(file_path)
             if language not in _TREE_SITTER_LANGUAGE_MODULES:
                 return edges
 
@@ -3532,7 +3595,7 @@ class GraphIndexingPipeline:
         # Try tree-sitter for call analysis
         try:
             # Detect language
-            language = self._detect_language(file_path)
+            language = self._file_language(file_path)
             if language == "unknown":
                 return edges
 
