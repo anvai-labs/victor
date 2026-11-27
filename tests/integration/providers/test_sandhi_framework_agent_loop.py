@@ -275,7 +275,15 @@ def agent_gateway(tmp_path, request):
                 process.wait(6)
             except subprocess.TimeoutExpired:
                 process.kill()
-                process.wait()
+                # Bounded: an unbounded wait here wedges the worker after the
+                # test's asserts pass (between-tests hang class).
+                try:
+                    process.wait(10)
+                except subprocess.TimeoutExpired:
+                    print(
+                        f"WARNING: gateway fixture pid {process.pid} refused to "
+                        "exit after kill + 10s; abandoning it"
+                    )
             origin.shutdown()
             origin.server_close()
             thread.join()
