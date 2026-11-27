@@ -2,10 +2,22 @@
 
 ## Coordinated execution-contract migration
 
-Victor's consumer candidate pins the prepared Sandhi release
-`sandhi-gateway==0.24.0`. Publication of the matching wheel is required for rollout.
-The user authorized a coordinated migration because Victor is the sole client;
-there is no requirement to retain a permissive Sandhi legacy mode.
+Victor 0.35.0 source requires the published `sandhi-gateway>=0.26.0` wheel.
+Victor 0.33.0 pins 0.24.0. The configured gateway service has its own release
+version and is selected explicitly by the caller.
+
+Embedded callers can use `victor.providers.planning_session(session_id)` around
+buffered calls and complete stream consumption. Reuse an opaque ID within a
+materialized conversation and allocate a different ID for an independent job.
+It supplies Sandhi affinity and attribution metadata in the current task,
+overriding the implicit Victor agent session for provider calls inside the scope.
+Changing an explicit planning ID reuses the configured provider connection pool.
+
+Call `await provider.supports_reasoning_effort_async(model, effort="high")`
+before dispatch when an exact named effort is required. Omitting `effort`
+preserves the model-level capability query. Gateway discovery and inference
+use the same selected credential and scoped CA. Sandhi enforces admission at
+dispatch even if the published model metadata changed after discovery.
 
 Both direct FFI and gateway handles set `max_retries=0`. Victor's logical-call
 owner decides whether another attempt is authorized. A binding failure never

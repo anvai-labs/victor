@@ -140,6 +140,62 @@ async def test_gateway_mode_stamps_run_id_header(monkeypatch, bound_session):
 
 
 @pytest.mark.asyncio
+async def test_public_planning_scope_is_stable_across_stream_and_chat(monkeypatch, bound_session):
+    from victor.providers import planning_session
+
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+    messages = [Message(role="system", content="shared prefix"), Message(role="user", content="hi")]
+    with planning_session("job-first"):
+        await provider.chat(messages, model="deepseek-chat")
+        async for _ in provider.stream(messages, model="deepseek-chat"):
+            pass
+        assert runtime.handle.requests[-1]["metadata"]["session_id"] == "job-first"
+        with pytest.raises(RuntimeError), planning_session("job-inner"):
+            raise RuntimeError("interrupted")
+        await provider.chat(messages, model="deepseek-chat")
+        assert runtime.handle.requests[-1]["metadata"]["session_id"] == "job-first"
+    with planning_session("job-second"):
+        await provider.chat(messages, model="deepseek-chat")
+        assert runtime.handle.requests[-1]["metadata"]["session_id"] == "job-second"
+    await provider.chat(messages, model="deepseek-chat")
+
+    assert len(runtime.calls) == 2
+    assert "headers_json" not in runtime.calls[0][1]
+    legacy_headers = json.loads(runtime.calls[1][1]["headers_json"])
+    assert legacy_headers["x-sandhi-session"] == bound_session
+    assert [json.loads(wire or "{}") for wire in runtime.handle.wire_headers] == [
+        {"x-sandhi-run-id": session, "x-sandhi-session": session}
+        for session in ("job-first", "job-first", "job-first", "job-second")
+    ] + [{}]
+    assert runtime.handle.requests[-1]["metadata"]["session_id"] == bound_session
+
+
+@pytest.mark.asyncio
+async def test_public_planning_scope_preserves_configured_affinity_header(monkeypatch):
+    from victor.providers import planning_session
+
+    runtime = install_runtime(monkeypatch)
+    provider = make_gateway_provider()
+    provider._wire_headers = {"X-Sandhi-Session": "configured-session"}
+    with planning_session("embedded-job"):
+        await provider.chat([Message(role="user", content="hi")], model="deepseek-chat")
+
+    assert json.loads(runtime.calls[0][1]["headers_json"]) == {
+        "X-Sandhi-Session": "configured-session"
+    }
+    assert json.loads(runtime.handle.wire_headers[0] or "{}") == {"x-sandhi-run-id": "embedded-job"}
+
+
+@pytest.mark.parametrize("identifier", ["", "has space", "line\nbreak", "a" * 129])
+def test_planning_scope_rejects_invalid_header_identifiers(identifier):
+    from victor.providers import planning_session
+
+    with pytest.raises(ValueError), planning_session(identifier):
+        pytest.fail("invalid planning session was admitted")
+
+
+@pytest.mark.asyncio
 async def test_gateway_mode_without_session_sends_no_run_header(monkeypatch):
     runtime = install_runtime(monkeypatch)
     token = ctx.set_session_id("")

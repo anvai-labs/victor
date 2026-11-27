@@ -27,14 +27,8 @@ positions so expected results are verifiable.
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Tuple
 
-import pytest
-
-from victor.core.graph_rag.seeding import intent_seed_scores
-from victor.evaluation.flag_graduation import assess_graduation
-from victor.evaluation.trajectory_eval import BatteryResult, TrajectoryScore
-from victor.storage.graph.intent_index import IntentIndexStore
+from victor.evaluation.trajectory_eval import BatteryResult
 
 # ─── Fixture codebase ────────────────────────────────────────────────────
 

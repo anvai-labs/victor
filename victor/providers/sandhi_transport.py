@@ -53,6 +53,7 @@ from victor.providers.llamacpp_provider import LlamaCppProvider
 from victor.providers.lmstudio_provider import LMStudioProvider
 from victor.providers.ollama_provider import OllamaProvider
 from victor.providers.openai_provider import OpenAIProvider
+from victor.providers.planning import _planning_session_id
 from victor.providers.vllm_provider import VLLMProvider
 from victor.providers.openai_compat import build_openai_messages, convert_tools_to_openai_format
 from victor.providers.usage_parsing import usage_dict_from_neutral
@@ -120,7 +121,7 @@ def resolve_transport_class(
         return native_cls
     if not sandhi_transport_available():
         raise ProviderConnectionError(
-            "sandhi-gateway 0.24.0 is required for provider transport",
+            "sandhi-gateway >= 0.26.0 is required for provider transport",
             provider=name,
         )
     return variant
@@ -854,7 +855,7 @@ def _typed_request_from_openai_payload(payload: Dict[str, Any]) -> Dict[str, Any
     # metadata — never the body, where it would break prompt-cache byte-stability.
     # The typed runtime maps it onto catalog-declared vendor affinity headers (e.g.
     # InferFlux's ``x-inferflux-session-id`` KV/prefix-cache key).
-    session_id = _gateway_run_id()
+    session_id = _planning_session_id.get() or _gateway_run_id()
     if session_id:
         request["metadata"] = {"session_id": session_id}
     return request
@@ -1213,23 +1214,31 @@ class SandhiTypedProviderMixin:
             return cached.get(model)
         return self._static_sandhi_model_descriptor(model)
 
-    def supports_reasoning_effort(self, model: Optional[str] = None) -> bool:
-        """Use exact Sandhi model metadata; never infer from provider or prefix."""
+    def _reasoning_effort_values(self, model: Optional[str]) -> tuple[str, ...]:
         descriptor = self._sandhi_model_descriptor(model)
         thinking = descriptor.get("thinking") if isinstance(descriptor, dict) else None
         effort = thinking.get("effort") if isinstance(thinking, dict) else None
         values = effort.get("values") if isinstance(effort, dict) else None
-        return bool(
+        if (
             isinstance(thinking, dict)
             and thinking.get("supported") is True
             and isinstance(values, list)
-            and values
-        )
+        ):
+            return tuple(values)
+        return ()
 
-    async def supports_reasoning_effort_async(self, model: Optional[str] = None) -> bool:
-        """Exact capability check with async gateway discovery and token refresh."""
+    def supports_reasoning_effort(self, model: Optional[str] = None) -> bool:
+        """Use exact Sandhi model metadata; never infer from provider or prefix."""
+        return bool(self._reasoning_effort_values(model))
+
+    async def supports_reasoning_effort_async(
+        self, model: Optional[str] = None, *, effort: Optional[str] = None
+    ) -> bool:
+        """Check the advertised effort vocabulary, or whether it exists at all."""
         await self._refresh_gateway_model_capabilities()
-        return self.supports_reasoning_effort(model)
+        if effort is None:
+            return self.supports_reasoning_effort(model)
+        return effort in self._reasoning_effort_values(model)
 
     async def supports_thinking_disable_async(self, model: str) -> bool:
         await self._refresh_gateway_model_capabilities()
@@ -1319,7 +1328,15 @@ class SandhiTypedProviderMixin:
         (blocked-header filtering, step-id headers, etc.)."""
         if self._gateway_overrides() is None:
             return {}
-        return _gateway_wire_headers(_wire_call_headers())
+        headers = _wire_call_headers()
+        if session_id := _planning_session_id.get():
+            # Explicit planning sessions are call metadata, so changing jobs
+            # can reuse the same connection pool and preserve configured headers.
+            configured = {name.lower() for name in (getattr(self, "_wire_headers", None) or {})}
+            for name in ("x-sandhi-run-id", "x-sandhi-session"):
+                if name not in configured:
+                    headers[name] = session_id
+        return _gateway_wire_headers(headers)
 
     def _sandhi_stream_wire_headers(self) -> Dict[str, str]:
         # Validate unconditionally: a misconfigured knob must fail the same
@@ -1458,8 +1475,15 @@ class SandhiTypedProviderMixin:
         if self._sandhi_typed_providers is None:
             self._sandhi_typed_providers = {}
         slug = self._sandhi_slug()
-        protocol = str(getattr(self, "_sandhi_protocol", "") or "")
         config = getattr(self, "extra_config", None)
+        # Provider-declared protocol wins; a configured providers-section
+        # ``protocol`` is the same dialect declaration as ``endpoint_profile``
+        # and must not be silently dormant on the direct path.
+        protocol = str(
+            getattr(self, "_sandhi_protocol", "")
+            or (config.get("protocol") if isinstance(config, dict) else "")
+            or ""
+        )
         endpoint_profile = str(
             getattr(self, "_sandhi_endpoint_profile", None)
             or (config.get("endpoint_profile") if isinstance(config, dict) else "")
@@ -1471,7 +1495,7 @@ class SandhiTypedProviderMixin:
         ca_identity = None
         # Run cost tree (sandhi PR #149): only gateway mode stamps the run id —
         # direct-provider mode must stay byte-identical on the wire.
-        run_id = _gateway_run_id() if gateway is not None else ""
+        run_id = _gateway_run_id() if gateway is not None and not _planning_session_id.get() else ""
         if gateway is not None:
             # Gateway mode (TD-0003 P3): the FFI handle targets the Sandhi proxy with
             # the configured credential or starter marker. The explicit client
@@ -1593,7 +1617,7 @@ class SandhiTypedProviderMixin:
         self._validate_gateway_request(request)
         provider = self._typed_provider(str(request.get("model", "")))
         timeout = self._sandhi_timeout()
-        # Per-call step headers (gateway mode only — direct mode stays byte-identical).
+        # Per-call correlation headers are sent only in gateway mode.
         call_headers = self._sandhi_base_wire_headers()
         wire_headers = json.dumps(call_headers) if call_headers else None
         try:

@@ -148,7 +148,7 @@ rpds-py==2026.9.1
     # via
     #   jsonschema
     #   referencing
-sandhi-gateway==0.24.0
+sandhi-gateway==0.27.0
     # via victor-ai (pyproject.toml)
 shellingham==1.5.4
     # via typer
@@ -193,7 +193,7 @@ typing-inspection==0.4.5
     #   pydantic-settings
 urllib3==2.8.0
     # via requests
-victor-contracts==0.17.0
+victor-contracts==0.18.0
     # via victor-ai (pyproject.toml)
 wcwidth==0.9.4
     # via prompt-toolkit

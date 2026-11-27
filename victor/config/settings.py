@@ -571,6 +571,14 @@ class ProviderConfig(BaseSettings):
         default=None,
         description="Opt-in Sandhi gateway/virtual-key mode (TD-0003 P3).",
     )
+    endpoint_profile: Optional[str] = Field(
+        default=None,
+        description="Sandhi endpoint profile for API dialect selection (e.g., openai_chat_completions, chatgpt_codex).",
+    )
+    protocol: Optional[str] = Field(
+        default=None,
+        description="Sandhi client protocol for endpoint routing (e.g., responses, chat_completions).",
+    )
 
     @property
     def api_key_value(self) -> Optional[str]:

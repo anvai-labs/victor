@@ -666,6 +666,7 @@ class GraphManager:
             "precise_index_java_home": "",
             "precise_index_build_args": {},
             "precise_index_build_root": "",
+            "precise_index_compile_commands": "",
         }
         try:
             from victor.config.settings import Settings, graph_flag, graph_setting
@@ -748,6 +749,9 @@ class GraphManager:
                         refresh_config.get("precise_index_build_args", {}) or {}
                     ),
                     precise_index_build_root=refresh_config.get("precise_index_build_root", ""),
+                    precise_index_compile_commands=refresh_config.get(
+                        "precise_index_compile_commands", ""
+                    ),
                 )
 
                 phase2_time = datetime.now().timestamp() - phase2_start

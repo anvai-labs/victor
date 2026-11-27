@@ -69,6 +69,11 @@ class GraphSettings(BaseModel):
     # tree. Every indexed file must be byte-identical in this root, or the
     # provider skips with ``build-root-mismatch``; extra files are allowed.
     precise_index_build_root: str = ""
+    # scip-clang compilation database ("" = discover under the indexed root).
+    # It may live outside the indexed tree (an out-of-source build), but its
+    # entries must name files under that root. Its content digest keys the
+    # dump cache.
+    precise_index_compile_commands: str = ""
     # Parser thread-pool size. 0 = the machine's full core count (the old
     # silent 8-core cap is gone); 1 = serial. Mirrors
     # GraphIndexConfig.parse_workers — the knob for measuring the GIL

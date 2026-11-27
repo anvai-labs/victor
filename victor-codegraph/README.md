@@ -56,6 +56,7 @@ workflow `release-codegraph.yml`, environments `pypi` / `testpypi`); see the hea
 | Python references | Exact import aliases and dotted modules; lexical scope precedes arity. Unknown receivers, wildcard ambiguity and shadowed bindings remain explicit unresolved references. No runtime execution/type inference. |
 | ES modules | Relative named/default/namespace imports, explicit named re-exports and exported arrow functions. Type-only imports produce dependencies, never runtime call evidence. Re-export traversal is cycle-safe and bounded to 64 bindings. Package/tsconfig aliases, star exports and dynamic exports remain unresolved. |
 | Object-literal identity | Methods include structural object scopes, including anonymous callback ancestry. Whitespace/comments and checkout root do not affect IDs; inserting/reordering anonymous siblings can change structural ordinals. |
+| C/C++ identity | A `.h` header is C or C++ by its own text, then the inventory (C-only inventory: C; otherwise C++; keywords C23 shares with C++ count for neither side); a parse with syntax errors, or whose grammar is not installed, retries the other grammar and keeps a clean result (`header_language_retry`). C++ namespaces and out-of-class qualifiers enter the fully qualified name, not `scope_chain`; destructors are `~T`; templated definitions add their template head and return type, and member qualifiers (`const`, `&`, `&&`, `noexcept`) are part of the overload signature. Genuine duplicates (`#if`/`#else` branches) remain identity collisions. |
 | Source evidence | Python call spans include UTF-8 byte offsets/lengths and end coordinates. New binding metadata is diagnostic evidence, not runtime authorization or a complete language semantic model. |
 | Victor persistence | The canonical snapshot supplies symbols. CLI distinguishes attempted upserts from persisted totals, exposes partial parses and accepts exact opaque IDs; ambiguous display names are not chosen arbitrarily. Default file exclusions can differ from the package walker. |
 
@@ -136,11 +137,15 @@ index generation. Concurrent source/path replacement remains a caller concern.
 ### Ambiguous declarations
 
 Duplicate structural identities retain raw declarations in `ParsedRepository.files`
-and report each conflicting source location. Repository projection emits only the
-canonical FILE marker for that file, with typed diagnostics, declaration spans and
-omitted symbol/relation counts in metadata. Calls into its declarations remain
-unresolved; healthy imports can still point to its diagnostic marker. Repairing the
-source restores normal projection through deletion-complete repository deltas.
+and report each conflicting source location. The ambiguous declarations, and what
+they contain, are left out of repository projection; the file's other declarations
+are projected as usual (`projection_status: symbols_quarantined`). Only a file whose
+every declaration is ambiguous is reduced to its canonical FILE marker
+(`file_marker_only`). Either way the marker carries typed diagnostics, declaration
+spans, omitted symbol/relation counts and `ambiguous_symbol_names`. A call into an
+ambiguous name remains unresolved and is never bound to a namesake in another file;
+healthy imports can still point to its diagnostic marker. Repairing the source
+restores normal projection through deletion-complete repository deltas.
 Direct record projection rejects duplicate identities before invoking an embedder,
 including when legacy OIDs are selected.
 

@@ -238,3 +238,92 @@ async def test_java_toolchain_reaches_the_dump_and_keys_the_cache_beside_the_too
     )
     assert ("scip-java", "/installed/bin/scip-java", toolchain) in keys
     assert ("scip-ruby", "/installed/bin/bundle", None) in keys
+
+
+async def test_clang_compile_database_reaches_the_dump_and_keys_the_cache(tmp_path, monkeypatch):
+    """An explicit compilation database is handed to scip-clang, and its content
+    digest keys the dump cache: a reconfigured build re-dumps although every
+    indexed source is unchanged."""
+    import hashlib
+    import json
+
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag import precise_cache
+
+    _producers(monkeypatch)
+    dumps = {}
+    original_dump = type(next(p for p in all_providers() if p.name == "scip-clang")).dump
+
+    def recording_dump(self, tool, root, output_path, *, timeout_seconds, **kwargs):
+        dumps[self.name] = kwargs
+        return original_dump(self, tool, root, output_path, timeout_seconds=timeout_seconds)
+
+    for provider in all_providers():
+        monkeypatch.setattr(type(provider), "dump", recording_dump)
+    keys = []
+    real_key = precise_cache.dump_cache_key
+
+    def recording_key(provider_name, tool_path, file_hashes, toolchain=None):
+        keys.append((provider_name, toolchain))
+        return real_key(provider_name, tool_path, file_hashes, toolchain=toolchain)
+
+    monkeypatch.setattr(precise_cache, "dump_cache_key", recording_key)
+    compdb = tmp_path.parent / f"{tmp_path.name}-build" / "compile_commands.json"
+    compdb.parent.mkdir()
+    compdb.write_text(json.dumps([{"directory": str(tmp_path), "file": "a.cc"}]), "utf-8")
+    pipeline = _pipeline()
+    pipeline.config = SimpleNamespace(
+        precise_index_tool="auto",
+        precise_index_timeout_seconds=0,
+        precise_index_compile_commands=str(compdb),
+    )
+    pipeline._codegraph_repository = SimpleNamespace(manifest=dict.fromkeys(FILES, "h"))
+
+    await pipeline._harvest_precise_index(tmp_path)
+
+    assert dumps["scip-clang"] == {"compile_commands": str(compdb)}
+    digest = hashlib.sha256(compdb.read_bytes()).hexdigest()
+    assert (
+        "scip-clang",
+        {"compile_commands": str(compdb), "compile_commands_sha256": digest},
+    ) in keys
+
+
+async def test_clang_skip_is_not_hidden_by_a_dump_cached_before_databases_were_keyed(
+    tmp_path, monkeypatch
+):
+    """A sidecar written by an indexer that keyed nothing about the compilation
+    database used to validate for a root with no database: the reuse reported
+    `ok` for a dump this run cannot produce."""
+    pytest.importorskip("google.protobuf")
+    from victor.core.graph_rag import precise_cache, precise_providers
+    from victor.core.graph_rag._scip import scip_pb2
+    from victor.core.graph_rag.precise_providers import ScipClangProvider, extensions_for_provider
+
+    real_dump = ScipClangProvider.dump
+    transports = []
+    monkeypatch.setattr(
+        precise_providers, "_run_dump", lambda *args, **kwargs: transports.append(args)
+    )
+    _producers(monkeypatch)
+    monkeypatch.setattr(ScipClangProvider, "dump", real_dump)
+
+    manifest = dict.fromkeys(FILES, "h")
+    file_hashes = precise_cache.slice_manifest_for_extensions(
+        manifest, extensions_for_provider("scip-clang")
+    )
+    old_key = precise_cache.dump_cache_key("scip-clang", "/installed/bin/scip-clang", file_hashes)
+    artifact, _ = precise_cache.cache_paths(tmp_path, "scip-clang")
+    artifact.parent.mkdir(parents=True)
+    index = scip_pb2.Index()
+    index.metadata.tool_info.name = "scip-clang"
+    artifact.write_bytes(index.SerializeToString())
+    precise_cache.store(tmp_path, "scip-clang", artifact, old_key)
+    assert precise_cache.load_cached(tmp_path, "scip-clang", old_key) is not None
+
+    pipeline = _pipeline()
+    pipeline._codegraph_repository = SimpleNamespace(manifest=manifest)
+    result = await pipeline._harvest_precise_index(tmp_path)
+
+    assert result.per_language["scip-clang"] == "no-compile-database"
+    assert transports == []

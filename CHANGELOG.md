@@ -5,6 +5,178 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `victor graph index --compile-commands PATH` (setting
+  `search.graph.precise_index_compile_commands`) names the `scip-clang`
+  compilation database for `--precise`. It may sit outside the indexed tree but
+  must name files under it (otherwise `compile-database-outside-root`; a
+  relative entry resolves against its `directory`, as `scip-clang` resolves it,
+  and letter case is ignored on volumes that ignore it).
+  Discovery also covers the CMake preset layouts (`build/<preset>/`,
+  `*/build/<preset>/`) and no longer picks one of several databases at the same
+  depth (`ambiguous-compile-database`): such a repository now names one. The
+  database's digest keys the dump cache.
+
+### Changed
+
+- Black, Ruff and MyPy are pinned in one place. CI now installs Black through
+  `scripts/ci/release_contract.py black` (26.10.1; the workflow carried a separate,
+  stale `26.3.1`), Ruff moves to 0.17.6, and `.pre-commit-config.yaml` mirrors the
+  same versions (it was at Black 26.3.1, Ruff 0.15.20 and MyPy 1.14.1). Guard tests
+  keep the `ci` and `dev` pins and the pre-commit revisions equal, so a bump of one
+  of these tools moves all three in the same change.
+
+### Fixed
+
+- CodeGraph 0.16.0 indexes C/C++ headers and C++ identities structurally. A `.h`
+  header is classified as C or C++ from its own text (project default: C++, or C
+  for a C-only inventory) and is re-parsed with the other grammar when only that
+  one parses cleanly; previously every `.h` was parsed as C, so C++ headers were
+  partial parses. C++ namespaces and out-of-class qualifiers (`A::B::f`) now take
+  part in the fully qualified name without becoming containers, destructors are
+  named `~T`, reference-returning functions are extracted, and template heads,
+  return types of templated definitions and `const`/`&`/`&&`/`noexcept` qualifiers
+  discriminate overloads. On apache/arrow this takes partial `.h` parses from
+  863 of 951 to 555, C/C++ files quarantined for identity collisions from 347
+  to 141, and syntax-partial C/C++ files from 1,568 to 1,258. C++ stable keys
+  change: rebuild with `victor graph index --force`.
+- CodeGraph 0.16.1 quarantines the declarations that share a structural key, and
+  what they contain, instead of their whole file (`projection_status:
+  symbols_quarantined`; `file_marker_only` remains for a file whose every
+  declaration is ambiguous). The file's other symbols and its statement nodes are
+  indexed. A call into an ambiguous name stays unresolved rather than being bound
+  to a namesake in another file or to a declaration that survives at the same
+  path. On apache/arrow this recovers 11,554 symbols across 177 files (2,769
+  ambiguous declarations and their members stay out); 9 files remain markers.
+  Rebuild with `victor graph index --force`.
+
+## [0.35.0] - Source candidate, 2026-11-27
+
+### Added
+
+- C/C++ header indexing with structural C++ identities: headers are classified
+  C vs C++ from their text, in-class vs out-of-class definitions cannot collide,
+  and the header default is computed from the full discovered inventory every
+  run (#2041). The scip-clang compilation database can be named explicitly
+  (config or `--compile-commands`) with typed skips for missing/ambiguous/
+  outside-root databases (#2042).
+
+### Fixed
+
+- Codegraph grammar port: tree-sitter-language-pack 1.26+ wraps item attributes
+  in an `attributes` container child; dual-shape walks support both generations,
+  collection is nearest-first so signature prefixes stay byte-identical across
+  packs (no cross-pack identity drift), and the module attribute walk is bounded
+  at the first non-attribute sibling (an unbounded walk stole `#[path]`/
+  `#[cfg_attr]` from preceding items and silently dropped cross-file edges —
+  found by the promotion review). Pin lifted to `<1.29`; victor-codegraph
+  0.16.1 (#2039, #2040, #2047).
+- LiveDisplayRenderer teardown is guaranteed on every exit path: a renderer
+  fixture with `finally` + invariant, a context-manager form, and idempotent
+  cleanup close the rich-Live xdist worker wedge behind two promotion incidents
+  (#2038).
+- Colliding symbols are quarantined individually instead of poisoning whole
+  files; edges into quarantined symbols are dropped at all three layers with a
+  fail-closed backstop (#2045).
+
+### Changed
+
+- black/ruff/mypy pinned in one place at their latest releases, with guard
+  tests (#2043).
+
+### Upgrade notes
+
+- Deployment locks move to `sandhi-gateway==0.27.0` (floor stays `>=0.26.0`;
+  0.27.0 is the published Latest, validated by the 0.34.1 fresh-install smoke).
+- **victor-codegraph 0.16.1 is a hard pin** (`victor-codegraph[treesitter]==0.16.1`);
+  it publishes ahead of this release.
+- **C++ stable keys changed** — re-index C/C++ projects with
+  `victor graph index --force`. Rust keys remain join-compatible across the
+  language-pack upgrade.
+
+## [0.34.1] - Source candidate, 2026-11-26
+
+### Fixed
+
+- Subagent stream error terminal: the context-size fallback's inner `except ... as e`
+  shadowed the outer handler's binding; Python's implicit `del` then crashed the
+  error-chunk construction with `UnboundLocalError` exactly when a stream failure was
+  severe enough that `get_messages()` also failed — the parent saw a dead generator
+  instead of the graceful error terminal (#2028).
+- Planning complexity gate compared enum string values lexicographically
+  (`"complex" < "moderate" < "simple"`), inverting the gate: complex tasks did not
+  trigger planning at the default threshold while simple ones did. Now compared by
+  semantic rank (#2029).
+- Produced-artifact list extraction kept prose lead-in lines ("Found the following:")
+  as routing items when real items followed; colon-terminated lead-ins are dropped
+  (#2029).
+- Planning provider overrides (CLI `provider:model` and profile `planning_provider`)
+  imported `get_provider` from a module that does not exist, silently swallowed by the
+  surrounding handler — the overrides never worked. Both sites now resolve through
+  `victor.providers.registry.create_provider_or_none` with a miss-fallback to the
+  parent provider (#2030).
+- The buffered `execute()` path carried the same shadowed-exception defect #2028 fixed
+  in `stream_execute` (found by the release adversarial review, one method over): the
+  details dict crashed with `UnboundLocalError` when a chat failure coincided with a
+  `get_messages()` failure. Distinct binding + RED-first negative test; the
+  planning-complexity rank map also gained an exhaustiveness guard (#2033).
+- The codegraph package pins `tree-sitter-language-pack<1.26`: upstream grammar packs
+  from 1.26 changed cfg-variant node identity and broke the Rust identity/relations
+  contract tests (grammar port tracked as a follow-up) (#2035).
+
+### Changed
+
+- Integration CI shards run with a per-test `--timeout=300`: one hung test costs one
+  test, not the 30-minute shard (#2025; the 0.34.0 promotion hit this with a rich-Live
+  TUI hang at 99%).
+- ADR-036 controlled battery recorded green; field-data enablement hints corrected to
+  name the effective CLI switch (#2026, #2027).
+
+## [0.34.0] - Source candidate, 2026-11-25
+
+### Added
+
+- Background subagent mode: `spawn_subagent` accepts `background=true` with
+  `subagent_status` / `subagent_result` companion tools and a per-session bounded run
+  registry; hallucinated run ids are refused and terminal events notify the session
+  (#2018, completing the FOU-A1 arc with foreground subagents).
+- `browser_tool`: headless-browser page read for JavaScript-required pages (FOU-A5
+  phase 2, #2016), with example surface reconciled to the shipped tools (#2017).
+- Sandhi endpoint dialect configuration: `endpoint_profile` and `protocol` are admitted
+  on `ProviderConfig`, and a configured `protocol` now reaches the typed transport on
+  the direct path (previously it loaded nowhere and was silently dormant). Selecting
+  `openai_chat_completions` switches the request dialect to `max_completion_tokens` for
+  OpenAI's newer models; the bindings fail closed on an unknown profile (#2019).
+
+### Changed
+
+- The Sandhi consumer contract is now a floor: `pyproject.toml` declares
+  `sandhi-gateway>=0.26.0` (the endpoint-profile dialect requires 0.26+), so sandhi
+  maintenance/minor releases ride without a Victor edit. Deployment requirement locks
+  stay exact (`==0.26.0`), runtime installation errors and docs name the floor, and the
+  alignment guards enforce the split — including that no exact pin reappears in
+  pyproject and no floor appears in the locks (#2021).
+
+### Fixed
+
+- Graph checkpointing: a completed run is checkpointed at the END boundary so FEP-0032
+  completed-thread resume guarantees hold even when the last node's write raced the
+  run's completion (#2000).
+
+## [0.33.2] - Source candidate, 2026-11-23
+
+### Fixed
+
+- Preserve explicit profile and account API keys in direct OpenAI and Z.AI mode.
+- Warn when a local gateway or endpoint override takes precedence over a pulled Sandhi profile.
+
+## [0.33.1] - Source candidate, 2026-11-23
+
+- Pin the published Sandhi 0.24.1 Python wheel.
+- Expose a scoped planning-session API for embedded gateway callers and an
+  async exact-value check for model reasoning effort.
+
 ## [0.33.0] - Source candidate, 2026-11-22
 
 Prepared package version: **0.33.0**.

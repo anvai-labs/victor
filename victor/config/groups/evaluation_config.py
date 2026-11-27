@@ -30,8 +30,10 @@ class EvaluationSettings(BaseModel):
 
     Attributes:
         field_data_enabled: Master switch for the ADR-036 field-data recorder.
-            Default OFF — no session is recorded unless opted in (env override
-            ``VICTOR_FIELD_DATA_ENABLED``).
+            Default OFF — no session is recorded unless opted in. CLI chat
+            sessions load env/.env only, so the effective switch there is the
+            ``VICTOR_FIELD_DATA_ENABLED`` env var; this group binds via
+            ``from_sources`` consumers.
         field_data_store_dir: Override for the JSONL store directory. None =
             the Victor state dir ``evaluation/`` subfolder
             (``~/.victor/evaluation``).

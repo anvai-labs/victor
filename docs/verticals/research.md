@@ -21,8 +21,9 @@ The Research vertical uses the following tools from `victor.tools.tool_names`:
 
 | Tool | Description |
 |------|-------------|
-| `web_search` | Search the internet for information |
-| `web_fetch` | Fetch and read content from URLs |
+| `web_search` | Search the web (DuckDuckGo keyless; Tavily/Brave/Serper with `provider=` + a key) |
+| `web_fetch` | Fetch and read content from URLs (title + main text; `render="browser"` for JS pages) |
+| `browser_tool` | Headless-browser read for JS-required pages via the agentbrowser service |
 | `read` | Read local files and reports |
 | `write` | Write research reports |
 | `edit` | Modify existing documents |
@@ -261,7 +262,8 @@ configs = ResearchAssistant.get_capability_configs()
 # Source settings
 sources:
   web:
-    search_engines: [google, bing, duckduckgo]
+    # web_search providers (FOU-A5): key-gated API adapters + keyless DuckDuckGo
+    providers: [tavily, brave, serper, duckduckgo]
     result_limit: 20
   academic:
     databases: [google_scholar, pubmed, arxiv]

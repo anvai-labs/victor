@@ -207,6 +207,12 @@ been pending the override-ergonomics question below.
   cycle) pauses again.
 - Consequence: re-invoking a thread whose last checkpoint is a completed final node executes
   nothing (it previously re-ran the last node). An explicit `start_node` still overrides.
+- Update 2026-11-21 (FOU-C2 item 24, #2000): the consequence above silently broke under sparse
+  `checkpoint_after_nodes` (the agentic-loop executor compiles with `{"act"}`) — a completed
+  run's last durable checkpoint sat mid-graph, so re-invoking the thread re-executed the
+  completed tail. The runtime loop now records an END-boundary completion checkpoint when the
+  last completed node was not already durably written; full checkpointing gains no extra row,
+  and Send fan-out endings keep the documented re-run fallback.
 
 ## Benefits
 

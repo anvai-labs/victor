@@ -15,7 +15,7 @@ It does not install Victor itself or enable every optional feature.
 | HTTP / GraphQL API | `pip install 'victor-ai[api]'` | FastAPI, Uvicorn, Strawberry |
 | Local text embeddings | `pip install 'victor-ai[embeddings]'` | Sentence Transformers, Torch, LanceDB, Arrow |
 | Google provider | `pip install 'victor-ai[google]'` | Google GenAI SDK |
-| Browser tools | `pip install 'victor-ai[web]'` | Playwright, extraction libraries; browser installed separately |
+| Browser tools | the agentbrowser service (127.0.0.1:5709) | browser_tool primary substrate; local Playwright fallback: `pip install 'victor-ai[browser-playwright]'` + `playwright install chromium`; `web` extra keeps Playwright + extraction libraries for web_fetch render |
 | Docker tools | `pip install 'victor-ai[docker]'` | Docker SDK; Docker daemon is separate |
 | Coding, DevOps, research definitions | Install the corresponding `victor-*` vertical | Contracts SDK; coding also needs codegraph. Base definitions do not require NumPy or the Victor runtime. |
 | RAG / data analysis vertical | Install `victor-rag` / `victor-dataanalysis` | Embeddings stack / Pandas, respectively |

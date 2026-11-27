@@ -100,10 +100,8 @@ VERTICAL_TOOLS = {
     ],
     "research": [
         "web_search",
-        "fetch_url",
-        "summarize",
-        "cite",
-        "extract_entities",
+        "web_fetch",
+        "browser_tool",
     ],
 }
 

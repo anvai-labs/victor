@@ -52,6 +52,17 @@ def test_support_comes_from_exact_static_descriptor(monkeypatch):
     assert model.supports_reasoning_effort(None) is False
 
 
+@pytest.mark.asyncio
+async def test_exact_effort_is_admitted_only_when_the_model_advertises_it(monkeypatch):
+    monkeypatch.setattr(st, "_sg", FakeGateway(static_descriptor(True)))
+    model = provider()
+    assert await model.supports_reasoning_effort_async("gpt-5") is True
+    assert await model.supports_reasoning_effort_async("gpt-5", effort="low") is True
+    assert await model.supports_reasoning_effort_async("gpt-5", effort="high") is False
+    assert await model.supports_reasoning_effort_async("gpt-5", effort="LOW") is False
+    assert await model.supports_reasoning_effort_async("gpt-5-chat-latest", effort="low") is False
+
+
 def test_missing_or_unsupported_static_metadata_fails_closed(monkeypatch):
     monkeypatch.setattr(st, "_sg", FakeGateway(static_descriptor(False)))
     assert provider().supports_reasoning_effort("gpt-5") is False

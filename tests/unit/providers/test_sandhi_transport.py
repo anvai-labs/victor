@@ -167,6 +167,32 @@ def test_zai_declares_terminal_totals_profile_for_its_direct_coding_endpoint(mon
     assert runtime.calls[0][1]["base_url"] == "https://api.z.ai/api/coding/paas/v4"
 
 
+def test_configured_protocol_reaches_the_direct_binding_handle(monkeypatch):
+    """A providers-section ``protocol`` is a dialect declaration, not dead config.
+
+    Before the explicit-attribute read gained its extra_config fallback, this
+    field loaded from profiles.yaml and then never reached the binding — the
+    same dormancy class the api-dormancy audit calls out. It must be forwarded
+    to the handle exactly like ``endpoint_profile``.
+    """
+    runtime = install_runtime(monkeypatch)
+    provider = make_provider()
+    provider.extra_config["protocol"] = "responses"
+    provider._typed_provider("deepseek-chat")
+    assert runtime.calls[0][1]["protocol"] == "responses"
+
+
+def test_provider_declared_protocol_wins_over_configured_protocol(monkeypatch):
+    runtime = install_runtime(monkeypatch)
+    provider = make_provider()
+    # A provider class that declares its own protocol (e.g. gateway OAuth
+    # dialects set ``_sandhi_protocol``) keeps authority over a configured value.
+    provider._sandhi_protocol = "responses"
+    provider.extra_config["protocol"] = "chat_completions"
+    provider._typed_provider("deepseek-chat")
+    assert runtime.calls[0][1]["protocol"] == "responses"
+
+
 @pytest.mark.asyncio
 async def test_endpoint_profile_cannot_be_a_model_call_option(monkeypatch):
     runtime = install_runtime(monkeypatch)

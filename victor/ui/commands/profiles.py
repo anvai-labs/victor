@@ -26,9 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import typer
-from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
 from rich.syntax import Syntax
 from victor.ui.console import get_console
 import yaml
@@ -630,6 +628,27 @@ def _write_central_profile(config_path: Path, text: str) -> Path:
     return target
 
 
+def _local_gateway_override(config_path: Path, provider: str) -> Optional[str]:
+    """Identify a local setting that supersedes the pulled Sandhi gateway."""
+    try:
+        local = ProfileManager.for_config_dir(config_path).load_profiles()
+    except UnicodeError:
+        return None
+    if not isinstance(local, dict):
+        return None
+
+    profiles = local.get("profiles")
+    profile = profiles.get("sandhi") if isinstance(profiles, dict) else None
+    if isinstance(profile, dict) and ("gateway" in profile or "base_url" in profile):
+        return "profiles.sandhi"
+
+    providers = local.get("providers")
+    settings = providers.get(provider) if isinstance(providers, dict) else None
+    if isinstance(settings, dict) and "gateway" in settings:
+        return f"providers.{provider}.gateway"
+    return None
+
+
 @profiles_app.command("pull")
 def profile_pull(
     gateway_url: Optional[str] = typer.Option(
@@ -786,6 +805,11 @@ def profile_pull(
     console.print(f"  Provider: {translated.provider} ({translated.model})")
     if translated.virtual_key:
         console.print(f"  Key:      {mask_secret(translated.virtual_key)} (stored 0600)")
+    if translated.mode == "gateway":
+        override = _local_gateway_override(config_path, translated.provider)
+        if override:
+            console.print("[yellow]Warning: profiles.yaml overrides the pulled gateway.[/]")
+            console.print(f"  Review [bold]{override}[/] before using the sandhi profile.")
     console.print(
         "\n[dim]Re-run [bold]victor profiles pull[/] after the operator changes central "
         "defaults. Your profiles.yaml overrides this file key-by-key.[/]"
