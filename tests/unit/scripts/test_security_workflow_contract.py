@@ -251,6 +251,7 @@ def test_checksums_verify_flat_downloads_including_vsix_and_sbom(release_contrac
     [
         ("ruff", "0.16.7", ("ci-fast.yml", "release.yml")),
         ("mypy", "2.4.0", ("ci-fast.yml", "ci-contracts.yml")),
+        ("black", "26.10.1", ("ci-fast.yml",)),
     ],
 )
 def test_type_and_lint_tools_use_the_project_ci_pin(
@@ -550,3 +551,37 @@ def test_quick_tests_gate_whole_push_not_just_tip():
     assert '--before "$PUSH_BEFORE"' in run
     assert 'git diff --name-only "$COMPARE_REF...HEAD"' in run
     assert "2>/dev/null || true" not in run
+
+
+def test_root_extras_pin_each_lint_tool_once(release_contract):
+    """`dev` repeats the `ci` pins (the Makefile's `lint` installs `.[dev]`); every
+    exact pin of a lint tool in a root extra must equal the `ci` pin."""
+    import tomllib
+
+    extras = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"][
+        "optional-dependencies"
+    ]
+    for tool in ("black", "ruff", "mypy"):
+        expected = release_contract.tool_requirement(ROOT / "pyproject.toml", tool)
+        for name, requirements in extras.items():
+            pins = [r for r in requirements if r.split("==")[0].split("[")[0].strip() == tool]
+            assert all(pin == expected for pin in pins), (tool, name, pins)
+
+
+def test_pre_commit_mirrors_the_project_tool_pins(release_contract):
+    """A local hook run must check with the versions CI checks with."""
+    config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())
+    repositories: dict[tuple[str, ...], dict] = {}
+    for repository in config["repos"]:
+        owner = tuple(repository["repo"].rstrip("/").removesuffix(".git").rsplit("/", 2)[-2:])
+        assert owner not in repositories, f"{owner} is configured twice"
+        repositories[owner] = repository
+    owners = {
+        "black": ("psf", "black"),
+        "ruff": ("astral-sh", "ruff-pre-commit"),
+        "mypy": ("pre-commit", "mirrors-mypy"),
+    }
+    for tool, owner in owners.items():
+        pin = release_contract.tool_requirement(ROOT / "pyproject.toml", tool).split("==")[1]
+        revision = str(repositories[owner]["rev"]).removeprefix("v")
+        assert revision == pin, tool

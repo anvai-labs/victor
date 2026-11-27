@@ -171,14 +171,14 @@ def main() -> None:
     artifacts.add_argument(
         "--package", choices=["victor-ai", "victor-codegraph"], default="victor-codegraph"
     )
-    for tool in ("ruff", "mypy"):
+    for tool in ("ruff", "mypy", "black"):
         tool_parser = commands.add_parser(tool)
         tool_parser.add_argument("--project", type=Path, default=Path("pyproject.toml"))
     checksums = commands.add_parser("checksums")
     checksums.add_argument("artifacts", type=Path)
     checksums.add_argument("output", type=Path)
     args = parser.parse_args()
-    if args.command in {"ruff", "mypy"}:
+    if args.command in {"ruff", "mypy", "black"}:
         print(tool_requirement(args.project, args.command))
     elif args.command == "checksums":
         write_checksums(args.artifacts, args.output)
