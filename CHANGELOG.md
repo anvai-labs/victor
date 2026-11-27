@@ -87,6 +87,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Upgrade notes
 
+- Deployment locks move to `sandhi-gateway==0.27.0` (floor stays `>=0.26.0`;
+  0.27.0 is the published Latest, validated by the 0.34.1 fresh-install smoke).
 - **victor-codegraph 0.16.1 is a hard pin** (`victor-codegraph[treesitter]==0.16.1`);
   it publishes ahead of this release.
 - **C++ stable keys changed** — re-index C/C++ projects with
