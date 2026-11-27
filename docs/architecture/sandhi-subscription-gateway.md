@@ -677,9 +677,13 @@ model discovery can expose the sanitized effective limits without revealing
 backend URLs, credentials or provider references.
 
 Sandhi 0.21 introduced exact-policy comparison and sanitized discovery. Victor's
-embedded `sandhi-gateway==0.24.0` binding retains wire compatibility.
-Enable the declared 600-second planning budget only after the target gateway
-reports an effective policy that admits it.
+embedded `sandhi-gateway>=0.26.0` binding retains wire compatibility. Gateway
+0.27.0 is optional for this feature and adds the structured edge-timeout frame
+below. Enable the declared 600-second planning budget only after the target
+gateway reports an effective policy that admits it (the gateway default body
+deadline rose to a 540-second base with a token-scaled estimate under the same
+840-second ceiling, so long planning streams no longer need a per-profile hint
+to fit).
 
 ```yaml
 providers:
@@ -688,6 +692,22 @@ providers:
     stream_idle_timeout_secs: 180
     stream_body_timeout_secs: 600
 ```
+
+### Owner-enforced body deadline frame (gateway 0.27.0, ADR-0050)
+
+When the gateway's own body deadline ends a stream, it now delivers a
+structured error frame in-band and closes the stream cleanly instead of
+tearing the chunked response: an `error` event whose `code` is `"timeout"`
+with `http_status` 504 and details carrying the timeout phase and any
+measured usage. Victor's transport already maps `code == "timeout"` to its
+timeout diagnosis (`ProviderTimeoutError`), so an edge body-cap kill
+classifies as a timeout rather than a connection failure — no client-side
+change. Upstream-origin failures (provider errors, disconnects, idle
+transport limits) keep the torn behavior and their existing classification.
+The frame is a transport terminator, not a settlement receipt: the gateway
+still records `outcome=timeout`, and a trailing `data: [DONE]` on OpenAI-shaped
+planes does not imply success. Older gateway binaries tear instead of framing;
+clients tolerate both until the edge is upgraded.
 
 ## Resource-audience co-design: local candidate acceptance
 
