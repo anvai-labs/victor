@@ -540,6 +540,64 @@ def test_clang_join_end_to_end_hash_and_cross_file(tmp_path):
     assert harvest.unjoined == 0  # file pseudo-symbols never pool
 
 
+def test_clang_join_matches_codegraph_cpp_names_for_namespaced_members(tmp_path):
+    """Codegraph C++ names agree with scip-clang descriptors: namespaces qualify
+    identity only (SCIP drops them too), and a destructor is ``~Type`` on both sides,
+    so it never joins to the constructor or the class."""
+    import pytest
+
+    pytest.importorskip("google.protobuf")
+    pytest.importorskip("tree_sitter_language_pack")
+    from victor_codegraph import parse
+
+    from victor.core.graph_rag._scip import scip_pb2
+    from victor.core.graph_rag.precise_index import join_occurrences
+
+    source = (
+        "namespace arrow {\n"
+        "class Array {\n public:\n  Array() {}\n  ~Array() {}\n  int Length() const { return 0; }\n};\n"
+        "int Use() { Array a; return a.Length(); }\n"
+        "}  // namespace arrow\n"
+    )
+    parsed = parse(source, language="cpp", file_path="src/array.h")
+    by_path = {(*s.scope_chain, s.simple_name): s for s in parsed.symbols}
+
+    class N:
+        def __init__(self, symbol):
+            parent = by_path.get(tuple(symbol.scope_chain))
+            self.node_id, self.name, self.file = symbol.id, symbol.simple_name, "src/array.h"
+            self.type = symbol.symbol_type.name.lower()
+            self.parent_id = parent.id if parent is not None else None
+            self.line = symbol.location.start_line
+            self.end_line = symbol.location.end_line
+
+    nodes = {"src/array.h": [N(s) for s in parsed.symbols if s.symbol_type.name != "MODULE"]}
+    names = {n.name for n in nodes["src/array.h"]}
+    assert {"Array", "~Array", "Length", "Use"} <= names
+
+    index = scip_pb2.Index()
+    doc = index.documents.add()
+    doc.relative_path = "src/array.h"
+    rows = [
+        ("cxx . . $ arrow/Array#~Array(49f6e7a06ebc5aa8).", 4, 1),
+        ("cxx . . $ arrow/Array#Length(1a2b3c4d5e6f7081).", 5, 1),
+        ("cxx . . $ arrow/Use(0f1e2d3c4b5a6978).", 7, 1),
+        ("cxx . . $ arrow/Array#Length(1a2b3c4d5e6f7081).", 7, 0),
+    ]
+    for symbol, line, roles in rows:
+        occ = doc.occurrences.add()
+        occ.symbol = symbol
+        occ.symbol_roles = roles
+        occ.range.extend([line, 0])
+
+    assert CC.symbol_parts(rows[0][0]) == {"file": "", "path": "Array.~Array"}
+    harvest = join_occurrences(index, nodes, symbol_parts=CC.symbol_parts)
+    use = next(n.node_id for n in nodes["src/array.h"] if n.name == "Use")
+    length = next(n.node_id for n in nodes["src/array.h"] if n.name == "Length")
+    assert [(src, dst) for src, dst, *_ in harvest.edges] == [(use, length)]
+    assert harvest.unjoined == 0
+
+
 def test_java_join_end_to_end_and_honest_constructor_gap(tmp_path):
     """Captured scip-java shapes: methods join through the class-parented
     scope; the `<init>` constructor has NO codegraph node (the java

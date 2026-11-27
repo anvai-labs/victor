@@ -67,7 +67,7 @@ from .repository_index import (
     relation_key,
 )
 
-__version__ = "0.15.1"
+__version__ = "0.16.0"
 
 __all__ = [
     "__version__",
