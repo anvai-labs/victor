@@ -18,6 +18,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   depth (`ambiguous-compile-database`): such a repository now names one. The
   database's digest keys the dump cache.
 
+### Changed
+
+- Black, Ruff and MyPy are pinned in one place. CI now installs Black through
+  `scripts/ci/release_contract.py black` (26.10.1; the workflow carried a separate,
+  stale `26.3.1`), Ruff moves to 0.17.6, and `.pre-commit-config.yaml` mirrors the
+  same versions (it was at Black 26.3.1, Ruff 0.15.20 and MyPy 1.14.1). Guard tests
+  keep the `ci` and `dev` pins and the pre-commit revisions equal, so a bump of one
+  of these tools moves all three in the same change.
+
 ### Fixed
 
 - CodeGraph 0.16.0 indexes C/C++ headers and C++ identities structurally. A `.h`
