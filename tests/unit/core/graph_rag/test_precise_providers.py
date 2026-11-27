@@ -464,6 +464,22 @@ def test_clang_volume_probe_reads_the_filesystem(tmp_path):
     assert _volume_ignores_case(tmp_path / "1234") is False  # no letter case to swap
 
 
+def test_clang_volume_probe_requires_same_inode_not_mere_existence(tmp_path):
+    """The swapcase-existence probe false-positived on Linux sibling dirs.
+
+    Two directories differing only in case exist side by side on a
+    case-SENSITIVE filesystem — that must NOT enable case folding. Only a
+    genuine case-folding volume (same inode under both spellings) does.
+    """
+    from victor.core.graph_rag.precise_providers import _volume_ignores_case
+
+    (tmp_path / "MyProj").mkdir()
+    (tmp_path / "mYpROJ").mkdir()  # case-differing sibling: distinct inode
+    assert _volume_ignores_case(tmp_path / "MyProj") is False
+    # A path with no swapped-case twin anywhere stays False.
+    assert _volume_ignores_case(tmp_path / "1234") is False
+
+
 def test_clang_ambiguity_is_explained_once_with_both_remedies(tmp_path, caplog):
     _compdb(tmp_path / "cpp" / "build" / "debug" / "compile_commands.json", tmp_path, [])
     _compdb(tmp_path / "cpp" / "build" / "release" / "compile_commands.json", tmp_path, [])

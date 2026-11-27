@@ -86,8 +86,28 @@ def detect_language(file_path: str) -> str | None:
 AMBIGUOUS_HEADER_EXTENSIONS = frozenset({".h"})
 C_FAMILY = frozenset({"c", "cpp"})
 
-_COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
-_STRING = re.compile(r'"(?:\\.|[^"\\\n])*"')
+# One combined scan, strings FIRST: stripping comments before strings let a
+# '/*' inside a string literal (const char *s = "/*";) eat everything up to a
+# later '*/' via the DOTALL match, blanking the file's language signals; the
+# naive swap has the mirror bug ('"' inside a comment). The alternation makes
+# whichever construct starts first win.
+_TOKEN = re.compile(
+    r'"(?:\\.|[^"\\\n])*"'  # string literal (wins if it starts first)
+    r"|//[^\n]*"  # line comment
+    r"|/\*.*?\*/",  # block comment (DOTALL below)
+    re.DOTALL,
+)
+
+
+def _strip_comments_and_normalize_strings(content: str) -> str:
+    """Replace string literals with "" and comments with a space, in one scan."""
+
+    def repl(match: "re.Match[str]") -> str:
+        return '""' if match.group(0).startswith('"') else " "
+
+    return _TOKEN.sub(repl, content)
+
+
 _CPP_SIGNALS = tuple(
     re.compile(pattern, re.MULTILINE)
     for pattern in (
@@ -129,7 +149,7 @@ def classify_header(content: str) -> str | None:
     is C unless it also carries more distinct C++ constructs.
     """
 
-    text = _STRING.sub('""', _COMMENT.sub(" ", content))
+    text = _strip_comments_and_normalize_strings(content)
     cpp = sum(1 for pattern in _CPP_SIGNALS if pattern.search(text))
     c = sum(1 for pattern in _C_SIGNALS if pattern.search(text))
     if _CPLUSPLUS_GUARD.search(text):
