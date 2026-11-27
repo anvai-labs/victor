@@ -310,6 +310,7 @@ class TestGraphManager:
                     precise_index_java_home="/opt/jdk-21",
                     precise_index_build_args={"scip-java": [":core:compileJava"]},
                     precise_index_build_root="/srv/checkout",
+                    precise_index_compile_commands="/srv/build/compile_commands.json",
                 )
             )
         )
@@ -323,6 +324,7 @@ class TestGraphManager:
             "precise_index_java_home": "/opt/jdk-21",
             "precise_index_build_args": {"scip-java": [":core:compileJava"]},
             "precise_index_build_root": "/srv/checkout",
+            "precise_index_compile_commands": "/srv/build/compile_commands.json",
         }
 
     def test_precise_refresh_settings_fall_back_to_defaults_on_error(self, monkeypatch):
@@ -341,6 +343,7 @@ class TestGraphManager:
             "precise_index_java_home": "",
             "precise_index_build_args": {},
             "precise_index_build_root": "",
+            "precise_index_compile_commands": "",
         }
 
     @pytest.mark.asyncio

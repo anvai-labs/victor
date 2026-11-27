@@ -266,7 +266,21 @@ settings above:
 
 ```bash
 victor index graph index --precise --precise-timeout 3600
+# C/C++ with a build directory outside the indexed tree (optional):
+victor index graph index --precise --compile-commands /path/to/build/compile_commands.json
 ```
+
+`--compile-commands PATH` (or `search.graph.precise_index_compile_commands`) names
+the `scip-clang` compilation database explicitly. It may sit outside the indexed
+tree, but at least one entry must name a file under it; letter case is ignored on
+volumes that ignore it. A relative `file` entry resolves against its own
+`directory`, as `scip-clang` resolves it, so a database with source-relative
+paths and a separate build directory is skipped rather than left to time out:
+generate it from an absolute source path (`cmake -S /abs/path`). The database's
+content digest keys the dump cache. A relative `--compile-commands` path
+resolves against the invoking directory. A relative setting value resolves
+against the indexed tree, because background refresh and watch read the
+setting without an invoking directory.
 
 Harvest health (per-provider outcome and join accounting) is printed in the
 index summary and persisted to `.victor/graph-index-summary.json`, which
@@ -283,7 +297,7 @@ others. Grammars are pinned against real dumps — see ADR-032.
 | Python | `scip-python` | `npm i -g scip-python` | python project |
 | TypeScript/JavaScript | `scip-typescript` | `npm i -g scip-typescript` | `tsconfig.json` (root or one level down) |
 | Rust | `rust-analyzer` | `rustup component add rust-analyzer` | `Cargo.toml` (root or one level down) |
-| C / C++ | `scip-clang` | [scip-clang release binary](https://github.com/sourcegraph/scip-clang/releases) on PATH | `compile_commands.json` (root, `build/`, or one level down — generate with `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON` or `bear`) |
+| C / C++ | `scip-clang` | [scip-clang release binary](https://github.com/sourcegraph/scip-clang/releases) on PATH | `compile_commands.json` (root, `build/`, one level down, or `<dir>/build/<preset>/` and `build/<preset>/` for CMake presets — generate with `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON` or `bear`) |
 | Java | `scip-java` | [scip-java launcher](https://github.com/scip-code/scip-java/releases) on PATH (needs a JDK) | `pom.xml` / gradle build file |
 | Ruby | `scip-ruby` | `gem install scip-ruby` (run as `bundle exec scip-ruby`) | `Gemfile` **with the scip-ruby gem in it**, bundled |
 | Go | `scip-go` | `go install github.com/scip-code/scip-go/cmd/scip-go@latest` | `go.mod` (root or one level down) |
@@ -291,6 +305,13 @@ others. Grammars are pinned against real dumps — see ADR-032.
 Notes:
 - `scip-clang` filters documents to its CWD — victor always runs it from
   the repo root, so dumps include exactly the indexed corpus.
+- `scip-clang` never picks among equal candidates or generates a database.
+  Two databases at the same discovery depth skip with
+  `ambiguous-compile-database`; none skips with `no-compile-database`; an
+  explicit path that does not exist skips with `compile-database-missing`;
+  a database whose entries all name files outside the indexed tree skips
+  with `compile-database-outside-root` (it would otherwise yield an empty
+  index).
 - `scip-ruby` requires the *indexed project* to carry the gem in its
   Gemfile (the wrapper refuses direct invocation); without that setup the
   harvest reports a named dump failure rather than pretending.

@@ -24,6 +24,7 @@ _GRAPH_ENV_VARS = (
     "VICTOR_SEARCH__GRAPH__PRECISE_INDEX_TIMEOUT_SECONDS",
     "VICTOR_SEARCH__GRAPH__PRECISE_INDEX_TOOL",
     "VICTOR_SEARCH__GRAPH__ENABLE_SCOPE_BINDING",
+    "VICTOR_SEARCH__GRAPH__PRECISE_INDEX_COMPILE_COMMANDS",
 )
 
 
@@ -54,6 +55,7 @@ async def _run_index(
     parse_workers=None,
     path=None,
     own_store=False,
+    compile_commands=None,
 ):
     """Drive ``_index_async`` with the pipeline mocked; return the captured
     GraphIndexConfig and the rendered summary."""
@@ -79,6 +81,7 @@ async def _run_index(
             parse_workers=parse_workers,
             settings=settings,
             own_store=own_store,
+            compile_commands=compile_commands,
         )
     return ok, pipeline.call_args[0][1], output.export_text()
 
@@ -148,6 +151,7 @@ async def test_defaults_without_precise_configuration(tmp_path):
     assert config.precise_index_java_home == ""
     assert config.precise_index_build_args == {}
     assert config.precise_index_build_root == ""
+    assert config.precise_index_compile_commands == ""
 
 
 async def test_cli_flags_override_settings(tmp_path):
@@ -559,3 +563,35 @@ def test_conflicting_intent_spellings_rejected_at_yaml_load(tmp_path):
             "codebase:\n  codebase_intent_indexing_enabled: true\n"
             "embedding:\n  codebase_intent_indexing_enabled: false\n",
         )
+
+
+async def test_compile_commands_setting_and_flag_reach_the_index_config(tmp_path, monkeypatch):
+    """search.graph.precise_index_compile_commands reaches GraphIndexConfig, and
+    --compile-commands wins over it, resolved against the invoking directory."""
+    from victor.core.graph_rag.indexing import GraphIndexStats
+
+    settings = _settings_from_yaml(
+        tmp_path,
+        "search:\n  graph:\n    precise_index_compile_commands: /srv/build/compile_commands.json\n",
+    )
+    _, configured, _ = await _run_index(tmp_path, settings, GraphIndexStats(files_processed=1))
+    assert configured.precise_index_compile_commands == "/srv/build/compile_commands.json"
+
+    shell = tmp_path / "shell"
+    shell.mkdir()
+    monkeypatch.chdir(shell)
+    _, flagged, _ = await _run_index(
+        tmp_path,
+        settings,
+        GraphIndexStats(files_processed=1),
+        compile_commands="out/compile_commands.json",
+    )
+    assert flagged.precise_index_compile_commands == str(
+        (shell / "out" / "compile_commands.json").resolve()
+    )
+
+    # A blank flag is "not given": the setting still applies.
+    _, blank, _ = await _run_index(
+        tmp_path, settings, GraphIndexStats(files_processed=1), compile_commands="  "
+    )
+    assert blank.precise_index_compile_commands == "/srv/build/compile_commands.json"
