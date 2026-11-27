@@ -11,6 +11,8 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Fatal-signal stack dumps from controller AND xdist workers on hard kills.
+  PYTHONFAULTHANDLER: "1"
 
 concurrency:
   group: ci-integration-${{ github.ref }}
@@ -92,10 +94,20 @@ jobs:
 
       - name: Run integration tests
         run: |
-          pytest ${{ matrix.test-suite.path }} \
+          # --timeout=300 bounds a single hung TEST; -o faulthandler_timeout=600
+          # additionally dumps stacks for stalls the per-test timer cannot see
+          # (off-main-thread); the `timeout --signal=ABRT 28m` wrapper preempts
+          # the 30m job kill with a signal faulthandler dumps before dying —
+          # three wedges (2 promotions, 1 main push) all passed on rerun and
+          # left NO diagnostics because the job timeout cancels silently.
+          # Worker PIDs (separate processes) can be dumped live via victor's
+          # own SIGUSR1 handler (victor/ui/diagnostics.py) if it recurs.
+          timeout --signal=ABRT --kill-after=1m 28m \
+            pytest ${{ matrix.test-suite.path }} \
             -v \
             --tb=short \
-            --timeout=300
+            --timeout=300 \
+            -o faulthandler_timeout=600
 
   # Test with external vertical packages installed
   verticals-integration:
@@ -197,7 +209,9 @@ jobs:
           # (test_external_vertical_install_discovery.py and friends) AND the
           # non-slow suites. A former `-m slow` filter left ~70 tests here running
           # in no workflow, which is how stale circuit-breaker tests rotted (#1471).
-          pytest tests/integration/verticals -q --tb=short --timeout=300
+          timeout --signal=ABRT --kill-after=1m 28m \
+            pytest tests/integration/verticals -q --tb=short --timeout=300 \
+            -o faulthandler_timeout=600
 
       - name: Run framework tests with verticals
         run: |
