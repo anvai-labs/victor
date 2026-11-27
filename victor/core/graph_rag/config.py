@@ -119,6 +119,7 @@ class GraphIndexConfig:
     precise_index_java_home: str = ""
     precise_index_build_args: dict[str, list[str]] = field(default_factory=dict)
     precise_index_build_root: str = ""
+    precise_index_compile_commands: str = ""
     parse_workers: int = 0  # Thread-pool workers for parallel AST parsing (0 = cpu_count)
     # CCG builder resolution: auto (plugin-first), native, plugin, builtin.
     # See search_settings.ccg_builder for semantics.
@@ -311,6 +312,9 @@ def precise_toolchain_settings(settings: Any) -> dict[str, Any]:
             graph_setting(settings, "precise_index_build_args", {}) or {}
         ),
         "precise_index_build_root": graph_setting(settings, "precise_index_build_root", "") or "",
+        "precise_index_compile_commands": (
+            graph_setting(settings, "precise_index_compile_commands", "") or ""
+        ),
     }
 
 

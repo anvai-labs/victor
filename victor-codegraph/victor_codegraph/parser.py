@@ -11,7 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .config import ChunkConfig
-from .languages import detect_language
+from .languages import AMBIGUOUS_HEADER_EXTENSIONS, detect_language, resolve_language
 from .model import (
     CapabilityTier,
     CodeChunk,
@@ -102,15 +102,23 @@ def parse(
     repo_root: str | os.PathLike[str] | None = None,
     config: ChunkConfig | None = None,
     emit_references: bool = False,
+    header_default: str = "cpp",
 ) -> ParsedCode:
     """Parse source into symbols + relations, falling back gracefully.
 
     ``emit_references=True`` additionally records tier-2.5 REFERENCES relations
     (ADR-032 scope binding); the default output is unchanged.
+
+    Without an explicit ``language``, a ``.h`` header is classified as C or C++
+    from its text (``languages.resolve_language``; ``header_default`` decides a
+    header with no signal). If that grammar leaves syntax errors and the other
+    C-family grammar parses the header cleanly, the clean parse is kept.
     """
 
     config = config or ChunkConfig()
     file_path = normalize_file_path(file_path, repo_root)
+    if language is None and os.path.splitext(file_path)[1].lower() in AMBIGUOUS_HEADER_EXTENSIONS:
+        return _parse_header(content, file_path, config, emit_references, header_default)
     language = language or detect_language(file_path)
 
     if language == "python":
@@ -153,38 +161,104 @@ def parse(
             )
 
     if language is not None and language != "python":
-        try:
-            parsed = _finalize_identity(
-                parse_treesitter(content, file_path, language, emit_references=emit_references),
-                content,
-            )
-            if not config.extract_relations:
-                parsed.relations = []
-            return parsed
-        except GrammarUnavailable as exc:
-            return ParsedCode(
-                file_path=file_path,
-                language=language,
-                content_hash=content_hash(content),
-                status=ParseStatus.FALLBACK,
-                capability_tier=CapabilityTier.FALLBACK,
-                diagnostics=[ParseDiagnostic(code="grammar_unavailable", message=str(exc))],
-                source_code=content,
-            )
-        except Exception as exc:
-            return ParsedCode(
-                file_path=file_path,
-                language=language,
-                content_hash=content_hash(content),
-                status=ParseStatus.ERROR,
-                capability_tier=CapabilityTier.FALLBACK,
-                diagnostics=[
-                    ParseDiagnostic(code="parser_error", message=f"{type(exc).__name__}: {exc}")
-                ],
-                source_code=content,
-            )
+        return _parse_treesitter_safely(content, file_path, language, config, emit_references)
 
     # Last resort: no symbols (caller's chunk() will sliding-window the raw text).
+    return _unsupported(content, file_path, language)
+
+
+def _has_diagnostic(parsed: ParsedCode, code: str) -> bool:
+    return any(diagnostic.code == code for diagnostic in parsed.diagnostics)
+
+
+def _has_syntax_error(parsed: ParsedCode) -> bool:
+    return _has_diagnostic(parsed, "syntax_error")
+
+
+def _needs_other_grammar(parsed: ParsedCode) -> bool:
+    """Retry the other C-family grammar when this one is missing or left errors.
+
+    Never after a parser crash (``ERROR``): the same input would fail again.
+    """
+    if _has_diagnostic(parsed, "grammar_unavailable"):
+        return True
+    return parsed.status is ParseStatus.PARTIAL and _has_syntax_error(parsed)
+
+
+def _parse_header(
+    content: str,
+    file_path: str,
+    config: ChunkConfig,
+    emit_references: bool,
+    header_default: str,
+) -> ParsedCode:
+    """Parse a ``.h`` with its resolved C-family grammar, retrying the other on error."""
+
+    language = resolve_language(file_path, content, header_default=header_default)
+    assert language is not None
+    parsed = _parse_treesitter_safely(content, file_path, language, config, emit_references)
+    if not _needs_other_grammar(parsed):
+        return parsed
+    other = "c" if language == "cpp" else "cpp"
+    alternate = _parse_treesitter_safely(content, file_path, other, config, emit_references)
+    if alternate.status in {ParseStatus.SUCCESS, ParseStatus.PARTIAL} and not _needs_other_grammar(
+        alternate
+    ):
+        why = (
+            f"{language} grammar unavailable"
+            if _has_diagnostic(parsed, "grammar_unavailable")
+            else f"{language} grammar left syntax errors"
+        )
+        alternate.diagnostics.append(
+            ParseDiagnostic(
+                code="header_language_retry",
+                message=f"{why}; {other} parsed cleanly",
+            )
+        )
+        return alternate
+    return parsed
+
+
+def _parse_treesitter_safely(
+    content: str,
+    file_path: str,
+    language: str,
+    config: ChunkConfig,
+    emit_references: bool,
+) -> ParsedCode:
+    try:
+        parsed = _finalize_identity(
+            parse_treesitter(content, file_path, language, emit_references=emit_references),
+            content,
+        )
+        if not config.extract_relations:
+            parsed.relations = []
+        return parsed
+    except GrammarUnavailable as exc:
+        return ParsedCode(
+            file_path=file_path,
+            language=language,
+            content_hash=content_hash(content),
+            status=ParseStatus.FALLBACK,
+            capability_tier=CapabilityTier.FALLBACK,
+            diagnostics=[ParseDiagnostic(code="grammar_unavailable", message=str(exc))],
+            source_code=content,
+        )
+    except Exception as exc:
+        return ParsedCode(
+            file_path=file_path,
+            language=language,
+            content_hash=content_hash(content),
+            status=ParseStatus.ERROR,
+            capability_tier=CapabilityTier.FALLBACK,
+            diagnostics=[
+                ParseDiagnostic(code="parser_error", message=f"{type(exc).__name__}: {exc}")
+            ],
+            source_code=content,
+        )
+
+
+def _unsupported(content: str, file_path: str, language: str | None) -> ParsedCode:
     return ParsedCode(
         file_path=file_path,
         language=language or "text",

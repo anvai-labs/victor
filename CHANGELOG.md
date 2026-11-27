@@ -5,6 +5,96 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `victor graph index --compile-commands PATH` (setting
+  `search.graph.precise_index_compile_commands`) names the `scip-clang`
+  compilation database for `--precise`. It may sit outside the indexed tree but
+  must name files under it (otherwise `compile-database-outside-root`; a
+  relative entry resolves against its `directory`, as `scip-clang` resolves it,
+  and letter case is ignored on volumes that ignore it).
+  Discovery also covers the CMake preset layouts (`build/<preset>/`,
+  `*/build/<preset>/`) and no longer picks one of several databases at the same
+  depth (`ambiguous-compile-database`): such a repository now names one. The
+  database's digest keys the dump cache.
+
+### Changed
+
+- Black, Ruff and MyPy are pinned in one place. CI now installs Black through
+  `scripts/ci/release_contract.py black` (26.10.1; the workflow carried a separate,
+  stale `26.3.1`), Ruff moves to 0.17.6, and `.pre-commit-config.yaml` mirrors the
+  same versions (it was at Black 26.3.1, Ruff 0.15.20 and MyPy 1.14.1). Guard tests
+  keep the `ci` and `dev` pins and the pre-commit revisions equal, so a bump of one
+  of these tools moves all three in the same change.
+
+### Fixed
+
+- CodeGraph 0.16.0 indexes C/C++ headers and C++ identities structurally. A `.h`
+  header is classified as C or C++ from its own text (project default: C++, or C
+  for a C-only inventory) and is re-parsed with the other grammar when only that
+  one parses cleanly; previously every `.h` was parsed as C, so C++ headers were
+  partial parses. C++ namespaces and out-of-class qualifiers (`A::B::f`) now take
+  part in the fully qualified name without becoming containers, destructors are
+  named `~T`, reference-returning functions are extracted, and template heads,
+  return types of templated definitions and `const`/`&`/`&&`/`noexcept` qualifiers
+  discriminate overloads. On apache/arrow this takes partial `.h` parses from
+  863 of 951 to 555, C/C++ files quarantined for identity collisions from 347
+  to 141, and syntax-partial C/C++ files from 1,568 to 1,258. C++ stable keys
+  change: rebuild with `victor graph index --force`.
+- CodeGraph 0.16.1 quarantines the declarations that share a structural key, and
+  what they contain, instead of their whole file (`projection_status:
+  symbols_quarantined`; `file_marker_only` remains for a file whose every
+  declaration is ambiguous). The file's other symbols and its statement nodes are
+  indexed. A call into an ambiguous name stays unresolved rather than being bound
+  to a namesake in another file or to a declaration that survives at the same
+  path. On apache/arrow this recovers 11,554 symbols across 177 files (2,769
+  ambiguous declarations and their members stay out); 9 files remain markers.
+  Rebuild with `victor graph index --force`.
+
+## [0.35.0] - Source candidate, 2026-11-27
+
+### Added
+
+- C/C++ header indexing with structural C++ identities: headers are classified
+  C vs C++ from their text, in-class vs out-of-class definitions cannot collide,
+  and the header default is computed from the full discovered inventory every
+  run (#2041). The scip-clang compilation database can be named explicitly
+  (config or `--compile-commands`) with typed skips for missing/ambiguous/
+  outside-root databases (#2042).
+
+### Fixed
+
+- Codegraph grammar port: tree-sitter-language-pack 1.26+ wraps item attributes
+  in an `attributes` container child; dual-shape walks support both generations,
+  collection is nearest-first so signature prefixes stay byte-identical across
+  packs (no cross-pack identity drift), and the module attribute walk is bounded
+  at the first non-attribute sibling (an unbounded walk stole `#[path]`/
+  `#[cfg_attr]` from preceding items and silently dropped cross-file edges —
+  found by the promotion review). Pin lifted to `<1.29`; victor-codegraph
+  0.16.1 (#2039, #2040, #2047).
+- LiveDisplayRenderer teardown is guaranteed on every exit path: a renderer
+  fixture with `finally` + invariant, a context-manager form, and idempotent
+  cleanup close the rich-Live xdist worker wedge behind two promotion incidents
+  (#2038).
+- Colliding symbols are quarantined individually instead of poisoning whole
+  files; edges into quarantined symbols are dropped at all three layers with a
+  fail-closed backstop (#2045).
+
+### Changed
+
+- black/ruff/mypy pinned in one place at their latest releases, with guard
+  tests (#2043).
+
+### Upgrade notes
+
+- Deployment locks move to `sandhi-gateway==0.27.0` (floor stays `>=0.26.0`;
+  0.27.0 is the published Latest, validated by the 0.34.1 fresh-install smoke).
+- **victor-codegraph 0.16.1 is a hard pin** (`victor-codegraph[treesitter]==0.16.1`);
+  it publishes ahead of this release.
+- **C++ stable keys changed** — re-index C/C++ projects with
+  `victor graph index --force`. Rust keys remain join-compatible across the
+  language-pack upgrade.
+
 ## [0.34.1] - Source candidate, 2026-11-26
 
 ### Fixed
@@ -26,6 +116,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   surrounding handler — the overrides never worked. Both sites now resolve through
   `victor.providers.registry.create_provider_or_none` with a miss-fallback to the
   parent provider (#2030).
+- The buffered `execute()` path carried the same shadowed-exception defect #2028 fixed
+  in `stream_execute` (found by the release adversarial review, one method over): the
+  details dict crashed with `UnboundLocalError` when a chat failure coincided with a
+  `get_messages()` failure. Distinct binding + RED-first negative test; the
+  planning-complexity rank map also gained an exhaustiveness guard (#2033).
+- The codegraph package pins `tree-sitter-language-pack<1.26`: upstream grammar packs
+  from 1.26 changed cfg-variant node identity and broke the Rust identity/relations
+  contract tests (grammar port tracked as a follow-up) (#2035).
 
 ### Changed
 

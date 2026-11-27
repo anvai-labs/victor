@@ -368,6 +368,18 @@ class _IncrementalIndexPlan:
     mtime_updates: Tuple[Tuple[str, float, str], ...] = ()
 
 
+def _without_ambiguous_symbols(parsed: Any) -> Any:
+    """A CodeGraph parse without the declarations that share a structural key.
+
+    Those declarations, and what they contain, stay out of the graph and out
+    of resolution; the file's other declarations are projected as usual.
+    """
+
+    from victor_codegraph.quarantine import quarantine_view
+
+    return quarantine_view(parsed).parsed
+
+
 @dataclass
 class ParseResult:
     """Parsed output for one source file produced by a worker thread.
@@ -457,6 +469,11 @@ class GraphIndexingPipeline:
         self.config = config
         self._ccg_builder = None
         self._files_to_process: Set[str] = set()
+        # C or C++ for a `.h` header whose text carries no signal (the run's
+        # inventory decides), and the language each re-classified header was
+        # parsed with, so edge builders do not fall back to its extension.
+        self._header_default = "cpp"
+        self._resolved_header_languages: Dict[str, str] = {}
         # Phase busy-time accumulators (seconds) for the Amdahl split the
         # CLI summary prints: parse work runs on executor threads (lock
         # guarded), persist batches and the harvest run on the event loop.
@@ -537,7 +554,16 @@ class GraphIndexingPipeline:
                 logger.warning("CCG builder not available, skipping CCG construction")
 
     def _precise_toolchain_kwargs(self, provider_name: str) -> dict[str, Any]:
-        """Configured JDK and build arguments for providers that accept them."""
+        """Configured toolchain inputs for providers that accept them.
+
+        scip-java: JDK, build arguments and build root. scip-clang: an explicit
+        compilation database path.
+        """
+        if provider_name == "scip-clang":
+            compile_commands = (
+                getattr(self.config, "precise_index_compile_commands", "") or ""
+            ).strip()
+            return {"compile_commands": compile_commands} if compile_commands else {}
         if provider_name != "scip-java":
             return {}
         kwargs: dict[str, Any] = {}
@@ -1119,11 +1145,16 @@ class GraphIndexingPipeline:
                         manifest, extensions_for_provider(provider.name)
                     )
                     toolchain_kwargs = self._precise_toolchain_kwargs(provider.name)
-                    # The JDK, build scope and build root change what the dump
-                    # contains; they key the cache beside the tool's own stat.
+                    # The JDK, build scope, build root and compilation database
+                    # change what the dump contains; they key the cache beside
+                    # the tool's own stat.
+                    cache_toolchain = dict(toolchain_kwargs)
+                    cache_inputs = getattr(provider, "cache_inputs", None)
+                    if callable(cache_inputs) and manifest is not None:
+                        cache_toolchain.update(cache_inputs(root, **toolchain_kwargs))
                     cache_key = (
                         precise_cache.dump_cache_key(
-                            provider.name, tool, file_hashes, toolchain=toolchain_kwargs or None
+                            provider.name, tool, file_hashes, toolchain=cache_toolchain or None
                         )
                         if manifest is not None
                         else None
@@ -1980,6 +2011,8 @@ class GraphIndexingPipeline:
         """
         root = (root_path or self.config.root_path).resolve()
         self._files_to_process = {self._graph_file_key(file_path, root) for file_path in files}
+        self._header_default = self._project_header_default(files)
+        self._resolved_header_languages = {}
         self._pending_file_hashes = {}
         if not self.config.incremental:
             return _IncrementalIndexPlan()
@@ -2433,9 +2466,15 @@ class GraphIndexingPipeline:
             from victor.core.graph_rag.codegraph_repository import project_file_symbols
 
             metadata = self._codegraph_file_metadata.get(canonical_file, {})
-            marker_only = metadata.get("projection_status") == "file_marker_only"
+            projection = metadata.get("projection_status")
+            marker_only = projection == "file_marker_only"
+            # The compiler owns quarantine policy: it leaves either the whole
+            # file (``file_marker_only``) or only the ambiguous declarations
+            # (``symbols_quarantined``) out. Collisions it did not quarantine
+            # are an error, as before.
             if parsed.status.value not in {"success", "partial"} or (
-                not marker_only and any(d.code == "identity_collision" for d in parsed.diagnostics)
+                projection not in {"file_marker_only", "symbols_quarantined"}
+                and any(d.code == "identity_collision" for d in parsed.diagnostics)
             ):
                 return ParseResult(
                     file_path=file_path,
@@ -2444,6 +2483,8 @@ class GraphIndexingPipeline:
                         f"CodeGraph {parsed.status.value}: {[(d.code, d.message) for d in parsed.diagnostics]}"
                     ),
                 )
+            if projection == "symbols_quarantined":
+                parsed = _without_ambiguous_symbols(parsed)
             nodes = self._inject_module_node(
                 [] if marker_only else project_file_symbols(parsed), file_path, parsed.language
             )
@@ -2457,7 +2498,8 @@ class GraphIndexingPipeline:
                     symbol_nodes=nodes,
                     partial=True,
                 )
-            ccg_nodes, ccg_edges = self._build_ccg_inline(file_path, language)
+            # The compiler resolved a `.h` header to C or C++ from its text.
+            ccg_nodes, ccg_edges = self._build_ccg_inline(file_path, parsed.language)
             return ParseResult(
                 file_path=file_path,
                 language=parsed.language,
@@ -2472,6 +2514,12 @@ class GraphIndexingPipeline:
             source_code = file_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             return ParseResult(file_path=file_path, language=language)
+        resolved = self._resolve_header_language(
+            file_path, source_code, language, self._header_default
+        )
+        if resolved != language:
+            self._resolved_header_languages[self._canonical_file_str(file_path)] = resolved
+        language = resolved
 
         # ── Symbol extraction ──────────────────────────────────────────────
         nodes: List[Any] = []
@@ -2683,6 +2731,16 @@ class GraphIndexingPipeline:
             if language == "unknown":
                 stats.files_skipped += 1
                 return stats
+            try:
+                # Same rule as the batch path: a `.h` header is C or C++ by text.
+                language = self._resolve_header_language(
+                    file_path,
+                    file_path.read_text(encoding="utf-8"),
+                    language,
+                    self._header_default,
+                )
+            except (OSError, UnicodeDecodeError):
+                pass
 
             # Extract symbols using tree-sitter
             symbol_nodes = await self._extract_symbols(file_path, language)
@@ -2747,6 +2805,45 @@ class GraphIndexingPipeline:
             yield
         finally:
             self._persist_busy_seconds += time.monotonic() - start
+
+    @staticmethod
+    def _project_header_default(files: List[Path]) -> str:
+        """C when the run's inventory has C sources and no C++ sources; else C++.
+
+        The rule ``parse_repo`` applies, so the fallback path (no CodeGraph
+        repository bound) labels a signal-free header exactly like the
+        CodeGraph path instead of always calling it C++.
+        """
+        try:
+            from victor_codegraph.languages import project_header_default
+        except ImportError:
+            return "cpp"
+        return project_header_default(files)
+
+    @staticmethod
+    def _resolve_header_language(
+        file_path: Path, source_code: str, language: str, header_default: str = "cpp"
+    ) -> str:
+        """Classify a ``.h`` header as C or C++ from its text (shared compiler rule)."""
+        if language not in {"c", "cpp"}:
+            return language
+        try:
+            from victor_codegraph.languages import resolve_language
+        except ImportError:
+            return language
+        return (
+            resolve_language(str(file_path), source_code, header_default=header_default) or language
+        )
+
+    def _file_language(self, file_path: Path) -> str:
+        """The language a file was parsed with.
+
+        Edge builders ask again after parsing; a header resolved to C++ by
+        its text must not fall back to its extension's ``c`` here.
+        """
+        return self._resolved_header_languages.get(
+            self._canonical_file_str(file_path)
+        ) or self._detect_language(file_path)
 
     def _detect_language(self, file_path: Path) -> str:
         """Detect programming language from file extension.
@@ -3299,7 +3396,7 @@ class GraphIndexingPipeline:
                 name_to_ids.setdefault(node.name, []).append(node.node_id)
 
         # Detect language
-        language = self._detect_language(file_path)
+        language = self._file_language(file_path)
         if language == "unknown":
             return edges
 
@@ -3312,6 +3409,15 @@ class GraphIndexingPipeline:
             canonical_file = self._canonical_file_str(file_path)
             repository = self._codegraph_repository
             parsed = repository.files.get(canonical_file) if repository is not None else None
+            if (
+                parsed is not None
+                and self._codegraph_file_metadata.get(canonical_file, {}).get("projection_status")
+                == "symbols_quarantined"
+            ):
+                # The same view the nodes were projected from. Leaving the
+                # ambiguous declarations in would fail the ownership check
+                # below and hand the file to resolvers that match by name.
+                parsed = _without_ambiguous_symbols(parsed)
             if parsed is None:
                 source_code = file_path.read_text(encoding="utf-8")
                 parsed = _vcg.parse(
@@ -3441,7 +3547,7 @@ class GraphIndexingPipeline:
 
         try:
             # Get language module
-            language = self._detect_language(file_path)
+            language = self._file_language(file_path)
             if language not in _TREE_SITTER_LANGUAGE_MODULES:
                 return edges
 
@@ -3532,7 +3638,7 @@ class GraphIndexingPipeline:
         # Try tree-sitter for call analysis
         try:
             # Detect language
-            language = self._detect_language(file_path)
+            language = self._file_language(file_path)
             if language == "unknown":
                 return edges
 

@@ -166,9 +166,16 @@ MyPy verifies type hints for type safety and better IDE support.
 
 ### Configuration and qualification
 
-`pyproject.toml` is the authoritative configuration. MyPy is pinned to 2.4.0 across
-core, SDK and vertical developer environments; CI reads the root CI pin through
-`scripts/ci/release_contract.py mypy`. This stable release supports Python >=3.10;
+`pyproject.toml` is the authoritative configuration. Black, Ruff and MyPy are pinned in the root `ci` extra, and CI reads each pin
+through `scripts/ci/release_contract.py <tool>` (`black`, `ruff`, `mypy`); no
+workflow spells a version of its own. The root `dev` extra repeats the same pins
+(the Makefile's `lint` installs `.[dev]`), and `.pre-commit-config.yaml` mirrors
+them, so a local hook run checks what CI checks. Guard tests in
+`tests/unit/scripts/test_security_workflow_contract.py` keep all three equal. A
+dependency bump of one of these tools must therefore move the pre-commit `rev` in
+the same change: Dependabot does not update `.pre-commit-config.yaml`, and a
+pre-commit.ci autoupdate must move the `pyproject.toml` pins to match. MyPy is pinned to 2.4.1 across
+core, SDK and vertical developer environments. This stable release supports Python >=3.10;
 Victor checks against its supported Python 3.12 floor. Update the pin and qualify
 the diagnostic changes together. Strict flags are enabled, but
 legacy `victor.*` error suppression remains except for explicitly qualified

@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from .config import ChunkConfig
-from .languages import detect_language
+from .languages import matches_languages
 from .model import CodeChunk, ParsedCode
 from .parser import chunk as _chunk
 from .parser import parse as _parse
@@ -58,8 +58,7 @@ def iter_source_files(
     root_path = Path(root)
     allowed = set(languages) if languages else None
     if root_path.is_file():
-        language = detect_language(str(root_path))
-        if language is not None and (allowed is None or language in allowed):
+        if matches_languages(str(root_path), allowed):
             yield root_path
         return
     excl = set(exclude_dirs)
@@ -68,12 +67,8 @@ def iter_source_files(
         dirnames[:] = sorted(d for d in dirnames if d not in excl and not d.startswith("."))
         for fn in sorted(filenames):
             p = Path(dirpath) / fn
-            lang = detect_language(str(p))
-            if lang is None:
-                continue
-            if allowed is not None and lang not in allowed:
-                continue
-            yield p
+            if matches_languages(str(p), allowed):
+                yield p
 
 
 def read_source_text(

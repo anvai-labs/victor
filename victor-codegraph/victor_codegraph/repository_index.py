@@ -24,8 +24,9 @@ from .model import (
     deterministic_symbol_id,
     stable_symbol_key,
 )
+from .quarantine import QuarantineView, quarantine_view
 from .repo import iter_source_files, read_source_text
-from .languages import detect_language
+from .languages import matches_languages, project_header_default
 from .javascript_repository import JavaScriptRepository
 
 
@@ -75,8 +76,50 @@ def _resolve_across_files(
     files: dict[str, ParsedCode],
     rust_bindings: dict[str, list[RustBinding]] | None = None,
     javascript: JavaScriptRepository | None = None,
+    ambiguous_names: dict[str, frozenset[str]] | None = None,
+    quarantined_paths: set[tuple[str, tuple[str, ...]]] | None = None,
+    binding_files: dict[str, ParsedCode] | None = None,
 ) -> list[CodeRelation]:
-    """Resolve only unambiguous repository targets; ambiguity remains explicit."""
+    """Resolve only unambiguous repository targets; ambiguity remains explicit.
+
+    ``ambiguous_names`` names, per file, the names of declarations that file
+    itself declares more than once. A reference to such a name stays
+    unresolved: its own file did not settle it, and a namesake elsewhere is
+    not evidence.
+
+    ``quarantined_paths`` holds ``(file, scope path)`` pairs at which a
+    declaration was left out as ambiguous. A candidate at such a path is the
+    survivor of a narrowed field, not a unique target: before quarantine the
+    same lookup saw several declarations and left the reference unresolved,
+    so it stays unresolved.
+
+    ``binding_files`` are the files import bindings may name (default:
+    ``files``). A file left out of resolution entirely, because every
+    declaration in it is ambiguous, must still be a binding option, or its
+    removal narrows the lookup without the lookup seeing it.
+    """
+
+    quarantined = quarantined_paths or set()
+
+    def narrowed(candidate: CodeSymbol) -> bool:
+        key = (
+            candidate.location.file_path,
+            (*candidate.scope_chain, candidate.simple_name),
+        )
+        return key in quarantined
+
+    def consulted_quarantine(file: str, target_path: tuple[str, ...]) -> bool:
+        """A lookup key at, or under, a path where a declaration was left out.
+
+        One reference can consult several keys (an import binding's module and
+        package options; several ``use`` bindings). The survivors are then a
+        narrowed field at a different key: before quarantine the same lookup
+        saw more candidates. A quarantined prefix (``C`` of ``C.m``) means the
+        root itself was ambiguous.
+        """
+        return any(
+            (file, target_path[:length]) in quarantined for length in range(1, len(target_path) + 1)
+        )
 
     # File-local resolution runs first; repository edges require exact import bindings.
     by_name: dict[str, list[CodeSymbol]] = {}
@@ -89,7 +132,7 @@ def _resolve_across_files(
             (symbol.location.file_path, (*symbol.scope_chain, symbol.simple_name)), []
         ).append(symbol)
     python_bindings = {
-        path: _python_bindings(parsed.imports, path, files)
+        path: _python_bindings(parsed.imports, path, binding_files or files)
         for path, parsed in files.items()
         if parsed.language == "python"
     }
@@ -107,7 +150,9 @@ def _resolve_across_files(
             continue
         candidates = list(by_name.get(ref.name, ()))
         source = source_symbols.get(relation.from_symbol_id)
-        if source is None:
+        if source is None or ref.name in (ambiguous_names or {}).get(
+            source.location.file_path, frozenset()
+        ):
             out.append(relation)
             continue
         if source.language == "rust":
@@ -123,6 +168,7 @@ def _resolve_across_files(
             # Only explicit imports, with exact path + alias matching. Unknown
             # receivers, globs and re-exports retain their unresolved references.
             raw_path = (ref.text or ref.name).split("::")
+            ambiguous_lookup = False
             for binding in (rust_bindings or {}).get(source.location.file_path, []):
                 if module_scoped or source.metadata.get("rust_conditional"):
                     break
@@ -132,11 +178,14 @@ def _resolve_across_files(
                 # by_path already indexes exactly (file, path); the linear
                 # scan over ALL repository symbols per relation x binding
                 # made the repository pass quadratic on rust-heavy repos.
+                ambiguous_lookup = ambiguous_lookup or consulted_quarantine(
+                    binding.file, target_path
+                )
                 for candidate in by_path.get((binding.file, target_path), ()):
                     if not candidate.metadata.get("rust_conditional"):
                         candidates.append(candidate)
             candidates = list({candidate.id: candidate for candidate in candidates}.values())
-            if len(candidates) == 1:
+            if len(candidates) == 1 and not ambiguous_lookup and not narrowed(candidates[0]):
                 out.append(
                     replace(
                         relation,
@@ -150,6 +199,7 @@ def _resolve_across_files(
                 out.append(relation)
             continue
         candidates = []
+        ambiguous_lookup = False
         if source.language == "python":
             text = ref.text or ref.name
             root, *tail = text.split(".")
@@ -167,6 +217,9 @@ def _resolve_across_files(
                         continue
                     for file, path in targets:
                         target_path = (*path, *parts[len(prefix) :])
+                        ambiguous_lookup = ambiguous_lookup or consulted_quarantine(
+                            file, target_path
+                        )
                         candidates.extend(
                             s
                             for s in by_path.get((file, target_path), [])
@@ -178,7 +231,7 @@ def _resolve_across_files(
             text = ref.text or ref.name
             if text.split(".")[0] not in source.metadata.get("javascript_bound_names", []):
                 candidates = javascript.target(source.location.file_path, text)
-        if len(candidates) == 1:
+        if len(candidates) == 1 and not ambiguous_lookup and not narrowed(candidates[0]):
             out.append(
                 replace(
                     relation,
@@ -255,20 +308,22 @@ def _module_candidates(module: str, importer: str) -> tuple[str, ...]:
     return f"{stem}.py", f"{stem}/__init__.py"
 
 
-def _file_projection_metadata(parsed: ParsedCode) -> dict[str, object]:
-    """Keep diagnostic evidence while quarantining ambiguous symbol identities."""
-    quarantined = any(item.code == "identity_collision" for item in parsed.diagnostics)
+def _file_projection_metadata(parsed: ParsedCode, view: QuarantineView) -> dict[str, object]:
+    """Keep diagnostic evidence while leaving ambiguous symbol identities out."""
     groups: dict[str, list[CodeSymbol]] = {}
-    if quarantined:
+    if view.symbol_ids:
         for symbol in parsed.symbols:
             groups.setdefault(symbol.id, []).append(symbol)
+    projection = "symbols"
+    if view.symbol_ids:
+        projection = "file_marker_only" if view.leaves_nothing else "symbols_quarantined"
     return {
         "parse_status": parsed.status.value,
         "capability_tier": parsed.capability_tier.value,
         "diagnostics": [asdict(item) for item in parsed.diagnostics],
-        "projection_status": "file_marker_only" if quarantined else "symbols",
-        "omitted_symbol_count": len(parsed.symbols) if quarantined else 0,
-        "omitted_relation_count": len(parsed.relations) if quarantined else 0,
+        "projection_status": projection,
+        "omitted_symbol_count": view.omitted_symbols,
+        "omitted_relation_count": view.dropped_relations,
         "identity_collisions": [
             {
                 "symbol_id": symbol_id,
@@ -286,6 +341,7 @@ def _file_projection_metadata(parsed: ParsedCode) -> dict[str, object]:
             for symbol_id, declarations in groups.items()
             if len(declarations) > 1
         ],
+        "ambiguous_symbol_names": sorted(view.names),
     }
 
 
@@ -316,7 +372,7 @@ def _selected_source_paths(
     return [
         path
         for path in sorted(paths, key=lambda p: (p.relative_to(root).parent.parts, p.name))
-        if allowed is None or detect_language(str(path)) in allowed
+        if matches_languages(str(path), allowed)
     ]
 
 
@@ -353,20 +409,27 @@ def parse_repo(
     root_path = Path(root).resolve()
     files: dict[str, ParsedCode] = {}
     manifest: dict[str, str] = {}
-    paths = (
+    paths = list(
         iter_source_files(root_path, languages=languages)
         if selected_paths is None
         else _selected_source_paths(root_path, selected_paths, languages)
     )
+    header_default = project_header_default(paths)
     for path in paths:
         content = read_source_text(path)
         if content is None:
             continue
         relative = path.resolve().relative_to(root_path).as_posix()
-        parsed = parse(content, file_path=relative, emit_references=emit_references)
+        parsed = parse(
+            content,
+            file_path=relative,
+            emit_references=emit_references,
+            header_default=header_default,
+        )
         files[relative] = parsed
         manifest[relative] = parsed.content_hash
 
+    views = {relative: quarantine_view(parsed) for relative, parsed in files.items()}
     file_symbols: dict[str, CodeSymbol] = {}
     for relative, parsed in files.items():
         line_count = parsed.source_code.count("\n") + (
@@ -390,27 +453,43 @@ def parse_repo(
             metadata={
                 "embedding_excluded": True,
                 "content_version": parsed.content_hash,
-                **_file_projection_metadata(parsed),
+                **_file_projection_metadata(parsed, views[relative]),
             },
         )
         file_symbols[relative] = file_symbol
 
     # Retain raw ParsedCode in `files` for diagnostics, but never feed ambiguous
-    # declarations into symbol lookup or cross-file resolution. The canonical
-    # FILE node stays visible, including to healthy files importing this module.
+    # declarations into symbol lookup or cross-file resolution: each entry is the
+    # parse without its ambiguous declarations. The canonical FILE node stays
+    # visible, including to healthy files importing this module.
     resolution_files = {
-        path: parsed
-        for path, parsed in files.items()
+        path: views[path].parsed
+        for path in files
         if file_symbols[path].metadata["projection_status"] != "file_marker_only"
     }
     symbols = [
         *file_symbols.values(),
         *(symbol for parsed in resolution_files.values() for symbol in parsed.symbols),
     ]
+    identities = [symbol.id for symbol in symbols]
+    if len(set(identities)) != len(identities):
+        # The backstop for every consumer that keys symbols by id (adapters,
+        # deltas, embedding): a duplicate here means the quarantine leaked.
+        raise ValueError("canonical symbol identity collision in repository projection")
     relations = [relation for parsed in resolution_files.values() for relation in parsed.relations]
+    ambiguous_names = {
+        path: view.names for path, view in views.items() if view.names and path in resolution_files
+    }
+    quarantined_paths = {
+        (path, scope_path) for path, view in views.items() for scope_path in view.paths
+    }
     from .rust_repository import RustRepository, use_paths
 
-    rust = RustRepository(root_path, resolution_files)
+    # `use` bindings name a (file, path); they must see every declaration, or an
+    # import of a quarantined item silently disappears and the lookup cannot
+    # tell that it consulted an ambiguous path. Candidates still come only from
+    # the projected symbols.
+    rust = RustRepository(root_path, files)
     javascript = JavaScriptRepository(resolution_files)
     rust_bindings: dict[str, list[RustBinding]] = {}
     for relative, parsed in resolution_files.items():
@@ -494,7 +573,14 @@ def parse_repo(
     # Re-run the scope resolver over the full stable table only for already textual
     # targets, then apply conservative unique-name cross-file linking.
     relations = _resolve_across_files(
-        symbols, relations, resolution_files, rust_bindings, javascript
+        symbols,
+        relations,
+        resolution_files,
+        rust_bindings,
+        javascript,
+        ambiguous_names,
+        quarantined_paths,
+        files,
     )
     generation_raw = "\n".join(f"{path}\x1f{digest}" for path, digest in sorted(manifest.items()))
     generation_id = hashlib.blake2b(generation_raw.encode(), digest_size=16).hexdigest()
