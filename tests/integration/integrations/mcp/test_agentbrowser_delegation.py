@@ -104,7 +104,16 @@ process.on('SIGTERM', async () => {{ await app.close(); process.exit(0); }});
             await asyncio.to_thread(server.wait, timeout=5)
         except subprocess.TimeoutExpired:
             server.kill()
-            await asyncio.to_thread(server.wait)
+            # Bounded: an unbounded wait here wedges the xdist worker after the
+            # test's asserts pass (the between-tests hang class no per-test
+            # timeout can reach).
+            try:
+                await asyncio.to_thread(server.wait, timeout=10)
+            except subprocess.TimeoutExpired:
+                print(
+                    f"WARNING: agentbrowser server pid {server.pid} refused to "
+                    "exit after kill + 10s; abandoning it"
+                )
         for stream in (server.stdout, server.stderr):
             if stream:
                 stream.close()
