@@ -340,3 +340,45 @@ def test_cpp_signature_reads_as_a_declaration():
     assert _by_name(parsed, "Clamp").signature == "template<typename T> T (T v) const noexcept"
     # Non-templated definitions keep the plain parameter-list signature.
     assert _by_name(parsed, "Plain").signature == "(int x)"
+
+
+class TestModAttributeBoundary:
+    """A module's path-attribute flag must come only from ITS OWN attributes.
+
+    Walking through non-attribute siblings steals #[path]/#[cfg_attr] from a
+    preceding item and silently breaks the module's bindings.
+    """
+
+    def _mods(self, source: str):
+        from victor_codegraph.parser import parse
+
+        return parse(source, language="rust").symbols
+
+    @staticmethod
+    def _module_meta(symbols, module_name):
+        for symbol in symbols:
+            if symbol.fully_qualified_name.endswith(f"::{module_name}"):
+                return symbol.metadata
+        raise AssertionError(f"module {module_name} not parsed")
+
+    def test_path_attribute_does_not_leak_to_following_mod(self):
+        symbols = self._mods('#[path = "custom.rs"]\nmod a;\nmod b;\n')
+        assert self._module_meta(symbols, "a").get("rust_path_attribute") is True
+        assert self._module_meta(symbols, "b").get("rust_path_attribute") is None, (
+            "#[path] from the PRECEDING mod leaked into mod b — the unbounded "
+            "sibling walk steals attributes from earlier items"
+        )
+
+    def test_cfg_attr_on_preceding_fn_does_not_leak_to_mod(self):
+        symbols = self._mods('#[cfg_attr(feature = "x", inline)]\nfn helper() {}\nmod b;\n')
+        assert (
+            self._module_meta(symbols, "b").get("rust_path_attribute") is None
+        ), "#[cfg_attr] from the PRECEDING fn leaked into mod b"
+
+    def test_own_path_attribute_still_detected(self):
+        symbols = self._mods('#[path = "other.rs"]\nmod dep;\n')
+        assert self._module_meta(symbols, "dep").get("rust_path_attribute") is True
+
+    def test_own_cfg_attr_still_detected(self):
+        symbols = self._mods('#[cfg_attr(unix, path = "unix.rs")]\nmod dep;\n')
+        assert self._module_meta(symbols, "dep").get("rust_path_attribute") is True
