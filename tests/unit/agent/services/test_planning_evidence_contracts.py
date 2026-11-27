@@ -455,6 +455,9 @@ class TestComplexityRankExhaustiveness:
             f"_PLANNING_COMPLEXITY_RANK is missing entries for {set(members) - set(rank)}; "
             "unmapped members default to rank 0 and would never trigger planning"
         )
-        # Ranks are strictly ordered and distinct.
+        # Ranks are strictly ordered AND distinct — a tie (two members
+        # sharing a rank) would silently let the lower-ordered member
+        # trigger at the other's threshold.
         values = [rank[m] for m in members]
         assert values == sorted(values), "ranks must order with the enum"
+        assert len(set(values)) == len(values), "ranks must be distinct"
