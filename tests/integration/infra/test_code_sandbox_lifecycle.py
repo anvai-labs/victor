@@ -74,6 +74,28 @@ time.sleep(600)
 """
 
 
+def _bounded_wait(proc, timeout: float = 10.0) -> None:
+    """Wait for a killed child without ever blocking the worker indefinitely.
+
+    An unbounded ``proc.wait()`` in a ``finally`` block is the exact shape of
+    the between-tests xdist wedge: the test's asserts already passed, the
+    teardown hangs on a wedged container runtime child, and no per-test
+    timeout can reach it (it arms only inside the test protocol).
+    """
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            print(
+                f"WARNING: sandbox owner pid {proc.pid} refused to exit after "
+                f"kill + {timeout}s; abandoning it (container cleanup rides the "
+                "reaper)"
+            )
+
+
 def _spawn_owner(ttl: int) -> tuple:
     proc = subprocess.Popen(
         [sys.executable, "-c", _CHILD, str(ttl)],
@@ -113,6 +135,7 @@ def test_sigkilled_owner_container_expires_on_its_own():
         assert _wait_gone(container_id, 4 + 20)
     finally:
         proc.kill()
+        _bounded_wait(proc)
 
 
 def test_reaper_spares_a_live_owner_and_removes_a_dead_one():
@@ -127,7 +150,7 @@ def test_reaper_spares_a_live_owner_and_removes_a_dead_one():
     finally:
         for proc in (live, dead):
             proc.kill()
-            proc.wait()
+            _bounded_wait(proc)
         cet.reap_orphaned_sandboxes()  # the SIGKILLed live owner's container too
 
 

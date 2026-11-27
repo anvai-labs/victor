@@ -373,12 +373,70 @@ def _cpp_function_declarator(node):
 
 
 def _cpp_scope_component(node, src: bytes) -> str:
-    """One qualifier component: ``B`` of ``B::f``; ``Box`` of ``Box<T>::f``."""
+    """One qualifier component: ``B`` of ``B::f``; ``Box<int>`` of ``Box<int>::f``.
+
+    Template ARGUMENTS participate in the component: collapsing them made
+    specializations of the same primary (``Foo<int>::run`` vs ``Foo<bool>::run``)
+    share one structural key and both get quarantined. A bare ``Box<T>`` on a
+    declaration still collapses to ``Box`` only when no argument nodes exist.
+    """
     if node.type == "template_type":
+        # Node shape: template_type(name: type_identifier,
+        #                            template_argument_list(<int>)). CONCRETE
+        # arguments participate in the key (specializations of one primary
+        # must not collide); arguments that merely repeat the enclosing
+        # template's own parameter names (``Box<T>`` on the primary's
+        # definition — every instantiation shares it) collapse to the bare
+        # name, preserving the pre-existing key for definitions.
         name = node.child_by_field_name("name")
-        if name is not None:
-            return _text(name, src)
+        arg_list = next(
+            (c for c in node.named_children if c.type == "template_argument_list"),
+            None,
+        )
+        if name is not None and arg_list is not None:
+            arg_text = _text(arg_list, src)
+            args = [
+                _text(child, src)
+                for child in arg_list.named_children
+                if child.type not in ("<", ">")
+            ]
+            if args and all(_is_template_parameter_reference(node, a, src) for a in args):
+                return _text(name, src)
+            return f"{_text(name, src)}{arg_text}"
     return _text(node, src)
+
+
+def _is_template_parameter_reference(node, argument_text: str, src: bytes) -> bool:
+    """True when ``argument_text`` names a parameter of an enclosing template.
+
+    Walks ancestors to the nearest ``template_declaration`` and collects its
+    parameter names (``typename T`` → ``T``); a bare identifier argument
+    matching one is the primary's own definition shape, not a specialization.
+    """
+    stripped = argument_text.strip()
+    if not stripped.isidentifier():
+        return False
+    ancestor = node.parent
+    while ancestor is not None:
+        if ancestor.type == "template_declaration":
+            for param_list in ancestor.named_children:
+                if param_list.type != "template_parameter_list":
+                    continue
+                for param in param_list.named_children:
+                    # ``typename T`` / ``class T`` carry the parameter name in
+                    # the ``name`` field; fall back to any identifier token.
+                    name_node = param.child_by_field_name("name")
+                    if name_node is not None and _text(name_node, src) == stripped:
+                        return True
+                    if any(
+                        _text(c, src) == stripped
+                        for c in param.named_children
+                        if c.type == "type_identifier"
+                    ):
+                        return True
+            return False
+        ancestor = ancestor.parent
+    return False
 
 
 def _cpp_qualified_name(node, src: bytes) -> tuple[list[str], str | None]:
