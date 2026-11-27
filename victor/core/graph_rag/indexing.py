@@ -368,6 +368,18 @@ class _IncrementalIndexPlan:
     mtime_updates: Tuple[Tuple[str, float, str], ...] = ()
 
 
+def _without_ambiguous_symbols(parsed: Any) -> Any:
+    """A CodeGraph parse without the declarations that share a structural key.
+
+    Those declarations, and what they contain, stay out of the graph and out
+    of resolution; the file's other declarations are projected as usual.
+    """
+
+    from victor_codegraph.quarantine import quarantine_view
+
+    return quarantine_view(parsed).parsed
+
+
 @dataclass
 class ParseResult:
     """Parsed output for one source file produced by a worker thread.
@@ -2454,9 +2466,15 @@ class GraphIndexingPipeline:
             from victor.core.graph_rag.codegraph_repository import project_file_symbols
 
             metadata = self._codegraph_file_metadata.get(canonical_file, {})
-            marker_only = metadata.get("projection_status") == "file_marker_only"
+            projection = metadata.get("projection_status")
+            marker_only = projection == "file_marker_only"
+            # The compiler owns quarantine policy: it leaves either the whole
+            # file (``file_marker_only``) or only the ambiguous declarations
+            # (``symbols_quarantined``) out. Collisions it did not quarantine
+            # are an error, as before.
             if parsed.status.value not in {"success", "partial"} or (
-                not marker_only and any(d.code == "identity_collision" for d in parsed.diagnostics)
+                projection not in {"file_marker_only", "symbols_quarantined"}
+                and any(d.code == "identity_collision" for d in parsed.diagnostics)
             ):
                 return ParseResult(
                     file_path=file_path,
@@ -2465,6 +2483,8 @@ class GraphIndexingPipeline:
                         f"CodeGraph {parsed.status.value}: {[(d.code, d.message) for d in parsed.diagnostics]}"
                     ),
                 )
+            if projection == "symbols_quarantined":
+                parsed = _without_ambiguous_symbols(parsed)
             nodes = self._inject_module_node(
                 [] if marker_only else project_file_symbols(parsed), file_path, parsed.language
             )
@@ -3389,6 +3409,15 @@ class GraphIndexingPipeline:
             canonical_file = self._canonical_file_str(file_path)
             repository = self._codegraph_repository
             parsed = repository.files.get(canonical_file) if repository is not None else None
+            if (
+                parsed is not None
+                and self._codegraph_file_metadata.get(canonical_file, {}).get("projection_status")
+                == "symbols_quarantined"
+            ):
+                # The same view the nodes were projected from. Leaving the
+                # ambiguous declarations in would fail the ownership check
+                # below and hand the file to resolvers that match by name.
+                parsed = _without_ambiguous_symbols(parsed)
             if parsed is None:
                 source_code = file_path.read_text(encoding="utf-8")
                 parsed = _vcg.parse(
