@@ -56,6 +56,7 @@ from .model import (
 )
 from .manifest import ManifestDiff, build_manifest, diff_manifest, iter_changed_files
 from .parser import chunk, parse
+from .quarantine import QuarantineView, quarantine_view
 from .repo import chunk_path, chunk_repo, iter_source_files, parse_path, read_source_text
 from .resolution import resolve_relations
 from .repository_index import (
@@ -67,7 +68,7 @@ from .repository_index import (
     relation_key,
 )
 
-__version__ = "0.16.0"
+__version__ = "0.16.1"
 
 __all__ = [
     "__version__",
@@ -122,6 +123,7 @@ __all__ = [
     "ParseDiagnostic",
     "SymbolReference",
     "SourceLocation",
+    "QuarantineView",
     "stable_symbol_oid",
     "stable_symbol_key",
     "deterministic_symbol_id",
@@ -130,4 +132,5 @@ __all__ = [
     "diff_repository",
     "apply_index_delta",
     "relation_key",
+    "quarantine_view",
 ]

@@ -171,10 +171,14 @@ def test_canonical_projection_carries_body_hash_even_when_summary_is_unchanged()
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("incremental", [True, False])
-async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(
+async def test_collision_file_keeps_unique_symbols_without_ambiguous_edges(
     tmp_path, monkeypatch, incremental
 ):
+    """A collision leaves its own declarations out, not their file: the file's
+    unique symbols are indexed, and no call to the ambiguous name is guessed,
+    in that file, from its importer, or through a namesake elsewhere."""
     from unittest.mock import AsyncMock, Mock
+
     from victor_codegraph import parse_repo
     from victor.core.graph_rag.config import GraphIndexConfig
     from victor.core.graph_rag.indexing import GraphIndexingPipeline
@@ -187,6 +191,7 @@ async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(
     (tmp_path / "normal.py").write_text(
         "from ambiguous import duplicate\ndef consumer(): return duplicate()\n"
     )
+    (tmp_path / "twin.py").write_text("def duplicate(): return 3\n")
     shared = parse_repo(tmp_path)
     monkeypatch.setattr(SqliteGraphStore, "_clear_all_embeddings", AsyncMock())
     collision = shared.files["ambiguous.py"]
@@ -195,6 +200,13 @@ async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(
         s.id
         for s in shared.symbols
         if s.symbol_type.name == "FILE" and s.location.file_path == "ambiguous.py"
+    )
+    valid_id = next(s.id for s in shared.symbols if s.simple_name == "otherwise_valid")
+    consumer_id = next(s.id for s in shared.symbols if s.simple_name == "consumer")
+    twin_id = next(
+        s.id
+        for s in shared.symbols
+        if s.location.file_path == "twin.py" and s.simple_name == "duplicate"
     )
     monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
     store = SqliteGraphStore(tmp_path)
@@ -211,32 +223,37 @@ async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(
                 enable_module_metrics=False,
             ),
         )
-        # Normal CCG work is outside this fixture; collision files must not invoke it.
+        # Statement nodes do not depend on symbol identity, so every file gets them.
         ccg = Mock(return_value=([], []))
         monkeypatch.setattr(pipeline, "_build_ccg_inline", ccg)
         stats = await pipeline.index_repository()
         assert stats.error_count == 0, stats.errors
-        ccg.assert_called_once_with(tmp_path / "normal.py", "python")
-        assert stats.files_partial == 1 and stats.files_processed == 2
+        assert {call.args[0] for call in ccg.call_args_list} == {
+            tmp_path / "ambiguous.py",
+            tmp_path / "normal.py",
+            tmp_path / "twin.py",
+        }
+        assert stats.files_partial == 1 and stats.files_processed == 3
         nodes = await store.get_all_nodes()
         collision_nodes = [n for n in nodes if n.file == "ambiguous.py"]
-        assert [n.node_id for n in collision_nodes] == [marker_id]
-        marker = collision_nodes[0]
+        assert {n.node_id for n in collision_nodes} == {marker_id, valid_id}
+        marker = next(n for n in collision_nodes if n.node_id == marker_id)
         assert marker.metadata["parse_status"] == "partial"
-        assert marker.metadata["projection_status"] == "file_marker_only"
-        assert marker.metadata["omitted_symbol_count"] == len(collision.symbols)
-        assert marker.metadata["omitted_relation_count"] == len(collision.relations)
+        assert marker.metadata["projection_status"] == "symbols_quarantined"
+        assert marker.metadata["omitted_symbol_count"] == 2
+        assert marker.metadata["omitted_relation_count"] == 0
+        assert marker.metadata["ambiguous_symbol_names"] == ["duplicate"]
         assert marker.metadata["diagnostics"][0]["code"] == "identity_collision"
         details = marker.metadata["identity_collisions"]
         assert {d["symbol_id"] for d in details} == duplicate_ids
         assert [d["source_span"]["start_line"] for d in details[0]["declarations"]] == [1, 2]
-        assert any(n.name == "consumer" for n in nodes)
         assert not duplicate_ids.intersection(n.node_id for n in nodes)
         edges = await store.get_all_edges()
         assert not any(e.src in duplicate_ids or e.dst in duplicate_ids for e in edges)
         assert not any(e.type == "CALLS" for e in edges)
+        assert not any(e.type == "CALLS" and e.dst == twin_id for e in edges)
 
-        # Repairing the source replaces the marker and restores canonical edges.
+        # Repairing the source clears the quarantine and restores canonical edges.
         (tmp_path / "ambiguous.py").write_text("def duplicate(): return 1\n")
         recovered = await pipeline.index_repository()
         assert recovered.error_count == 0 and recovered.files_partial == 0
@@ -244,12 +261,51 @@ async def test_collision_file_keeps_durable_marker_without_ambiguous_edges(
         marker = next(n for n in nodes if n.node_id == marker_id)
         assert marker.metadata["projection_status"] == "symbols"
         assert not marker.metadata["diagnostics"]
-        target = next(n for n in nodes if n.name == "duplicate")
-        consumer = next(n for n in nodes if n.name == "consumer")
-        assert any(
-            e.src == consumer.node_id and e.dst == target.node_id and e.type == "CALLS"
-            for e in await store.get_all_edges()
+        target = next(n for n in nodes if n.name == "duplicate" and n.file == "ambiguous.py")
+        # The repaired file declares `duplicate` alone, so only the importer's
+        # call is left to bind, and it binds to this file, not to the twin.
+        calls = [e for e in await store.get_all_edges() if e.type == "CALLS"]
+        assert {(e.src, e.dst) for e in calls} == {(consumer_id, target.node_id)}
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_survivor_of_a_quarantined_path_gets_no_guessed_call(tmp_path, monkeypatch):
+    """Victor graph: `class f` survives two colliding `def f`; an importer's call
+    to `f` must not become a CALLS edge to it."""
+    from unittest.mock import AsyncMock
+
+    from victor.core.graph_rag.config import GraphIndexConfig
+    from victor.core.graph_rag.indexing import GraphIndexingPipeline
+    from victor.storage.graph.sqlite_store import SqliteGraphStore
+
+    (tmp_path / "x.py").write_text(
+        "class f:\n    pass\n\n\ndef f():\n    return 1\n\n\ndef f():\n    return 2\n"
+    )
+    (tmp_path / "y.py").write_text("from x import f\n\n\ndef g():\n    return f()\n")
+    monkeypatch.setattr(SqliteGraphStore, "_clear_all_embeddings", AsyncMock())
+    monkeypatch.setattr(SqliteGraphStore, "_delete_embeddings_for_file", AsyncMock())
+    store = SqliteGraphStore(tmp_path)
+    await store.initialize()
+    try:
+        pipeline = GraphIndexingPipeline(
+            store,
+            GraphIndexConfig(
+                root_path=tmp_path,
+                enable_ccg=False,
+                enable_embeddings=False,
+                enable_subgraph_cache=False,
+                enable_module_metrics=False,
+            ),
         )
+        stats = await pipeline.index_repository()
+        assert stats.error_count == 0, stats.errors
+        nodes = await store.get_all_nodes()
+        survivor = next(n for n in nodes if n.file == "x.py" and n.name == "f")
+        assert survivor.type == "class"
+        edges = await store.get_all_edges()
+        assert not any(e.type == "CALLS" and e.dst == survivor.node_id for e in edges)
     finally:
         await store.close()
 

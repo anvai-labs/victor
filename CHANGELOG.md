@@ -41,6 +41,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   863 of 951 to 555, C/C++ files quarantined for identity collisions from 347
   to 141, and syntax-partial C/C++ files from 1,568 to 1,258. C++ stable keys
   change: rebuild with `victor graph index --force`.
+- CodeGraph 0.16.1 quarantines the declarations that share a structural key, and
+  what they contain, instead of their whole file (`projection_status:
+  symbols_quarantined`; `file_marker_only` remains for a file whose every
+  declaration is ambiguous). The file's other symbols and its statement nodes are
+  indexed. A call into an ambiguous name stays unresolved rather than being bound
+  to a namesake in another file or to a declaration that survives at the same
+  path. On apache/arrow this recovers 11,554 symbols across 177 files (2,769
+  ambiguous declarations and their members stay out); 9 files remain markers.
+  Rebuild with `victor graph index --force`.
 
 ## [0.34.1] - Source candidate, 2026-11-26
 
