@@ -185,3 +185,158 @@ class TestAttributeCollectionOrder:
         attrs = _rust_cfg_attributes(fn, source.encode())
         signature = " ".join([*reversed(attrs), "()"])
         assert signature == "#[cfg(windows)] #[cfg_attr(x, y)] ()"
+
+
+def _cpp_symbols(source, file_path="arrow/builder.cc"):
+    parsed = parse(source, language="cpp", file_path=file_path)
+    return parsed, [s for s in parsed.symbols if s.symbol_type.name != "MODULE"]
+
+
+def _qualified(symbol):
+    """The FQN below the file component (``a::B::f``)."""
+    return symbol.fully_qualified_name.split("::", 1)[1]
+
+
+def test_cpp_out_of_class_definitions_keep_their_qualifier_identity():
+    # Two classes' FinishInternal definitions in one .cc (Arrow builder_adaptive.cc).
+    source = (
+        "Status AdaptiveIntBuilder::FinishInternal(std::shared_ptr<ArrayData>* out) {\n"
+        "  return Status::OK();\n}\n"
+        "Status AdaptiveUIntBuilder::FinishInternal(std::shared_ptr<ArrayData>* out) {\n"
+        "  return Status::OK();\n}\n"
+    )
+    parsed, symbols = _cpp_symbols(source)
+    finish = [s for s in symbols if s.simple_name == "FinishInternal"]
+    assert [_qualified(s) for s in finish] == [
+        "AdaptiveIntBuilder::FinishInternal",
+        "AdaptiveUIntBuilder::FinishInternal",
+    ]
+    # Qualifiers are identity, not containment: the class lives in another file.
+    assert [s.scope_chain for s in finish] == [[], []]
+    assert len({s.id for s in finish}) == 2
+    assert not [d for d in parsed.diagnostics if d.code == "identity_collision"]
+
+
+def test_cpp_nested_qualifiers_templates_and_destructors():
+    source = (
+        "namespace a {\n"
+        "void B::C::run() {}\n"
+        "B::B() {}\n"
+        "B::~B() {}\n"
+        "template <typename T> void Box<T>::put(T v) {}\n"
+        "}\n"
+    )
+    parsed, symbols = _cpp_symbols(source)
+    assert sorted(_qualified(s) for s in symbols) == [
+        "a::B::B",
+        "a::B::C::run",
+        "a::B::~B",
+        "a::Box::put",
+    ]
+    assert len({s.id for s in symbols}) == len(symbols)
+    assert not [d for d in parsed.diagnostics if d.code == "identity_collision"]
+
+
+def test_cpp_in_class_constructor_and_destructor_do_not_collide():
+    parsed, symbols = _cpp_symbols("class A {\n public:\n  A() {}\n  ~A() {}\n};\n", "a.h")
+    members = sorted(s.simple_name for s in symbols if s.scope_chain == ["A"])
+    assert members == ["A", "~A"]
+    assert not [d for d in parsed.diagnostics if d.code == "identity_collision"]
+
+
+def test_cpp_namespaces_qualify_identity_without_becoming_containers():
+    source = (
+        "namespace arrow {\nnamespace compute {\n"
+        "class Kernel { public: int Run() { return 0; } };\n"
+        "int Helper() { return 1; }\n"
+        "}  // namespace compute\n"
+        "int Helper() { return 2; }\n"
+        "}  // namespace arrow\n"
+        "namespace x::y { int Nested() { return 0; } }\n"
+        "namespace {\nint Local() { return 3; }\n}\n"
+    )
+    parsed, symbols = _cpp_symbols(source)
+    kernel = _by_name(parsed, "Kernel")
+    run = _by_name(parsed, "Run")
+    helpers = [s for s in symbols if s.simple_name == "Helper"]
+    assert _qualified(kernel) == "arrow::compute::Kernel"
+    assert _qualified(run) == "arrow::compute::Kernel::Run"
+    assert sorted(_qualified(s) for s in helpers) == ["arrow::Helper", "arrow::compute::Helper"]
+    assert _qualified(_by_name(parsed, "Nested")) == "x::y::Nested"
+    assert _qualified(_by_name(parsed, "Local")) == "(anonymous)::Local"
+    # Structural scope is unchanged: namespaced declarations stay top-level.
+    assert kernel.scope_chain == [] and run.scope_chain == ["Kernel"]
+    assert all(s.scope_chain == [] for s in helpers)
+    assert run.symbol_type.name == "METHOD"
+    assert all(s.symbol_type.name == "FUNCTION" for s in helpers)
+    assert len({s.id for s in helpers}) == 2
+    assert not {"arrow", "compute", "x", "y"} & {s.simple_name for s in symbols}
+    contains = {
+        (r.from_symbol_id, r.to_symbol_id)
+        for r in parsed.relations
+        if r.relation_type.name == "CONTAINS"
+    }
+    assert (kernel.id, run.id) in contains
+
+
+def test_cpp_cv_and_ref_qualified_overloads_have_distinct_stable_ids():
+    source = (
+        "struct S {\n"
+        "  int& Get() { return v; }\n"
+        "  const int& Get() const { return v; }\n"
+        "  int Take() && { return v; }\n"
+        "  int Take() & { return v; }\n"
+        "  int v;\n"
+        "};\n"
+    )
+    parsed, symbols = _cpp_symbols(source, "s.h")
+    gets = [s for s in symbols if s.simple_name == "Get"]
+    takes = [s for s in symbols if s.simple_name == "Take"]
+    assert len(gets) == 2 and len({s.id for s in gets}) == 2
+    assert len(takes) == 2 and len({s.id for s in takes}) == 2
+    assert not [d for d in parsed.diagnostics if d.code == "identity_collision"]
+
+
+def test_cpp_qualified_identity_survives_line_shift():
+    source = "namespace n {\nvoid K::f(int x) {}\n}\n"
+    base = _by_name(parse(source, language="cpp", file_path="k.cc"), "f")
+    moved = _by_name(parse("\n\n" + source, language="cpp", file_path="k.cc"), "f")
+    assert base.id == moved.id
+    assert _qualified(base) == "n::K::f"
+
+
+def test_cpp_sfinae_template_overloads_have_distinct_stable_ids():
+    source = (
+        "struct V {\n"
+        "  template <typename T>\n"
+        "  enable_if_t<is_integer<T>::value, Status> Visit(const T& t) { return Ok(); }\n"
+        "  template <typename T>\n"
+        "  enable_if_t<is_floating<T>::value, Status> Visit(const T& t) { return Ok(); }\n"
+        "  template <typename T, typename U>\n"
+        "  Status Pair(const T& t) { return Ok(); }\n"
+        "  template <typename T>\n"
+        "  Status Pair(const T& t) { return Ok(); }\n"
+        "};\n"
+    )
+    parsed, symbols = _cpp_symbols(source, "v.h")
+    visits = [s for s in symbols if s.simple_name == "Visit"]
+    pairs = [s for s in symbols if s.simple_name == "Pair"]
+    assert len(visits) == 2 and len({s.id for s in visits}) == 2
+    assert len(pairs) == 2 and len({s.id for s in pairs}) == 2
+    assert not [d for d in parsed.diagnostics if d.code == "identity_collision"]
+    # Whitespace inside the template head does not change identity.
+    respaced = parse(
+        source.replace("<typename T>", "<typename   T>"), language="cpp", file_path="v.h"
+    )
+    assert {s.id for s in respaced.symbols} == {s.id for s in parsed.symbols}
+
+
+def test_cpp_signature_reads_as_a_declaration():
+    parsed, symbols = _cpp_symbols(
+        "template <typename T>\nT Clamp(T v) const noexcept { return v; }\n"
+        "int Plain(int x) { return x; }\n",
+        "c.h",
+    )
+    assert _by_name(parsed, "Clamp").signature == "template<typename T> T (T v) const noexcept"
+    # Non-templated definitions keep the plain parameter-list signature.
+    assert _by_name(parsed, "Plain").signature == "(int x)"

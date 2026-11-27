@@ -334,7 +334,115 @@ def _class_symbol_type(node_type: str) -> CodeSymbolType:
 
 
 def _scope_names(frames: list[tuple[str, str]]) -> list[str]:
-    return [name for name, _kind in frames]
+    """The structural scope chain: enclosing types/functions, never namespaces."""
+    return [name for name, kind in frames if kind != "namespace"]
+
+
+def _namespace_names(frames: list[tuple[str, str]]) -> list[str]:
+    """Enclosing C++ namespaces; they qualify identity but are not containers."""
+    return [name for name, kind in frames if kind == "namespace"]
+
+
+def _cpp_namespace_names(node, src: bytes) -> list[str]:
+    """``namespace a``/``namespace a::b``/anonymous ``namespace`` -> name components."""
+    name = node.child_by_field_name("name")
+    if name is None:
+        return ["(anonymous)"]
+    if name.type == "nested_namespace_specifier":
+        return [_text(part, src) for part in name.named_children]
+    return [_text(name, src)]
+
+
+def _cpp_function_declarator(node):
+    """The ``function_declarator`` of a C++ definition, through pointer/reference wrappers.
+
+    ``reference_declarator`` (``int& Get()``) carries its inner declarator as an
+    unnamed child, not a ``declarator`` field, so both shapes are followed.
+    """
+    current = node.child_by_field_name("declarator")
+    depth = 0
+    while current is not None and depth < 8:
+        if current.type == "function_declarator":
+            return current
+        inner = current.child_by_field_name("declarator")
+        if inner is None and current.type == "reference_declarator":
+            inner = next((c for c in current.named_children if c.type.endswith("declarator")), None)
+        current = inner
+        depth += 1
+    return None
+
+
+def _cpp_scope_component(node, src: bytes) -> str:
+    """One qualifier component: ``B`` of ``B::f``; ``Box`` of ``Box<T>::f``."""
+    if node.type == "template_type":
+        name = node.child_by_field_name("name")
+        if name is not None:
+            return _text(name, src)
+    return _text(node, src)
+
+
+def _cpp_qualified_name(node, src: bytes) -> tuple[list[str], str | None]:
+    """Out-of-class qualifiers and the declared name of a C++ function definition.
+
+    ``void B::C::run()`` -> (["B", "C"], "run"); ``B::~B()`` -> (["B"], "~B");
+    in-class ``~B()`` -> ([], "~B"). A destructor keeps its ``~`` so it never
+    shares a structural key with the constructor of the same class.
+    """
+    declarator = _cpp_function_declarator(node)
+    if declarator is None:
+        return [], None
+    target = declarator.child_by_field_name("declarator")
+    qualifiers: list[str] = []
+    depth = 0
+    while target is not None and target.type == "qualified_identifier" and depth < 16:
+        scope = target.child_by_field_name("scope")
+        if scope is not None:
+            qualifiers.append(_cpp_scope_component(scope, src))
+        target = target.child_by_field_name("name")
+        depth += 1
+    if target is None:
+        return qualifiers, None
+    if target.type == "destructor_name":
+        names = [c for c in target.named_children if c.type in IDENTIFIER_NODES]
+        return qualifiers, "~" + _text(names[-1], src) if names else None
+    if target.type == "template_function":
+        target = target.child_by_field_name("name") or target
+    if target.type in IDENTIFIER_NODES or target.type == "operator_name":
+        return qualifiers, _text(target, src)
+    return qualifiers, None
+
+
+# Trailing member-function qualifiers that distinguish otherwise identical overloads.
+_CPP_TRAILING_QUALIFIERS = frozenset({"type_qualifier", "ref_qualifier", "noexcept"})
+
+
+def _cpp_signature(node, src: bytes, parameters: str) -> str:
+    """The C++ overload discriminator, written as a declaration reads.
+
+    Trailing ``const``/``&``/``&&``/``noexcept`` qualifiers always count. For a
+    templated definition the template head and return type count too: SFINAE
+    overloads (``enable_if_t<A<T>> Visit(const T&)`` and
+    ``enable_if_t<B<T>> Visit(const T&)``) differ only there. Whitespace inside
+    those parts is collapsed so reformatting never changes identity.
+    """
+    parts: list[str] = []
+    parent = node.parent
+    if parent is not None and parent.type == "template_declaration":
+        template = parent.child_by_field_name("parameters")
+        if template is not None:
+            parts.append("template" + " ".join(_text(template, src).split()))
+        return_type = node.child_by_field_name("type")
+        if return_type is not None:
+            parts.append(" ".join(_text(return_type, src).split()))
+    parts.append(parameters)
+    declarator = _cpp_function_declarator(node)
+    if declarator is not None:
+        parts.extend(
+            _text(child, src)
+            for child in declarator.named_children
+            if child.type in _CPP_TRAILING_QUALIFIERS
+        )
+    return " ".join(parts)
 
 
 def _handle_impl_item(child, src, file_path, language, frames, symbols, relations, impl_traits):
@@ -528,6 +636,19 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
                     relations,
                     impl_traits,
                 )
+        elif t == "namespace_definition" and language == "cpp":
+            body = child.child_by_field_name("body")
+            if body is not None:
+                _walk_collect(
+                    body,
+                    src,
+                    file_path,
+                    language,
+                    [*frames, *((n, "namespace") for n in _cpp_namespace_names(child, src))],
+                    symbols,
+                    relations,
+                    impl_traits,
+                )
         elif t == "impl_item":
             _handle_impl_item(
                 child, src, file_path, language, frames, symbols, relations, impl_traits
@@ -540,7 +661,14 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
                 continue
             name = _name_of(child, src) or "<anonymous>"
             sym = _mk(
-                child, src, file_path, language, name, _class_symbol_type(t), _scope_names(frames)
+                child,
+                src,
+                file_path,
+                language,
+                name,
+                _class_symbol_type(t),
+                _scope_names(frames),
+                namespaces=_namespace_names(frames),
             )
             symbols.append(sym)
             _extract_heritage(child, sym, src, relations)
@@ -558,6 +686,10 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
             )
         elif t in _FUNC_NODES or (language == "java" and t in _JAVA_CONSTRUCTOR_NODES):
             name = _name_of(child, src)
+            qualifiers: list[str] = []
+            if language == "cpp":
+                qualifiers, cpp_name = _cpp_qualified_name(child, src)
+                name = cpp_name or name
             if name is None:
                 # Anonymous functions have no durable structural discriminator. Do
                 # not promote them to symbols; recurse to collect named children.
@@ -577,7 +709,17 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
                 receiver = _go_receiver_type(child, src)
                 if receiver and stype == CodeSymbolType.FUNCTION:
                     stype = CodeSymbolType.METHOD  # a receiver makes it a method
-            sym = _mk(child, src, file_path, language, name, stype, _scope_names(frames))
+            sym = _mk(
+                child,
+                src,
+                file_path,
+                language,
+                name,
+                stype,
+                _scope_names(frames),
+                namespaces=_namespace_names(frames),
+                qualifiers=qualifiers,
+            )
             if language == "java" and t == "compact_constructor_declaration":
                 # Compact constructors inherit the record's canonical parameter list.
                 # Never search the body: a nested call/function is not this signature.
@@ -810,11 +952,32 @@ def _javascript_conditional(node) -> bool:
     return False
 
 
-def _mk(node, src, file_path, language, name, stype, scope) -> CodeSymbol:
+def _mk(
+    node,
+    src,
+    file_path,
+    language,
+    name,
+    stype,
+    scope,
+    *,
+    namespaces: list[str] | None = None,
+    qualifiers: list[str] | None = None,
+) -> CodeSymbol:
+    """Build a symbol. ``scope`` is the structural container chain.
+
+    C++ ``namespaces`` and out-of-class ``qualifiers`` (``B`` of ``B::f``) take part
+    in the fully qualified name, and so in the stable key, without becoming
+    containers: a namespaced top-level declaration is still top-level in its file.
+    """
     start_line = node.start_point[0] + 1
     end_line = node.end_point[0] + 1
-    fqn = "::".join([file_path.replace("/", "."), *scope, name])
+    fqn = "::".join(
+        [file_path.replace("/", "."), *(namespaces or ()), *scope, *(qualifiers or ()), name]
+    )
     signature = None if stype == CodeSymbolType.MODULE else _param_signature(node, src)
+    if language == "cpp" and signature is not None:
+        signature = _cpp_signature(node, src, signature)
     attributes: list[str] = []
     if language == "rust":
         attributes = _rust_cfg_attributes(node, src)

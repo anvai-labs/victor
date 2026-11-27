@@ -25,7 +25,7 @@ from .model import (
     stable_symbol_key,
 )
 from .repo import iter_source_files, read_source_text
-from .languages import detect_language
+from .languages import matches_languages, project_header_default
 from .javascript_repository import JavaScriptRepository
 
 
@@ -316,7 +316,7 @@ def _selected_source_paths(
     return [
         path
         for path in sorted(paths, key=lambda p: (p.relative_to(root).parent.parts, p.name))
-        if allowed is None or detect_language(str(path)) in allowed
+        if matches_languages(str(path), allowed)
     ]
 
 
@@ -353,17 +353,23 @@ def parse_repo(
     root_path = Path(root).resolve()
     files: dict[str, ParsedCode] = {}
     manifest: dict[str, str] = {}
-    paths = (
+    paths = list(
         iter_source_files(root_path, languages=languages)
         if selected_paths is None
         else _selected_source_paths(root_path, selected_paths, languages)
     )
+    header_default = project_header_default(paths)
     for path in paths:
         content = read_source_text(path)
         if content is None:
             continue
         relative = path.resolve().relative_to(root_path).as_posix()
-        parsed = parse(content, file_path=relative, emit_references=emit_references)
+        parsed = parse(
+            content,
+            file_path=relative,
+            emit_references=emit_references,
+            header_default=header_default,
+        )
         files[relative] = parsed
         manifest[relative] = parsed.content_hash
 
