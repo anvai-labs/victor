@@ -608,22 +608,24 @@ def _walk_collect(node, src, file_path, language, frames, symbols, relations, im
             )
             body = child.child_by_field_name("body")
             module.metadata["rust_inline_module"] = body is not None
-            # Older packs: attribute_items are source-level siblings of the
-            # module; 1.26+: they are wrapped in an ``attributes`` CHILD.
-            candidates = list(child.named_children) + [child.prev_named_sibling]
-            while candidates:
-                candidate = candidates.pop(0)
-                if candidate is None:
-                    continue
-                if candidate.type == "attributes":
-                    candidates.extend(candidate.named_children)
-                    continue
-                if candidate.type != "attribute_item":
-                    if candidate.prev_named_sibling is not None:
-                        candidates.append(candidate.prev_named_sibling)
-                    continue
-                if _rust_attribute_name(candidate, src) in {"path", "cfg_attr"}:
-                    module.metadata["rust_path_attribute"] = True
+            # Only the module's OWN attribute items count: on older packs they
+            # are the immediately preceding attribute_item sibling chain, on
+            # 1.26+ they live in an ``attributes`` CHILD container. The sibling
+            # chain must STOP at the first non-attribute sibling — walking
+            # through it would steal #[path]/#[cfg_attr] from a PRECEDING item
+            # and silently break this module's bindings (review-reproduced:
+            # '#[path="x.rs"] mod a;' followed by 'mod b;' flagged b).
+            for own_child in child.named_children:
+                if own_child.type == "attributes":
+                    for item in _rust_attribute_items(own_child):
+                        if _rust_attribute_name(item, src) in {"path", "cfg_attr"}:
+                            module.metadata["rust_path_attribute"] = True
+            sibling = child.prev_named_sibling
+            while sibling is not None and sibling.type in ("attribute_item", "attributes"):
+                for item in _rust_attribute_items(sibling):
+                    if _rust_attribute_name(item, src) in {"path", "cfg_attr"}:
+                        module.metadata["rust_path_attribute"] = True
+                sibling = sibling.prev_named_sibling
             symbols.append(module)
             if body is not None:
                 _walk_collect(
