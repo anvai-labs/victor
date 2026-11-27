@@ -382,3 +382,47 @@ class TestModAttributeBoundary:
     def test_own_cfg_attr_still_detected(self):
         symbols = self._mods('#[cfg_attr(unix, path = "unix.rs")]\nmod dep;\n')
         assert self._module_meta(symbols, "dep").get("rust_path_attribute") is True
+
+
+class TestHeaderStringCommentScan:
+    """classify_header must strip comments and strings in ONE pass, strings first."""
+
+    def test_block_comment_opener_inside_string_does_not_eat_the_file(self):
+        from victor_codegraph.languages import classify_header
+
+        header = (
+            'const char *s = "/*";\\n'
+            "namespace outer { struct Point { int x; }; }\\n"
+            "template <typename T> T max(T a, T b);\\n"
+        )
+        # Pre-fix, the DOTALL '/*...*/' spanned from inside the string to a
+        # later '*/' (or the file end), blanking every C++ signal.
+        assert classify_header(header) == "cpp"
+
+    def test_line_comment_marker_inside_string_does_not_eat_its_line(self):
+        from victor_codegraph.languages import classify_header
+
+        header = 'const char *p = "http://x";\\nint main(void);\\n'
+        assert classify_header(header) is None  # no C++ signals survive
+
+    def test_plain_c_header_still_classifies(self):
+        from victor_codegraph.languages import classify_header
+
+        assert classify_header("#include <stdio.h>\\nint add(int a, int b);\\n") is None
+
+
+class TestTemplateSpecializationKeys:
+    """Specializations of the same primary must not share one structural key."""
+
+    def test_twin_specializations_resolve_instead_of_quarantining(self):
+        source = (
+            "template <typename T> struct Foo { void run(); };\n"
+            "template <> void Foo<int>::run() {}\n"
+            "template <> void Foo<bool>::run() {}\n"
+        )
+        symbols = parse(source, language="cpp").symbols
+        names = sorted(s.fully_qualified_name for s in symbols)
+        assert "<unknown>::Foo<int>::run" in names
+        assert "<unknown>::Foo<bool>::run" in names
+        # The primary declaration keeps its bare-template key.
+        assert "<unknown>::Foo" in names

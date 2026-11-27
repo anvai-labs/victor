@@ -559,10 +559,20 @@ class RustAnalyzerProvider:
 
 
 def _volume_ignores_case(path: Path) -> bool:
-    """True when ``path`` also exists with its letter case swapped (macOS, Windows)."""
+    """True when the filesystem genuinely folds letter case (macOS, Windows).
+
+    An existence probe alone false-positives on Linux when a sibling file
+    happens to exist with swapped case; on a case-folding filesystem the two
+    paths resolve to the SAME inode, so require that.
+    """
     text = os.path.normcase(str(path))
     swapped = text.swapcase()
-    return swapped != text and os.path.exists(swapped)
+    if swapped == text:
+        return False
+    try:
+        return os.stat(text).st_ino == os.stat(swapped).st_ino
+    except OSError:
+        return False
 
 
 def _spelling_key(path: Path, fold_case: bool) -> str:
