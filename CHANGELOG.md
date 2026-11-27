@@ -51,6 +51,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ambiguous declarations and their members stay out); 9 files remain markers.
   Rebuild with `victor graph index --force`.
 
+## [0.35.0] - Source candidate, 2026-11-27
+
+### Added
+
+- C/C++ header indexing with structural C++ identities: headers are classified
+  C vs C++ from their text, in-class vs out-of-class definitions cannot collide,
+  and the header default is computed from the full discovered inventory every
+  run (#2041). The scip-clang compilation database can be named explicitly
+  (config or `--compile-commands`) with typed skips for missing/ambiguous/
+  outside-root databases (#2042).
+
+### Fixed
+
+- Codegraph grammar port: tree-sitter-language-pack 1.26+ wraps item attributes
+  in an `attributes` container child; dual-shape walks support both generations,
+  collection is nearest-first so signature prefixes stay byte-identical across
+  packs (no cross-pack identity drift), and the module attribute walk is bounded
+  at the first non-attribute sibling (an unbounded walk stole `#[path]`/
+  `#[cfg_attr]` from preceding items and silently dropped cross-file edges —
+  found by the promotion review). Pin lifted to `<1.29`; victor-codegraph
+  0.16.1 (#2039, #2040, #2047).
+- LiveDisplayRenderer teardown is guaranteed on every exit path: a renderer
+  fixture with `finally` + invariant, a context-manager form, and idempotent
+  cleanup close the rich-Live xdist worker wedge behind two promotion incidents
+  (#2038).
+- Colliding symbols are quarantined individually instead of poisoning whole
+  files; edges into quarantined symbols are dropped at all three layers with a
+  fail-closed backstop (#2045).
+
+### Changed
+
+- black/ruff/mypy pinned in one place at their latest releases, with guard
+  tests (#2043).
+
+### Upgrade notes
+
+- Deployment locks move to `sandhi-gateway==0.27.0` (floor stays `>=0.26.0`;
+  0.27.0 is the published Latest, validated by the 0.34.1 fresh-install smoke).
+- **victor-codegraph 0.16.1 is a hard pin** (`victor-codegraph[treesitter]==0.16.1`);
+  it publishes ahead of this release.
+- **C++ stable keys changed** — re-index C/C++ projects with
+  `victor graph index --force`. Rust keys remain join-compatible across the
+  language-pack upgrade.
+
 ## [0.34.1] - Source candidate, 2026-11-26
 
 ### Fixed
