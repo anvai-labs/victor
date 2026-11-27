@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from victor_codegraph import apply_index_delta, diff_repository, parse_repo
+from victor_codegraph import apply_index_delta, diff_repository, parse_repo, relation_key
 
 
 def test_repository_delta_deletes_removed_and_replaced_symbols(tmp_path):
@@ -47,7 +47,7 @@ def test_repository_delta_refreshes_relation_evidence_on_line_shift(tmp_path):
 
 
 def test_repository_quarantines_identity_collisions_and_delta_recovers(tmp_path):
-    from victor_codegraph import CodeRelationType, CodeSymbolType, ParseStatus
+    from victor_codegraph import CodeRelationType, CodeSymbolType, ParseStatus, to_proxima_records
 
     ambiguous = tmp_path / "duplicate.py"
     ambiguous.write_text("def helper(): return 1\n")
@@ -62,14 +62,16 @@ def test_repository_quarantines_identity_collisions_and_delta_recovers(tmp_path)
     raw = current.files["duplicate.py"]
     assert raw.status == ParseStatus.PARTIAL
     assert len(raw.symbols) == 3  # Keep original evidence, including both definitions.
-    projected = [s for s in current.symbols if s.location.file_path == "duplicate.py"]
-    assert len(projected) == 1
-    marker = projected[0]
+    # Only the two colliding declarations are left out; the file's unique
+    # `helper` is projected, and nothing else in the file owns a relation.
+    marker, helper = [s for s in current.symbols if s.location.file_path == "duplicate.py"]
     assert marker.symbol_type == CodeSymbolType.FILE
+    assert helper.simple_name == "helper"
     assert marker.metadata["parse_status"] == "partial"
-    assert marker.metadata["projection_status"] == "file_marker_only"
-    assert marker.metadata["omitted_symbol_count"] == 3
+    assert marker.metadata["projection_status"] == "symbols_quarantined"
+    assert marker.metadata["omitted_symbol_count"] == 2
     assert marker.metadata["omitted_relation_count"] == len(raw.relations)
+    assert marker.metadata["ambiguous_symbol_names"] == ["f"]
     assert [d["line"] for d in marker.metadata["diagnostics"]] == [1, 2]
     collisions = marker.metadata["identity_collisions"]
     assert len(collisions) == 1 and collisions[0]["symbol_id"] == raw.symbols[0].id
@@ -80,8 +82,6 @@ def test_repository_quarantines_identity_collisions_and_delta_recovers(tmp_path)
     ]
     assert [d["symbol_type"] for d in collisions[0]["declarations"]] == ["function", "function"]
     assert [d["source_span"]["start_line"] for d in collisions[0]["declarations"]] == [1, 2]
-    from victor_codegraph import to_proxima_records
-
     marker.metadata["private_source_metadata"] = "must not be exported"
     records = to_proxima_records(current, repo_graph_id="repo")
     record = next(
@@ -99,22 +99,36 @@ def test_repository_quarantines_identity_collisions_and_delta_recovers(tmp_path)
         assert record["props"][key] == marker.metadata[key]
     assert "private_source_metadata" not in record["props"]
     assert not any(
-        "/external/" not in r["edge"]["to_oid"]
+        r["edge"]["from_oid"] in {s.id for s in raw.symbols[:2]}
         for r in records
-        if "graph_edge" in r["labels"] and r["edge"]["edge_type"] == "CALLS"
+        if "graph_edge" in r["labels"]
     )
     assert len({s.id for s in current.symbols}) == len(current.symbols)
-    assert not any(r.from_symbol_id == marker.id for r in current.relations)
+    # The file marker owns structure only: it contains what the file still
+    # declares, and never a call or a reference.
+    from_marker = [r for r in current.relations if r.from_symbol_id == marker.id]
+    assert {r.to_symbol_id for r in from_marker} == {helper.id}
+    assert {r.relation_type for r in from_marker} == {CodeRelationType.CONTAINS}
     calls = [r for r in current.relations if r.relation_type == CodeRelationType.CALLS]
-    assert len(calls) == 1 and calls[0].target_ref.name == "helper"
+    # The caller's import binds to the one `helper` the file still declares.
+    (call,) = calls
+    assert call.to_symbol_id == helper.id and call.target_ref is None
+    assert call.provenance == "repository_resolver"
     assert any(
         r.relation_type == CodeRelationType.IMPORTS and r.to_symbol_id == marker.id
         for r in current.relations
     )
     delta = diff_repository(current, previous)
-    assert delta.delete_symbol_ids and delta.delete_relation_keys
+    # `helper` keeps its identity through the collision (it moved, so it is
+    # upserted): the delta carries the file's new evidence and relations, and
+    # deletes no symbol.
+    assert {s.id for s in delta.upsert_symbols} == {marker.id, helper.id}
+    assert not delta.delete_symbol_ids
     rebuilt = apply_index_delta(previous, delta)
     assert {s.id for s in rebuilt.symbols} == {s.id for s in current.symbols}
+    assert {relation_key(r) for r in rebuilt.relations} == {
+        relation_key(r) for r in current.relations
+    }
 
     ambiguous.write_text("def helper(): return 2\n")
     repaired = parse_repo(tmp_path, repo_id="repo")

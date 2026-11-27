@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "victor-codegraph"
-version = "0.15.0"
+version = "0.16.1"
 description = "Repository-to-Code-Semantic-Graph compiler with stable identity, bounded chunks, incremental deltas, and ProximaRecord projection."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -43,7 +43,7 @@ dependencies = []
 embeddings = ["sentence-transformers>=3,<7"]
 treesitter = [
     "tree-sitter>=0.26.0",
-    "tree-sitter-language-pack>=1.21.3,<1.26",  # 1.26+ ships a Rust grammar that changed cfg-variant node identity; port tracked as follow-up
+    "tree-sitter-language-pack>=1.21.3,<1.29",  # dual-shape attribute walks support the 1.26+ attributes-container grammar; upper bound = drift guard
 ]
 contracts = [
     "victor-contracts>=0.9.1,<1.0",
@@ -52,7 +52,7 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.7",
     "tree-sitter>=0.26.0",
-    "tree-sitter-language-pack>=1.21.3,<1.26",  # 1.26+ ships a Rust grammar that changed cfg-variant node identity; port tracked as follow-up
+    "tree-sitter-language-pack>=1.21.3,<1.29",  # dual-shape attribute walks support the 1.26+ attributes-container grammar; upper bound = drift guard
 ]
 
 [project.urls]

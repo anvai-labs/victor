@@ -20,7 +20,6 @@ from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.markup import escape as _markup_escape
 from rich.panel import Panel
-from rich.spinner import Spinner
 from rich.text import Text
 
 from victor.ui.rendering.markdown import find_safe_split, render_markdown_with_hooks
@@ -929,6 +928,21 @@ class LiveDisplayRenderer:
             pause_fn=self.pause,
             resume_fn=lambda: self.resume(),
         )
+
+    def __enter__(self) -> "LiveDisplayRenderer":
+        """Context-manager form so callers cannot leak the Live refresher.
+
+        ``with LiveDisplayRenderer(console) as renderer:`` guarantees the
+        display (and its 10 Hz daemon refresher thread) stops on every exit
+        path — the bare start()/cleanup() pattern wedged two CI promotions
+        when a failure skipped the trailing cleanup.
+        """
+        if self._live is None:
+            self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.cleanup()
 
     def cleanup(self) -> None:
         """Clean up the Live display."""

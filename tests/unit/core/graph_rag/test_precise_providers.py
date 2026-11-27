@@ -8,6 +8,10 @@ grammars are producer properties and documentation is not evidence.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+import os
 from pathlib import Path
 
 from victor.core.graph_rag.precise_providers import (
@@ -266,6 +270,211 @@ def test_clang_dump_without_database_skips(tmp_path, monkeypatch):
     result = CC.dump("/usr/bin/scip-clang", tmp_path, Path("/x.scip"), timeout_seconds=1)
     assert isinstance(result, DumpSkipped) and result.reason == "no-compile-database"
     assert captured == {}  # never reached the transport
+
+
+def _compdb(path, root, files):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # CMake writes absolute source paths; so does this helper.
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "directory": str(root),
+                    "file": str(root / name),
+                    "command": f"c++ -c {root / name}",
+                }
+                for name in files
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_clang_discovers_cmake_preset_layout_and_refuses_ambiguity(tmp_path):
+    preset = tmp_path / "cpp" / "build" / "ninja-debug" / "compile_commands.json"
+    _compdb(preset, tmp_path, ["cpp/a.cc"])
+    assert CC.compilation_database(tmp_path) == preset
+    # The other standard presets layout: build/<preset>/ directly under the root.
+    flat_root = tmp_path / "flat"
+    flat = _compdb(
+        flat_root / "build" / "ninja-debug" / "compile_commands.json", flat_root, ["a.cc"]
+    )
+    assert CC.compilation_database(flat_root) == flat
+    _compdb(flat_root / "build" / "ninja-release" / "compile_commands.json", flat_root, [])
+    ambiguous = CC.compilation_database(flat_root)
+    assert isinstance(ambiguous, DumpSkipped) and ambiguous.reason == "ambiguous-compile-database"
+    # Two presets at the same depth: never pick one silently.
+    _compdb(tmp_path / "cpp" / "build" / "ninja-release" / "compile_commands.json", tmp_path, [])
+    result = CC.compilation_database(tmp_path)
+    assert isinstance(result, DumpSkipped) and result.reason == "ambiguous-compile-database"
+    # A nearer tier still wins over a deeper ambiguous one.
+    _compdb(tmp_path / "build" / "compile_commands.json", tmp_path, [])
+    assert CC.compilation_database(tmp_path) == tmp_path / "build" / "compile_commands.json"
+
+
+def test_clang_explicit_compile_database_wins_and_may_live_outside_root(tmp_path, monkeypatch):
+    root = tmp_path / "snapshot"
+    (root / "src").mkdir(parents=True)
+    _compdb(root / "compile_commands.json", root, ["src/a.cc"])
+    external = _compdb(tmp_path / "out-of-tree" / "compile_commands.json", root, ["src/a.cc"])
+    assert CC.compilation_database(root, str(external)) == external
+    relative = _compdb(root / "builds" / "x" / "compile_commands.json", root, ["src/a.cc"])
+    assert CC.compilation_database(root, "builds/x/compile_commands.json") == relative
+
+    captured = _capture_dump(monkeypatch, dump_result=Path("/x/index.scip"))
+    output = root / ".victor" / "precise" / "out.scip"
+    CC.dump("/usr/bin/scip-clang", root, output, timeout_seconds=5, compile_commands=str(external))
+    assert captured["command"][1:3] == ["--compdb-path", str(external)]
+    assert captured["cwd"] == root  # documents still filter to the indexed root
+
+
+def test_clang_missing_explicit_database_skips(tmp_path, monkeypatch):
+    captured = _capture_dump(monkeypatch)
+    result = CC.dump(
+        "/usr/bin/scip-clang",
+        tmp_path,
+        Path("/x.scip"),
+        timeout_seconds=1,
+        compile_commands=str(tmp_path / "absent.json"),
+    )
+    assert isinstance(result, DumpSkipped) and result.reason == "compile-database-missing"
+    assert captured == {}
+
+
+def test_clang_database_for_another_checkout_skips(tmp_path, monkeypatch):
+    root = tmp_path / "snapshot"
+    root.mkdir()
+    other = tmp_path / "original-clone"
+    external = _compdb(
+        tmp_path / "build" / "compile_commands.json", other, ["src/a.cc", "src/b.cc"]
+    )
+    captured = _capture_dump(monkeypatch)
+    result = CC.dump(
+        "/usr/bin/scip-clang",
+        root,
+        Path("/x.scip"),
+        timeout_seconds=1,
+        compile_commands=str(external),
+    )
+    assert isinstance(result, DumpSkipped) and result.reason == "compile-database-outside-root"
+    assert captured == {}
+    # One entry under the root is enough; the rest may be generated/out-of-tree TUs.
+    mixed = _compdb(tmp_path / "mixed.json", other, ["src/a.cc"])
+    entries = json.loads(mixed.read_text(encoding="utf-8"))
+    entries.append({"directory": str(root), "file": str(root / "x.cc"), "command": "c++ -c x.cc"})
+    mixed.write_text(json.dumps(entries), encoding="utf-8")
+    captured = _capture_dump(monkeypatch, dump_result=Path("/x/index.scip"))
+    CC.dump(
+        "/usr/bin/scip-clang", root, Path("/x.scip"), timeout_seconds=1, compile_commands=str(mixed)
+    )
+    assert captured["command"][2] == str(mixed)
+
+
+def test_clang_relative_entries_resolve_against_their_directory(tmp_path, monkeypatch):
+    """scip-clang 0.4.3 resolves a relative ``file`` against ``directory`` (measured:
+    source-relative entries with a separate build directory make it process no
+    entry and wait out its timeout), so the containment check does the same."""
+    root = tmp_path / "snapshot"
+    (root / "src").mkdir(parents=True)
+    entries = [{"file": "src/a.cc", "command": "c++ -c src/a.cc"}]
+
+    inside = tmp_path / "in-tree.json"
+    inside.write_text(json.dumps([dict(entries[0], directory=str(root))]), encoding="utf-8")
+    captured = _capture_dump(monkeypatch, dump_result=Path("/x/index.scip"))
+    result = CC.dump(
+        "/usr/bin/scip-clang",
+        root,
+        Path("/x.scip"),
+        timeout_seconds=1,
+        compile_commands=str(inside),
+    )
+    assert result is not None
+    assert captured["command"][2] == str(inside)
+
+    build = tmp_path / "build"
+    build.mkdir()
+    outside = build / "compile_commands.json"
+    outside.write_text(json.dumps([dict(entries[0], directory=str(build))]), encoding="utf-8")
+    captured.clear()
+    result = CC.dump(
+        "/usr/bin/scip-clang",
+        root,
+        Path("/x.scip"),
+        timeout_seconds=1,
+        compile_commands=str(outside),
+    )
+    assert isinstance(result, DumpSkipped) and result.reason == "compile-database-outside-root"
+    assert captured == {}  # skipped at once instead of waiting out the dump timeout
+
+
+def test_clang_cache_inputs_follow_database_content(tmp_path):
+    no_database = CC.cache_inputs(tmp_path)
+    assert no_database == {"compile_commands_sha256": "no-database:none"}
+    db = _compdb(tmp_path / "compile_commands.json", tmp_path, ["a.cc"])
+    first = CC.cache_inputs(tmp_path)
+    assert set(first) == {"compile_commands_sha256"}
+    _compdb(db, tmp_path, ["a.cc", "b.cc"])  # reconfigured build, same sources
+    assert CC.cache_inputs(tmp_path) != first
+    # Having no database is keyed too, and each skip distinctly.
+    assert CC.cache_inputs(tmp_path, str(tmp_path / "absent.json")) == {
+        "compile_commands_sha256": "no-database:compile-database-missing"
+    }
+    twin = tmp_path / "twin"  # another root: two databases, none nearer
+    _compdb(twin / "a" / "compile_commands.json", twin, [])
+    _compdb(twin / "b" / "compile_commands.json", twin, [])
+    assert CC.cache_inputs(twin)["compile_commands_sha256"] == (
+        "no-database:ambiguous-compile-database"
+    )
+    assert not first["compile_commands_sha256"].startswith("no-database:")
+
+
+def test_clang_blank_explicit_path_falls_back_to_discovery(tmp_path):
+    (tmp_path / "build").mkdir()
+    _compdb(tmp_path / "build" / "compile_commands.json", tmp_path, ["a.cc"])
+    found = tmp_path / "build" / "compile_commands.json"
+    assert CC.compilation_database(tmp_path, "   ") == found
+    assert CC.cache_inputs(tmp_path, " ") == {
+        "compile_commands_sha256": hashlib.sha256(found.read_bytes()).hexdigest()
+    }
+
+
+def test_clang_case_folded_roots_match_on_volumes_that_ignore_case(tmp_path, monkeypatch):
+    """A root spelled ``myproj`` and a database naming ``MyProj`` are one tree on
+    macOS and Windows, and two different trees on a case-sensitive volume."""
+    from victor.core.graph_rag import precise_providers
+
+    root = tmp_path / "myproj"
+    root.mkdir()
+    db = _compdb(tmp_path / "b" / "compile_commands.json", tmp_path / "MyProj", ["src/a.cc"])
+
+    monkeypatch.setattr(precise_providers, "_volume_ignores_case", lambda path: True)
+    assert CC._names_only_outside_root(db, root) is False
+    monkeypatch.setattr(precise_providers, "_volume_ignores_case", lambda path: False)
+    assert CC._names_only_outside_root(db, root) is True
+
+
+def test_clang_volume_probe_reads_the_filesystem(tmp_path):
+    from victor.core.graph_rag.precise_providers import _volume_ignores_case
+
+    (tmp_path / "MyProj").mkdir()
+    assert _volume_ignores_case(tmp_path / "MyProj") == os.path.exists(
+        str(tmp_path / "MyProj").swapcase()
+    )
+    assert _volume_ignores_case(tmp_path / "1234") is False  # no letter case to swap
+
+
+def test_clang_ambiguity_is_explained_once_with_both_remedies(tmp_path, caplog):
+    _compdb(tmp_path / "cpp" / "build" / "debug" / "compile_commands.json", tmp_path, [])
+    _compdb(tmp_path / "cpp" / "build" / "release" / "compile_commands.json", tmp_path, [])
+    with caplog.at_level(logging.WARNING, logger="victor.core.graph_rag.precise_providers"):
+        result = CC.dump("/usr/bin/scip-clang", tmp_path, Path("/x.scip"), timeout_seconds=1)
+        CC.cache_inputs(tmp_path)  # resolves too, and must not explain again
+    assert isinstance(result, DumpSkipped) and result.reason == "ambiguous-compile-database"
+    messages = [r.getMessage() for r in caplog.records if "compile databases" in r.getMessage()]
+    assert len(messages) == 1
+    assert "--compile-commands" in messages[0]
+    assert "precise_index_compile_commands" in messages[0]
 
 
 def test_java_dump_argv_and_build_marker_gate(tmp_path, monkeypatch):
@@ -538,6 +747,64 @@ def test_clang_join_end_to_end_hash_and_cross_file(tmp_path):
         )
     ]
     assert harvest.unjoined == 0  # file pseudo-symbols never pool
+
+
+def test_clang_join_matches_codegraph_cpp_names_for_namespaced_members(tmp_path):
+    """Codegraph C++ names agree with scip-clang descriptors: namespaces qualify
+    identity only (SCIP drops them too), and a destructor is ``~Type`` on both sides,
+    so it never joins to the constructor or the class."""
+    import pytest
+
+    pytest.importorskip("google.protobuf")
+    pytest.importorskip("tree_sitter_language_pack")
+    from victor_codegraph import parse
+
+    from victor.core.graph_rag._scip import scip_pb2
+    from victor.core.graph_rag.precise_index import join_occurrences
+
+    source = (
+        "namespace arrow {\n"
+        "class Array {\n public:\n  Array() {}\n  ~Array() {}\n  int Length() const { return 0; }\n};\n"
+        "int Use() { Array a; return a.Length(); }\n"
+        "}  // namespace arrow\n"
+    )
+    parsed = parse(source, language="cpp", file_path="src/array.h")
+    by_path = {(*s.scope_chain, s.simple_name): s for s in parsed.symbols}
+
+    class N:
+        def __init__(self, symbol):
+            parent = by_path.get(tuple(symbol.scope_chain))
+            self.node_id, self.name, self.file = symbol.id, symbol.simple_name, "src/array.h"
+            self.type = symbol.symbol_type.name.lower()
+            self.parent_id = parent.id if parent is not None else None
+            self.line = symbol.location.start_line
+            self.end_line = symbol.location.end_line
+
+    nodes = {"src/array.h": [N(s) for s in parsed.symbols if s.symbol_type.name != "MODULE"]}
+    names = {n.name for n in nodes["src/array.h"]}
+    assert {"Array", "~Array", "Length", "Use"} <= names
+
+    index = scip_pb2.Index()
+    doc = index.documents.add()
+    doc.relative_path = "src/array.h"
+    rows = [
+        ("cxx . . $ arrow/Array#~Array(49f6e7a06ebc5aa8).", 4, 1),
+        ("cxx . . $ arrow/Array#Length(1a2b3c4d5e6f7081).", 5, 1),
+        ("cxx . . $ arrow/Use(0f1e2d3c4b5a6978).", 7, 1),
+        ("cxx . . $ arrow/Array#Length(1a2b3c4d5e6f7081).", 7, 0),
+    ]
+    for symbol, line, roles in rows:
+        occ = doc.occurrences.add()
+        occ.symbol = symbol
+        occ.symbol_roles = roles
+        occ.range.extend([line, 0])
+
+    assert CC.symbol_parts(rows[0][0]) == {"file": "", "path": "Array.~Array"}
+    harvest = join_occurrences(index, nodes, symbol_parts=CC.symbol_parts)
+    use = next(n.node_id for n in nodes["src/array.h"] if n.name == "Use")
+    length = next(n.node_id for n in nodes["src/array.h"] if n.name == "Length")
+    assert [(src, dst) for src, dst, *_ in harvest.edges] == [(use, length)]
+    assert harvest.unjoined == 0
 
 
 def test_java_join_end_to_end_and_honest_constructor_gap(tmp_path):
