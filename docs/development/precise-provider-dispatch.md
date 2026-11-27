@@ -17,6 +17,14 @@ off. `precise_index_tool=auto` uses each provider's discovery mechanism (usually
 PATH; Ruby requires bundler and scip-ruby). Discovery does not download tools or
 install project dependencies. Toolchain provisioning is a separate setup action.
 
+For `scip-clang`, `--compile-commands PATH` (setting
+`search.graph.precise_index_compile_commands`) names a compilation database
+that may live outside the indexed tree, so the build directory need not be
+written into the indexed copy. Configuring that database still runs the
+project's own build logic against the source tree, and some projects write
+in-tree: configure against an isolated copy, as above, not against the only
+copy. Its digest is part of the dump cache key.
+
 | Registered producer | Eligible extensions |
 | --- | --- |
 | scip-python | .py |

@@ -29,12 +29,15 @@ name/scope/kind today while later tiers read the rest without re-dumping.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Protocol, Union
@@ -555,6 +558,21 @@ class RustAnalyzerProvider:
         return {"file": "", "path": f"{scope}.{name}"}
 
 
+def _volume_ignores_case(path: Path) -> bool:
+    """True when ``path`` also exists with its letter case swapped (macOS, Windows)."""
+    text = os.path.normcase(str(path))
+    swapped = text.swapcase()
+    return swapped != text and os.path.exists(swapped)
+
+
+def _spelling_key(path: Path, fold_case: bool) -> str:
+    """A path spelled so two names for one directory compare equal on such a volume."""
+    text = os.path.normcase(str(path))
+    if fold_case:
+        text = unicodedata.normalize("NFC", text).casefold()
+    return text
+
+
 class ScipClangProvider:
     """``scip-clang`` — C/C++ (native; needs a compilation database)."""
 
@@ -567,20 +585,129 @@ class ScipClangProvider:
     def detect(self, tool_hint: str = "auto") -> Optional[str]:
         return _detect_tool(self.name, tool_hint)
 
-    def compilation_database(self, root: Path) -> Optional[Path]:
-        """Compile-database discovery: root, root/build, or one level down
-        (out-of-source cmake layouts). Never generates one — building is the
-        user's build system's job, not a dump side effect."""
+    # Discovery tiers, nearest first. Within a tier more than one database is
+    # ambiguous (e.g. ``build/debug`` and ``build/release``): refuse rather than
+    # pick one. The operator names it with ``--compile-commands`` or
+    # ``search.graph.precise_index_compile_commands``.
+    _DISCOVERY_TIERS = (
+        "compile_commands.json",
+        "build/compile_commands.json",
+        "*/compile_commands.json",
+        "*/build/compile_commands.json",
+        "build/*/compile_commands.json",  # cmake presets: build/<preset>/
+        "*/build/*/compile_commands.json",  # cmake presets: cpp/build/<preset>/
+    )
 
-        for candidate in (
-            root / "compile_commands.json",
-            root / "build" / "compile_commands.json",
-            *sorted(root.glob("*/compile_commands.json")),
-            *sorted(root.glob("*/build/compile_commands.json")),
-        ):
-            if candidate.exists():
-                return candidate
-        return None
+    @staticmethod
+    def _explicit_database(root: Path, compile_commands: str) -> Path:
+        explicit = Path(compile_commands.strip()).expanduser()
+        if not explicit.is_absolute():
+            explicit = root / explicit
+        return explicit
+
+    def _discover(self, root: Path) -> tuple[Optional[Path], list[Path]]:
+        """The one database in the nearest tier that has any, else every candidate there."""
+        for pattern in self._DISCOVERY_TIERS:
+            found = sorted(path for path in root.glob(pattern) if path.is_file())
+            if len(found) == 1:
+                return found[0], []
+            if len(found) > 1:
+                return None, found
+        return None, []
+
+    def compilation_database(
+        self, root: Path, compile_commands: str = ""
+    ) -> Union[Path, DumpSkipped, None]:
+        """The compilation database to index with, or why there is none.
+
+        An explicit ``compile_commands`` path wins (a relative path resolves
+        against ``root``) and may sit outside the indexed tree. Otherwise the
+        nearest discovery tier with exactly one database is used. Never
+        generates one: configuring a build runs the project's own build code
+        and is the operator's step, not a dump side effect.
+
+        Silent by design: ``cache_inputs`` calls this as well as ``dump``, and
+        only ``dump`` explains a skip.
+        """
+
+        if compile_commands.strip():
+            explicit = self._explicit_database(root, compile_commands)
+            if not explicit.is_file():
+                return DumpSkipped("compile-database-missing")
+            return explicit
+        chosen, candidates = self._discover(root)
+        if chosen is None and candidates:
+            return DumpSkipped("ambiguous-compile-database")
+        return chosen
+
+    @staticmethod
+    def _names_only_outside_root(compdb: Path, root: Path) -> bool:
+        """True when the database has entries and none names a file under ``root``.
+
+        Mirrors scip-clang, measured on 0.4.3: a relative ``file`` resolves
+        against its ``directory`` field, never against the working directory.
+        A database configured against another checkout (the original clone
+        instead of the indexed snapshot) names files outside ``root``, and
+        scip-clang then silently emits an empty index; one whose relative
+        entries do not exist under ``directory`` (CMake writes source-relative
+        paths with a separate build directory) makes it process no entry and
+        wait out its whole timeout. Both are skipped here, at once. Letter
+        case is ignored on volumes that ignore it (macOS, Windows): a root
+        spelled ``myproj`` and an entry under ``MyProj`` name the same tree.
+        An unreadable or empty database is left to scip-clang, which reports
+        its own result.
+        """
+
+        try:
+            entries = json.loads(compdb.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            return False
+        if not isinstance(entries, list):
+            return False
+        try:
+            resolved_root = root.resolve()
+        except (OSError, ValueError):
+            return False
+        fold_case = _volume_ignores_case(resolved_root)
+        root_key = _spelling_key(resolved_root, fold_case)
+        if not root_key.endswith(os.sep):
+            root_key += os.sep
+        named = 0
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("file"), str):
+                continue
+            named += 1
+            source = Path(entry["file"])
+            if not source.is_absolute():
+                source = Path(str(entry.get("directory") or root)) / source
+            try:
+                resolved = Path(os.path.normpath(source)).resolve()
+                inside = _spelling_key(resolved, fold_case).startswith(root_key)
+            except (OSError, ValueError):
+                continue
+            if inside:
+                return False
+        return named > 0
+
+    def cache_inputs(self, root: Path, compile_commands: str = "") -> dict[str, str]:
+        """Dump-cache inputs beyond the tool and source hashes: the database digest.
+
+        Reconfiguring a build (new flags or translation units) changes what the
+        dump contains while every indexed source stays byte-identical. Having
+        no database is keyed too, so a dump cached by an indexer that knew
+        nothing about the database is not reused to report success where this
+        run skips.
+        """
+
+        compdb = self.compilation_database(root, compile_commands)
+        if isinstance(compdb, Path):
+            try:
+                digest = hashlib.sha256(compdb.read_bytes()).hexdigest()
+            except OSError:
+                digest = "unreadable"
+            return {"compile_commands_sha256": digest}
+        reason = compdb.reason if isinstance(compdb, DumpSkipped) else "none"
+        return {"compile_commands_sha256": f"no-database:{reason}"}
 
     def dump(
         self,
@@ -589,15 +716,44 @@ class ScipClangProvider:
         output_path: Path,
         *,
         timeout_seconds: int,
+        compile_commands: str = "",
     ) -> Union[Path, DumpSkipped, None]:
-        compdb = self.compilation_database(root)
+        compdb = self.compilation_database(root, compile_commands)
+        if isinstance(compdb, DumpSkipped):
+            if compdb.reason == "compile-database-missing":
+                logger.warning(
+                    "precise-index: compile database %s is not a file; skipping",
+                    self._explicit_database(root, compile_commands),
+                )
+            else:
+                _, candidates = self._discover(root)
+                logger.warning(
+                    "precise-index: %d compile databases sit at the same depth under %s "
+                    "(%s); name one with --compile-commands or "
+                    "search.graph.precise_index_compile_commands; skipping",
+                    len(candidates),
+                    root,
+                    ", ".join(str(path.relative_to(root)) for path in candidates),
+                )
+            return compdb
         if compdb is None:
             logger.info(
-                "precise-index: no compile_commands.json at %s or one level down "
-                "(generate with cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON or bear); skipping",
+                "precise-index: no compile_commands.json under %s (searched %s); "
+                "generate one with cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON or bear, "
+                "or name it with --compile-commands; skipping",
                 root,
+                ", ".join(self._DISCOVERY_TIERS),
             )
             return DumpSkipped("no-compile-database")
+        if self._names_only_outside_root(compdb, root):
+            logger.warning(
+                "precise-index: no entry of %s names a file under %s (a relative entry "
+                "resolves against its directory); configure the build against the "
+                "indexed tree, with absolute source paths; skipping",
+                compdb,
+                root,
+            )
+            return DumpSkipped("compile-database-outside-root")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # scip-clang filters documents to project_root = CWD — running from
         # the artifact directory silently produces an EMPTY index (caught by

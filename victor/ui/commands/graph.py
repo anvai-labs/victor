@@ -312,6 +312,7 @@ async def _index_async(
     list_partial: bool = False,
     settings: Optional[Any] = None,
     own_store: bool = False,
+    compile_commands: Optional[str] = None,
 ) -> bool:
     """Index codebase into graph store asynchronously.
 
@@ -328,6 +329,8 @@ async def _index_async(
         parse_workers: Override for the parser thread pool; None honors
             ``search.graph.parse_workers`` (0 = all cores, 1 = serial)
         list_partial: Print the paths of files whose parse was partial
+        compile_commands: scip-clang compilation database; None honors
+            ``search.graph.precise_index_compile_commands`` ("" = discover)
         settings: Pre-resolved settings (tests); None resolves through
             ``Settings.from_sources()`` so ``settings.yaml``/``profiles.yaml``
             participate — ``load_settings()`` is env-only and would silently
@@ -400,6 +403,12 @@ async def _index_async(
         if precise_timeout is not None
         else graph_setting(settings, "precise_index_timeout_seconds", 0)
     )
+    toolchain = precise_toolchain_settings(settings)
+    if compile_commands is not None and compile_commands.strip():
+        # Resolve against the invoking shell, not the indexed root.
+        toolchain["precise_index_compile_commands"] = str(
+            Path(compile_commands).expanduser().resolve()
+        )
     config = GraphIndexConfig(
         root_path=root_path,
         enable_ccg=enable_ccg,
@@ -413,7 +422,7 @@ async def _index_async(
         enable_precise_index=enable_precise,
         precise_index_timeout_seconds=timeout_seconds,
         precise_index_tool=graph_setting(settings, "precise_index_tool", "auto"),
-        **precise_toolchain_settings(settings),
+        **toolchain,
         parse_workers=(
             parse_workers
             if parse_workers is not None
@@ -838,6 +847,16 @@ def graph_index(
             "search.graph.precise_index_timeout_seconds; 0 = per-provider default)"
         ),
     ),
+    compile_commands: Optional[str] = typer.Option(
+        None,
+        "--compile-commands",
+        help=(
+            "scip-clang compilation database for --precise; a relative path resolves "
+            "against the invoking directory (the setting's against PATH). It may sit "
+            "outside PATH but must name files under it (default: "
+            "search.graph.precise_index_compile_commands; unset = discover under PATH)"
+        ),
+    ),
     parse_workers: Optional[int] = typer.Option(
         None,
         "--parse-workers",
@@ -882,6 +901,7 @@ def graph_index(
             parse_workers=parse_workers,
             list_partial=list_partial,
             own_store=own_store,
+            compile_commands=compile_commands,
         )
     )
     elapsed = time.time() - start_time

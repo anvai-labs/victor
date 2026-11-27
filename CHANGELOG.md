@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `victor graph index --compile-commands PATH` (setting
+  `search.graph.precise_index_compile_commands`) names the `scip-clang`
+  compilation database for `--precise`. It may sit outside the indexed tree but
+  must name files under it (otherwise `compile-database-outside-root`; a
+  relative entry resolves against its `directory`, as `scip-clang` resolves it,
+  and letter case is ignored on volumes that ignore it).
+  Discovery also covers the CMake preset layouts (`build/<preset>/`,
+  `*/build/<preset>/`) and no longer picks one of several databases at the same
+  depth (`ambiguous-compile-database`): such a repository now names one. The
+  database's digest keys the dump cache.
+
 ### Fixed
 
 - CodeGraph 0.16.0 indexes C/C++ headers and C++ identities structurally. A `.h`
